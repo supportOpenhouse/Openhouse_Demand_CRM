@@ -23,7 +23,9 @@ services:
       - key: FRONTEND_ORIGIN
         value: https://openhouse-demand-crm.vercel.app
       - key: API_BASE_URL
-        value: https://oh-demand-crm-api.onrender.com
+        # vercel.app origin so the OAuth redirect_uri is first-party (Vercel proxies
+        # /auth/* to this backend). The cron below keeps the direct onrender URL.
+        value: https://openhouse-demand-crm.vercel.app
       - key: SEED_VISITS_LIMIT
         value: "10000"                   # blueprint-managed; dashboard edits get reverted, set it here
       - key: RUN_SYNC_IN_PROCESS
