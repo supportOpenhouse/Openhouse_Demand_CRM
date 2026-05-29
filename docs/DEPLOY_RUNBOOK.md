@@ -133,7 +133,7 @@ Expected order of magnitude: 24 users, ~4,500 brokers (the sheet is currently 4,
    - Application type: **Web application**.
    - Name: `oh-demand-crm-prod`.
    - **Authorized JavaScript origins:**
-     - `https://oh-demand-crm.vercel.app`
+     - `https://openhouse-demand-crm.vercel.app`
    - **Authorized redirect URIs:**
      - `https://oh-demand-crm-api.onrender.com/auth/google/callback`
 3. Save. Copy the **Client ID** and **Client secret**.
@@ -153,11 +153,11 @@ Expected order of magnitude: 24 users, ~4,500 brokers (the sheet is currently 4,
    - Output Directory: leave EMPTY.
    - Install Command: leave EMPTY.
 6. Click **Deploy**. First deploy takes ~30s — it's a static publish.
-7. Visit `https://oh-demand-crm.vercel.app/`. You should see the CRM topbar load, then a Google OAuth bounce, then the data view.
+7. Visit `https://openhouse-demand-crm.vercel.app/`. You should see the CRM topbar load, then a Google OAuth bounce, then the data view.
 
 If the OAuth redirect lands on an error page:
 - Verify the redirect URI in Google Cloud Console **exactly** matches `https://oh-demand-crm-api.onrender.com/auth/google/callback` (trailing slash matters).
-- Verify the JS origin includes `https://oh-demand-crm.vercel.app` (no trailing slash).
+- Verify the JS origin includes `https://openhouse-demand-crm.vercel.app` (no trailing slash).
 
 ---
 
@@ -182,7 +182,7 @@ If any of those fail, **don't share the URL with the demand team yet** — fix a
 Slack message template (paste into #demand-team):
 
 ```
-Hi team — the new Demand CRM is live at https://oh-demand-crm.vercel.app/.
+Hi team — the new Demand CRM is live at https://openhouse-demand-crm.vercel.app/.
 Sign in with your @openhouse.in Google account. If it says you're not on the
 roster, ping me (support@openhouse.in) — I'll add you in a minute.
 

@@ -23,7 +23,7 @@ SESSION_MAX_AGE_SECONDS = int(os.environ.get("SESSION_MAX_AGE_SECONDS", str(60 *
 SESSION_COOKIE_NAME = os.environ.get("SESSION_COOKIE_NAME", "oh_crm_session")
 
 # Public URLs.
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "https://oh-demand-crm.vercel.app")
+FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "https://openhouse-demand-crm.vercel.app")
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://oh-demand-crm-api.onrender.com")
 
 # Google service-account credentials for Sheets. Either inline JSON in env, or a path.

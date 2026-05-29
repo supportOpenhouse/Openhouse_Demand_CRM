@@ -1,7 +1,7 @@
 # OpenHouse Demand CRM
 
 > Production CRM for the OpenHouse demand team (Admin / TL / KAM / Ground).
-> Live URL: https://oh-demand-crm.vercel.app
+> Live URL: https://openhouse-demand-crm.vercel.app
 > Owner: Saransh Khera (support@openhouse.in) · Backup: Akshit Chaudhary (akshit@openhouse.in)
 
 ---
@@ -120,7 +120,7 @@ curl -X POST -H "X-Internal-Cron-Token: $INTERNAL_CRON_TOKEN" \
 
 | Service | URL |
 |---|---|
-| Frontend | https://oh-demand-crm.vercel.app |
+| Frontend | https://openhouse-demand-crm.vercel.app |
 | Backend | https://oh-demand-crm-api.onrender.com |
 | DB | Neon (private; `DATABASE_URL` in Render env) |
 | OAuth callback | https://oh-demand-crm-api.onrender.com/auth/google/callback |

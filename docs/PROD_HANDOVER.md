@@ -101,7 +101,9 @@ Sign in with any `@openhouse.in` Google account that exists in the `users` table
 ### 3.2 Render env group `oh-crm-secrets` (currently set)
 
 ```
-DATABASE_URL                = postgresql://neondb_owner:npg_KrU0qSadhWm5@ep-wispy-bird-aqr2a9u3-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+DATABASE_URL                = <Neon pooler URL with password — see Render env group / 1Password, never commit it>
+# (Previously this line printed the full connection string incl. password. Redacted 2026-05-29.
+#  The password still lives in git history — rotate the Neon role password to fully remediate.)
 GOOGLE_OAUTH_CLIENT_ID      = <from Google Cloud Console>
 GOOGLE_OAUTH_CLIENT_SECRET  = <from Google Cloud Console>
 SESSION_SECRET              = <generated, secrets.token_urlsafe(48)>
