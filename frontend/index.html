@@ -1619,6 +1619,24 @@ async function loadSeed(){
     };
   });
 
+  // Graft the signed-in user into the local roster if the hardcoded USERS
+  // array doesn't already include them (e.g. members added via the DB / admin UI).
+  // The backend ships the full record as seed.current_user (id == slug).
+  const cu = seed.current_user;
+  if(cu && cu.id && !USERS_BY_ID[cu.id]){
+    const grafted = {
+      id: cu.id,
+      email: cu.email,
+      name: cu.name || cu.email,
+      role: cu.role || (cu.team==='Admin' ? 'admin' : 'kam'),
+      team: cu.team || 'KAM',
+      cities: (Array.isArray(cu.cities) && cu.cities.length) ? cu.cities : ['Gurgaon','Noida','Ghaziabad'],
+    };
+    USERS.push(grafted);
+    USERS_BY_ID[grafted.id] = grafted;
+    USER_BY_NAME[grafted.name] = grafted;
+  }
+
   // Set current user from server session (overrides any local default).
   if(seed.current_user_slug && USERS_BY_ID[seed.current_user_slug]){
     state.currentUserId = seed.current_user_slug;

@@ -434,6 +434,28 @@ CREATE TABLE IF NOT EXISTS sheet_sync_log (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_log_sheet_time ON sheet_sync_log(sheet_name, run_started_at DESC);
 
+-- LSQ + outbound API call log. Used by the LSQ migration dev for backfill,
+-- forward-sync, and reconciliation errors. See docs/LSQ_HANDOVER.md §6-7.
+CREATE TABLE IF NOT EXISTS integration_log (
+  id                  bigserial PRIMARY KEY,
+  direction           text NOT NULL CHECK (direction IN ('inbound','outbound')),
+  system              text NOT NULL,                    -- 'lsq' / 'sheets' / 'wa' / ...
+  endpoint            text,
+  request_method      text,
+  request_body        jsonb,
+  response_status     int,
+  response_body       jsonb,
+  attempt             int NOT NULL DEFAULT 1,
+  succeeded           boolean NOT NULL DEFAULT false,
+  severity            text DEFAULT 'info' CHECK (severity IN ('info','warning','error')),
+  correlation_id      text,
+  latency_ms          int,
+  metadata            jsonb NOT NULL DEFAULT '{}',
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_intlog_system_time ON integration_log(system, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intlog_failures ON integration_log(system, created_at DESC) WHERE succeeded = false;
+
 -- ---------------------------------------------------------------------------
 -- TIER 5 · config
 -- ---------------------------------------------------------------------------
