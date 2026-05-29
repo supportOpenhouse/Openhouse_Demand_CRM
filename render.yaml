@@ -25,7 +25,7 @@ services:
       - key: API_BASE_URL
         value: https://oh-demand-crm-api.onrender.com
       - key: SEED_VISITS_LIMIT
-        value: "1500"
+        value: "10000"                   # blueprint-managed; dashboard edits get reverted, set it here
       - key: RUN_SYNC_IN_PROCESS
         value: "0"
       # Pulled from the Environment Group below
@@ -54,19 +54,22 @@ services:
       - fromGroup: oh-crm-secrets
 
 # ── Shared secrets ────────────────────────────────────────────────────────
-# Define ONCE in the Render dashboard under Environment Groups; both services consume.
+# Define the VALUES ONCE in the Render dashboard under Environment Groups; both
+# services consume the group. `sync: false` means "dashboard-managed" — the
+# blueprint declares the key but NEVER sets/overwrites its value, so a blueprint
+# re-sync can't blank these (an empty `value: ""` here previously could).
 envVarGroups:
   - name: oh-crm-secrets
     envVars:
       - key: DATABASE_URL                    # Neon pooler URL (with ?sslmode=require)
-        value: ""
+        sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
-        value: ""
+        sync: false
       - key: GOOGLE_OAUTH_CLIENT_SECRET
-        value: ""
+        sync: false
       - key: SESSION_SECRET                  # any 32+ char random string
-        value: ""
+        sync: false
       - key: INTERNAL_CRON_TOKEN             # any 32+ char random string
-        value: ""
+        sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_JSON     # paste full JSON contents on one line
-        value: ""
+        sync: false
