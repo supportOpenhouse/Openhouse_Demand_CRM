@@ -348,6 +348,161 @@ async def unpin_cp(body: UnpinBody, user: dict = Depends(auth.current_user)):
 
 
 # ============================================================================
+# Write · engagements
+# ============================================================================
+
+class EngagementBody(BaseModel):
+    cp_code: str
+    notes: str = Field(..., min_length=1, description="Mandatory free text")
+    inventory_shared: Optional[bool] = None
+    recording_done: Optional[bool] = None
+    listing_done: Optional[bool] = None
+    listing_link: Optional[str] = None
+    listing_followup_date: Optional[str] = None
+    support_asked: Optional[bool] = None
+    support_details: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+@app.post("/api/engagements")
+async def save_engagement(body: EngagementBody, user: dict = Depends(auth.current_user)):
+    if not body.notes.strip():
+        raise HTTPException(400, "Notes are mandatory")
+    async with acquire() as conn:
+        broker = await conn.fetchrow("SELECT id FROM brokers WHERE cp_code = $1", body.cp_code)
+        if not broker:
+            raise HTTPException(404, f"Broker {body.cp_code} not found")
+        if not await _can_engage_broker(conn, user, broker["id"]):
+            raise HTTPException(403, "You don't own this CP")
+        row = await conn.fetchrow(
+            """
+            INSERT INTO engagements (
+              broker_id, by_user_id, inventory_shared, recording_done,
+              listing_done, listing_link, listing_followup_date,
+              support_asked, support_details, remarks, notes
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            RETURNING id, created_at
+            """,
+            broker["id"], user["id"],
+            body.inventory_shared, body.recording_done, body.listing_done,
+            (body.listing_link or None), _date_or_none(body.listing_followup_date),
+            body.support_asked, (body.support_details or None),
+            (body.remarks or None), body.notes.strip(),
+        )
+    return {"ok": True, "engagement_id": str(row["id"])}
+
+
+# ============================================================================
+# Write · CP tier / owner (Admin only) + bulk (Admin/TL)
+# ============================================================================
+
+VALID_TIERS = {"T1", "T2", "T3", "T4"}
+
+
+class TierBody(BaseModel):
+    tier: str
+
+
+class OwnerBody(BaseModel):
+    owner_slug: Optional[str] = None  # null/empty → unassign
+
+
+@app.post("/api/brokers/{cp_code}/tier")
+async def set_broker_tier(cp_code: str, body: TierBody, user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    if body.tier not in VALID_TIERS:
+        raise HTTPException(400, f"Invalid tier: {body.tier}")
+    async with acquire() as conn:
+        broker = await conn.fetchrow("SELECT id FROM brokers WHERE cp_code = $1", cp_code)
+        if not broker:
+            raise HTTPException(404, "Broker not found")
+        async with conn.transaction():
+            await _set_tier(conn, broker["id"], body.tier, user["id"], reason="manual")
+    return {"ok": True}
+
+
+@app.post("/api/brokers/{cp_code}/owner")
+async def set_broker_owner(cp_code: str, body: OwnerBody, user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    async with acquire() as conn:
+        broker = await conn.fetchrow("SELECT id FROM brokers WHERE cp_code = $1", cp_code)
+        if not broker:
+            raise HTTPException(404, "Broker not found")
+        owner_id = await _slug_to_id(conn, body.owner_slug) if body.owner_slug else None
+        if body.owner_slug and not owner_id:
+            raise HTTPException(404, f"User {body.owner_slug} not found")
+        async with conn.transaction():
+            await _set_owner(conn, broker["id"], owner_id, user["id"], reason="manual")
+    return {"ok": True, "owner_slug": body.owner_slug or None}
+
+
+class BulkAssignBody(BaseModel):
+    cp_codes: list[str]
+    owner_slug: Optional[str] = None
+    tier: Optional[str] = None
+    note: Optional[str] = None
+
+
+@app.post("/api/brokers/bulk_assign")
+async def bulk_assign_brokers(body: BulkAssignBody, user: dict = Depends(auth.current_user)):
+    _require_admin_or_tl(user)
+    if not body.cp_codes:
+        raise HTTPException(400, "No CPs provided")
+    if not body.owner_slug and not body.tier:
+        raise HTTPException(400, "Provide owner_slug and/or tier")
+    if body.tier and body.tier not in VALID_TIERS:
+        raise HTTPException(400, f"Invalid tier: {body.tier}")
+    async with acquire() as conn:
+        owner_id = await _slug_to_id(conn, body.owner_slug) if body.owner_slug else None
+        if body.owner_slug and not owner_id:
+            raise HTTPException(404, f"User {body.owner_slug} not found")
+        applied = 0
+        async with conn.transaction():
+            for cp in body.cp_codes:
+                broker = await conn.fetchrow("SELECT id FROM brokers WHERE cp_code = $1", cp)
+                if not broker:
+                    continue
+                if owner_id:
+                    await _set_owner(conn, broker["id"], owner_id, user["id"], reason="bulk_reassign")
+                if body.tier:
+                    await _set_tier(conn, broker["id"], body.tier, user["id"], reason="manual")
+                applied += 1
+    return {"ok": True, "applied": applied}
+
+
+class VisitBulkReassignBody(BaseModel):
+    visit_codes: list[str]
+    rm_slug: str
+    note: Optional[str] = None
+
+
+@app.post("/api/visits/bulk_reassign")
+async def bulk_reassign_visits(body: VisitBulkReassignBody, user: dict = Depends(auth.current_user)):
+    _require_admin_or_tl(user)
+    if not body.visit_codes:
+        raise HTTPException(400, "No visits provided")
+    async with acquire() as conn:
+        rm = await conn.fetchrow("SELECT id, name FROM users WHERE slug = $1", body.rm_slug)
+        if not rm:
+            raise HTTPException(404, f"User {body.rm_slug} not found")
+        # visits.sales_manager is overwritten by the 15-min sheet sync, but metadata
+        # is never touched — store the override there and let seed_snapshot apply it.
+        result = await conn.execute(
+            """
+            UPDATE visits
+               SET sales_manager = $1,
+                   metadata = jsonb_set(metadata, '{rm_override}', to_jsonb($1::text), true),
+                   updated_at = now()
+             WHERE visit_code = ANY($2::text[])
+            """,
+            rm["name"], body.visit_codes,
+        )
+    # result is like "UPDATE N"
+    n = int(result.split()[-1]) if result and result.split()[-1].isdigit() else 0
+    return {"ok": True, "reassigned": n}
+
+
+# ============================================================================
 # Admin · sync trigger (used by Render Cron Job)
 # ============================================================================
 
@@ -386,6 +541,69 @@ def _ts_or_none(s: Optional[str]) -> Optional[_dt.datetime]:
         return _dt.datetime.fromisoformat(s2)
     except ValueError:
         return None
+
+
+def _require_admin(user: dict) -> None:
+    if user["team"] != "Admin":
+        raise HTTPException(403, "Admin only")
+
+
+def _require_admin_or_tl(user: dict) -> None:
+    if user["team"] not in ("Admin", "TL"):
+        raise HTTPException(403, "Admin or Team Lead only")
+
+
+async def _slug_to_id(conn, slug: str):
+    row = await conn.fetchrow("SELECT id FROM users WHERE slug = $1", slug)
+    return row["id"] if row else None
+
+
+async def _can_engage_broker(conn, user: dict, broker_id) -> bool:
+    """Save-engagement matrix: Admin/TL any CP; KAM/Ground only CPs they own."""
+    if user["team"] in ("Admin", "TL"):
+        return True
+    row = await conn.fetchrow(
+        "SELECT owner_user_id FROM v_broker_current_owner WHERE broker_id = $1", broker_id
+    )
+    return bool(row and row["owner_user_id"] == user["id"])
+
+
+async def _set_owner(conn, broker_id, owner_id, by_user_id, reason: str) -> None:
+    """Close the current cp_assignment and (if owner_id given) open a new one.
+    Must run inside a transaction. The gist EXCLUDE constraint is satisfied
+    because the closed row ends at now() (exclusive) and the new one starts at now()."""
+    await conn.execute(
+        "UPDATE cp_assignments SET effective_to = now() "
+        "WHERE broker_id = $1 AND effective_to IS NULL",
+        broker_id,
+    )
+    if owner_id:
+        await conn.execute(
+            "INSERT INTO cp_assignments (broker_id, owner_user_id, assigned_by_user_id, reason) "
+            "VALUES ($1, $2, $3, $4)",
+            broker_id, owner_id, by_user_id, reason,
+        )
+
+
+async def _set_tier(conn, broker_id, tier: str, by_user_id, reason: str) -> None:
+    """Close the current tier_assignment and open a new one. Manual changes carry
+    no tier_rank (rank is only meaningful for sheet-sourced T1/T2). Run in a txn."""
+    current = await conn.fetchrow(
+        "SELECT tier FROM tier_assignments WHERE broker_id = $1 AND effective_to IS NULL",
+        broker_id,
+    )
+    if current and current["tier"] == tier:
+        return
+    await conn.execute(
+        "UPDATE tier_assignments SET effective_to = now() "
+        "WHERE broker_id = $1 AND effective_to IS NULL",
+        broker_id,
+    )
+    await conn.execute(
+        "INSERT INTO tier_assignments (broker_id, tier, tier_rank, set_by_user_id, reason) "
+        "VALUES ($1, $2, NULL, $3, $4)",
+        broker_id, tier, by_user_id, reason,
+    )
 
 
 async def _can_edit_visit(conn, user: dict, visit_id) -> bool:

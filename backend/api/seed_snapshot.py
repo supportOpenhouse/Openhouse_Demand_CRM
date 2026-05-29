@@ -94,7 +94,7 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.source, v.status, v.selected_date, v.selected_time, v.visit_date,
           v.society_name, v.unit_address_line1, v.unit_address_line2, v.floor,
           v.furnishing_status, v.listing_status, v.sales_feedback, v.buyer_feedback,
-          v.all_feedback, v.reminder_status, v.profession, v.intent,
+          v.all_feedback, v.reminder_status, v.profession, v.intent, v.metadata,
           v.lead_status, v.current_stage, v.latest_followup_date, v.latest_followup_note,
           v.next_followup_date, v.revisit_date,
           v.created_at, v.updated_at
@@ -112,6 +112,15 @@ async def build(conn: asyncpg.Connection) -> dict:
                 intent = json.loads(intent)
             except Exception:
                 intent = {}
+        meta = r["metadata"] or {}
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        # An admin/TL bulk RM-reassign stores the new RM name in metadata.rm_override
+        # (the sales_manager column gets clobbered by the next sheet sync; metadata doesn't).
+        rm_override = meta.get("rm_override")
         visit = {
             "id": r["visit_code"] or "",
             "selected_date": _date_str(r["selected_date"]),
@@ -119,7 +128,7 @@ async def build(conn: asyncpg.Connection) -> dict:
             "visit_date": _date_str(r["visit_date"]),
             "status": r["status"] or "",
             "lead_status": r["lead_status"] or "select_status",
-            "sales_manager": r["sales_manager"] or "",
+            "sales_manager": rm_override or (r["sales_manager"] or ""),
             "sales_feedback": r["sales_feedback"] or "",
             "buyer_feedback": r["buyer_feedback"] or "",
             "source": r["source"] or "",

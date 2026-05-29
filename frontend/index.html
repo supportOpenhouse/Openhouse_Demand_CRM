@@ -3872,14 +3872,35 @@ function renderBrokerSide(b, visits){
   `;
   const me = USERS_BY_ID[state.currentUserId];
   if(isAdmin(me)){
-    document.getElementById('bpCpOwner').onchange = (e)=>{
-      store.cpOwner[b.cp_code] = e.target.value || null;
+    document.getElementById('bpCpOwner').onchange = async (e)=>{
+      const sel = e.target;
+      const prev = store.cpOwner[b.cp_code] || '';
+      const next = sel.value || '';
+      sel.disabled = true;
+      try {
+        const res = await apiFetch(`/api/brokers/${encodeURIComponent(b.cp_code)}/owner`, {
+          method: 'POST', body: JSON.stringify({ owner_slug: next || null }),
+        });
+        if(!res.ok){ const t = await res.text(); toast(`Owner change failed: ${t.slice(0,120)}`,'bad'); sel.value = prev; sel.disabled=false; return; }
+      } catch(err){ toast(`Network error: ${err.message}`,'bad'); sel.value = prev; sel.disabled=false; return; }
+      store.cpOwner[b.cp_code] = next || null;
+      sel.disabled = false;
       toast('CP owner updated','good');
       if(state.view==='cps') renderCpView();
       if(state.view==='visits') renderVisitView();
     };
-    document.getElementById('bpTier').onchange = (e)=>{
-      b.tier = e.target.value;
+    document.getElementById('bpTier').onchange = async (e)=>{
+      const sel = e.target;
+      const prev = b.tier;
+      const next = sel.value;
+      sel.disabled = true;
+      try {
+        const res = await apiFetch(`/api/brokers/${encodeURIComponent(b.cp_code)}/tier`, {
+          method: 'POST', body: JSON.stringify({ tier: next }),
+        });
+        if(!res.ok){ const t = await res.text(); toast(`Tier change failed: ${t.slice(0,120)}`,'bad'); sel.value = prev||'T4'; sel.disabled=false; return; }
+      } catch(err){ toast(`Network error: ${err.message}`,'bad'); sel.value = prev||'T4'; sel.disabled=false; return; }
+      b.tier = next;
       toast('Tier updated','good');
       if(state.view==='cps') renderCpView();
       renderBrokerPopup();
@@ -4053,7 +4074,7 @@ function visitsMatchedByRule(){
   return out;
 }
 function setupBulkApply(){
-  document.getElementById('bulkApply').onclick = ()=>{
+  document.getElementById('bulkApply').onclick = async ()=>{
     const ctx = state.bulkContext;
     if(ctx==='pin_to_day'){
       const toId = document.getElementById('pinUserSel').value;
@@ -4077,19 +4098,29 @@ function setupBulkApply(){
       }).catch(e=> toast(`Network error: ${e.message}`,'bad'));
       return;
     }
+    const applyBtn = document.getElementById('bulkApply');
     if(ctx==='queue'){
       const toId = document.getElementById('bAssignTo').value;
       const tier = document.getElementById('bTier').value || 'T3';
       const note = document.getElementById('bNote')?.value || '';
       if(!toId){ toast('Pick a KAM or Ground member','bad'); return; }
+      const cps = Array.from(state.selectedQueue);
+      applyBtn.disabled = true;
+      try {
+        const res = await apiFetch('/api/brokers/bulk_assign', {
+          method: 'POST', body: JSON.stringify({ cp_codes: cps, owner_slug: toId, tier, note }),
+        });
+        if(!res.ok){ const t = await res.text(); toast(`Assign failed: ${t.slice(0,120)}`,'bad'); applyBtn.disabled=false; return; }
+      } catch(e){ toast(`Network error: ${e.message}`,'bad'); applyBtn.disabled=false; return; }
       let n=0;
-      state.selectedQueue.forEach(cp=>{
+      cps.forEach(cp=>{
         store.cpOwner[cp] = toId;
         const b = store.brokersByCode[cp]; if(b) b.tier = tier;
         store.toAssignCps.delete(cp); n++;
         store.followupLog.push({ ts: new Date().toISOString(), by: state.currentUserId, cp_code: cp, kind:'assign', note: `Assigned to ${USERS_BY_ID[toId].name} (${USERS_BY_ID[toId].team}) · tier ${tier}${note?' · '+note:''}` });
       });
       state.selectedQueue.clear();
+      applyBtn.disabled = false;
       toast(`Assigned ${n} broker${n>1?'s':''} to ${USERS_BY_ID[toId].name}`,'good');
       document.getElementById('modal-bulk').classList.add('hidden');
       renderNav(); renderCurrentView();
@@ -4097,7 +4128,16 @@ function setupBulkApply(){
       const toId = document.getElementById('bToRM').value;
       if(!toId){ toast('Pick an RM','bad'); return; }
       const target = ctx==='visits' ? Array.from(state.selectedVisits).map(id=> store.visits.find(v=>String(v.id)===id)).filter(Boolean) : visitsMatchedByRule();
+      const codes = target.map(v=> String(v.id));
+      applyBtn.disabled = true;
+      try {
+        const res = await apiFetch('/api/visits/bulk_reassign', {
+          method: 'POST', body: JSON.stringify({ visit_codes: codes, rm_slug: toId }),
+        });
+        if(!res.ok){ const t = await res.text(); toast(`Reassign failed: ${t.slice(0,120)}`,'bad'); applyBtn.disabled=false; return; }
+      } catch(e){ toast(`Network error: ${e.message}`,'bad'); applyBtn.disabled=false; return; }
       target.forEach(v=>{ v.sales_manager = USERS_BY_ID[toId].name; });
+      applyBtn.disabled = false;
       toast(`Reassigned ${target.length} visit${target.length>1?'s':''} to ${USERS_BY_ID[toId].name}`,'good');
       state.selectedVisits.clear(); state.selectMode=false;
       document.getElementById('modal-bulk').classList.add('hidden');
@@ -4106,14 +4146,23 @@ function setupBulkApply(){
       const toId = document.getElementById('bAssignTo').value;
       const tier = document.getElementById('bTier').value;
       if(!toId && !tier){ toast('Pick owner or tier change','bad'); return; }
+      const cps = Array.from(state.selectedCps);
+      applyBtn.disabled = true;
+      try {
+        const res = await apiFetch('/api/brokers/bulk_assign', {
+          method: 'POST', body: JSON.stringify({ cp_codes: cps, owner_slug: toId || null, tier: tier || null }),
+        });
+        if(!res.ok){ const t = await res.text(); toast(`Update failed: ${t.slice(0,120)}`,'bad'); applyBtn.disabled=false; return; }
+      } catch(e){ toast(`Network error: ${e.message}`,'bad'); applyBtn.disabled=false; return; }
       let n=0;
-      state.selectedCps.forEach(cp=>{
+      cps.forEach(cp=>{
         if(toId) store.cpOwner[cp] = toId;
         if(tier && store.brokersByCode[cp]) store.brokersByCode[cp].tier = tier;
         n++;
       });
-      toast(`Updated ${n} CP${n>1?'s':''}`,'good');
       state.selectedCps.clear(); state.selectMode=false;
+      applyBtn.disabled = false;
+      toast(`Updated ${n} CP${n>1?'s':''}`,'good');
       document.getElementById('modal-bulk').classList.add('hidden');
       renderCurrentView();
     }
@@ -4404,7 +4453,7 @@ function wireEngagementTab(b){
     el.oninput = el.onchange = ()=>{ state.engagementDraft[fld] = el.value; };
   });
   const sv = document.getElementById('egSave');
-  if(sv) sv.onclick = ()=>{
+  if(sv) sv.onclick = async ()=>{
     const d = state.engagementDraft || {};
     // mandatory notes
     if(!d.notes || !d.notes.trim()){
@@ -4413,6 +4462,26 @@ function wireEngagementTab(b){
       if(ta){ ta.focus(); ta.style.borderColor='var(--bad)'; setTimeout(()=>{ ta.style.borderColor=''; },2000); }
       return;
     }
+    const yn = v => v==='yes' ? true : v==='no' ? false : null;
+    sv.disabled = true;
+    try {
+      const res = await apiFetch('/api/engagements', {
+        method: 'POST',
+        body: JSON.stringify({
+          cp_code: b.cp_code,
+          notes: d.notes.trim(),
+          inventory_shared: yn(d.inventoryShared),
+          recording_done: yn(d.recordingDone),
+          listing_done: yn(d.listingDone),
+          listing_link: d.listingLink || null,
+          listing_followup_date: d.listingFollowupDate || null,
+          support_asked: yn(d.supportAsked),
+          support_details: d.supportDetails || null,
+          remarks: d.remarks || null,
+        }),
+      });
+      if(!res.ok){ const t = await res.text(); toast(`Save failed: ${t.slice(0,120)}`,'bad'); sv.disabled=false; return; }
+    } catch(e){ toast(`Network error: ${e.message}`,'bad'); sv.disabled=false; return; }
     const arr = store.engagements[b.cp_code] = store.engagements[b.cp_code] || [];
     arr.push({ id:'EG'+(store.notifSeq++), ts: new Date().toISOString(), by: state.currentUserId, ...d });
     state.engagementDraft = {};
