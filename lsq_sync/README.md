@@ -9,8 +9,11 @@ flow from the Google sheets after this.
   (221/215/216/217/218/220), enriches matched CRM visits with the live LSQ
   stage/status, inserts the few unmatched, loads activity history into
   `followups`, and stamps `lsq_*` ids on users/brokers/buyers.
-- `writeback.py` — stamps `mx_Migrated_To_CRM` (Date) on every migrated lead
-  (buyers + CPs) in LSQ. Requires that field to exist in LSQ admin first.
+- `writeback.py` — stamps the "moved to CRM" flag on every migrated lead in LSQ.
+  Repurposes the unused `mx_Test` field (value `"a"`); reversible via `--rollback`.
+  NOTE: in LSQ the demand-deal opportunity sits on the CHANNEL-PARTNER lead
+  (`RelatedProspectId` = CP lead; the buyer is fields on the opportunity), so the
+  ~1,248 distinct migrated leads ARE the active CP leads.
 - `backups/` — reversibility snapshots (gitignored).
 
 ## Env
@@ -37,5 +40,6 @@ python3 writeback.py --rollback backups/writeback_<ts>.json   # clear the field
 - Idempotent throughout (dedup on `lsq_visit_activity_id` / `lsq_activity_id`).
 
 ## Status (2026-05-29)
-DB migration executed + validated (3 rounds). Write-back is **pending the
-`mx_Migrated_To_CRM` field being created in LSQ admin**.
+DB migration executed + validated (3 rounds). LSQ write-back DONE: stamped
+`mx_Test='a'` on 1,248 migrated (CP) leads, 0 failures, validated by sample.
+Reversible via `writeback.py --rollback backups/writeback_<ts>.json`.

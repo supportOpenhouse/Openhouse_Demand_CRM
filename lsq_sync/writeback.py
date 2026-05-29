@@ -19,7 +19,10 @@ from datetime import date
 
 CACHE = "/tmp/lsq_migration_cache.json"
 CP_MAP = "/tmp/lsq_cpcode_to_leadid.json"
-FIELD = "mx_Migrated_To_CRM"
+# Repurposed unused field 'mx_Test' (MultiSelect a/b) as the "moved to CRM" flag.
+# It's 0% filled on both buyer + CP leads. Value "a" = migrated. Reversible: clear to "".
+FIELD = "mx_Test"
+MARK_VALUE = "a"
 LSQ_ENV = os.environ.get("LSQ_ENV_PATH", "/Users/akshit.chaudhary/Documents/Claude Code/Credentials/.env")
 
 
@@ -107,7 +110,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--execute", action="store_true")
     ap.add_argument("--rollback", metavar="BACKUP_JSON")
-    ap.add_argument("--value", default=date.today().isoformat())
+    ap.add_argument("--value", default=MARK_VALUE)
     args = ap.parse_args()
     lsq = LSQ()
     bdir = os.path.join(os.path.dirname(__file__), "backups"); os.makedirs(bdir, exist_ok=True)
