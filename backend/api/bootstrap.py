@@ -26,6 +26,7 @@ USERS: list[dict] = [
     # Admin
     {"slug": "akshit",   "email": "akshit@openhouse.in",         "name": "Akshit Chaudhary", "role": "admin",     "team": "Admin",  "cities": ["Gurgaon", "Noida", "Ghaziabad"]},
     {"slug": "ankit",    "email": "ankit@openhouse.in",          "name": "Ankit Khemka",     "role": "admin",     "team": "Admin",  "cities": ["Gurgaon", "Noida", "Ghaziabad"]},
+    {"slug": "saransh",  "email": "saransh.khera@openhouse.in",  "name": "Saransh Khera",    "role": "admin",     "team": "Admin",  "cities": ["Gurgaon", "Noida", "Ghaziabad"]},
     # TL
     {"slug": "manish",   "email": "manish.pal@openhouse.in",     "name": "Manish Pal",       "role": "tl_head",   "team": "TL",     "cities": ["Gurgaon", "Noida", "Ghaziabad"]},
     {"slug": "rajnish",  "email": "rajnish@openhouse.in",        "name": "Rajnish",          "role": "tl_head",   "team": "TL",     "cities": ["Gurgaon", "Noida", "Ghaziabad"]},
