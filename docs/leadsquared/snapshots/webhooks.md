@@ -1,0 +1,71 @@
+# Webhooks
+
+Total: **2**
+
+```json
+{
+  "RecordCount": 2,
+  "Response": [
+    {
+      "WebhookId": "a11d17bf-e563-11f0-a635-0630e4b64663",
+      "EventName": "Task Reminder",
+      "EventCode": "task_reminder",
+      "Description": "Webhook For Mobile's Predefined Template on Event Task reminder",
+      "URL": "https://nudges-api.leadsquaredapps.com/nudges/notificationPushEvent/webhook?q=eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJkYXRhIjp7InRlbXBsYXRlSWQiOiI1Mzg4YzI4MC1lNTYzLTExZjAtYTQ1MS1iZDkxMDdlMjZiNGYiLCJvcmdTaG9ydENvZGUiOjc4ODc5LCJjb25uZWN0b3JJZCI6ImQxZWM2MDIzLWNjNzMtNGZlNi05NWEwLTllODUyY2MzYTUwOCIsImV2ZW50Ijo4fSwiaWF0IjoxNzY3MDg3NjQ4fQ.I_bhKu3CFD73TEoYxYYXZml3vCD3Ryu4koybS1WtRO45G1T5Keo6YrnF_lFhHZkS5flAcXSkGygdrdPWpgNmLw",
+      "Method": "POST",
+      "ContentType": "application/json",
+      "LandingPageIds": null,
+      "LandingPageUrls": null,
+      "IsSpecificLandingPage": false,
+      "NotifyOnFailure": true,
+      "StatusCode": 0,
+      "StatusReason": 0,
+      "CreatedBy": "6c8df8fe-b996-11f0-a986-06c72fc46c23",
+      "CreatedOn": "2025-12-30 09:40:51",
+      "ModifiedBy": "6c8df8fe-b996-11f0-a986-06c72fc46c23",
+      "ModifiedOn": "2025-12-30 09:40:51",
+      "CreatedByName": "System ",
+      "CreatedByEmail": "avanotechnologiesprivatelimited@leadsquared.com",
+      "ModifiedByName": "System ",
+      "WebhookProperties": null,
+      "IsInternal": 0,
+      "ExecutionDelay": 0,
+      "CustomHeaders": "",
+      "IsLappEnabled": false,
+      "LappConfiguration": null,
+      "ModifiedByEmail": "avanotechnologiesprivatelimited@leadsquared.com",
+      "IsSpecificTaskTypesSelection": false
+    },
+    {
+      "WebhookId": "9be47785-e563-11f0-a635-0630e4b64663",
+      "EventName": "Task Create",
+      "EventCode": "task_create",
+      "Description": "Webhook For Mobile's Predefined Template on Event Task create",
+      "URL": "https://nudges-api.leadsquaredapps.com/nudges/notificationPushEvent/webhook?q=eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJkYXRhIjp7InRlbXBsYXRlSWQiOiI1MzdjZGJhMC1lNTYzLTExZjAtYTQ1MS1iZDkxMDdlMjZiNGYiLCJvcmdTaG9ydENvZGUiOjc4ODc5LCJjb25uZWN0b3JJZCI6ImQxZWM2MDIzLWNjNzMtNGZlNi05NWEwLTllODUyY2MzYTUwOCIsImV2ZW50Ijo3fSwiaWF0IjoxNzY3MDg3NjM5fQ.gSfsDaYdabjS0lAhuUIqM2Mfr4Yjo9WhIAhL90Dr5C1VOKSSlxasK-t06L0aQzzUvERUhxD9Tb_3dglc-_9vSQ",
+      "Method": "POST",
+      "ContentType": "application/json",
+      "LandingPageIds": null,
+      "LandingPageUrls": null,
+      "IsSpecificLandingPage": false,
+      "NotifyOnFailure": true,
+      "StatusCode": 0,
+      "StatusReason": 0,
+      "CreatedBy": "6c8df8fe-b996-11f0-a986-06c72fc46c23",
+      "CreatedOn": "2025-12-30 09:40:42",
+      "ModifiedBy": "6c8df8fe-b996-11f0-a986-06c72fc46c23",
+      "ModifiedOn": "2025-12-30 09:40:42",
+      "CreatedByName": "System ",
+      "CreatedByEmail": "avanotechnologiesprivatelimited@leadsquared.com",
+      "ModifiedByName": "System ",
+      "WebhookProperties": null,
+      "IsInternal": 0,
+      "ExecutionDelay": 0,
+      "CustomHeaders": "",
+      "IsLappEnabled": false,
+      "LappConfiguration": null,
+      "ModifiedByEmail": "avanotechnologiesprivatelimited@leadsquared.com",
+      "IsSpecificTaskTypesSelection": false
+    }
+  ]
+}
+```

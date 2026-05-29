@@ -1,0 +1,21 @@
+SCENARIOS — Best / Expected / Worst case bookings,,,,
+,,,,
+Variable,Best case,Expected (Plan),Worst case,Notes
+,,,,
+INPUTS,,,,
+Effective avg inventory,117,110,95,Best: all KHs land early; Worst: KH delays + booked-out drag
+Visits per property per 8wks,55,50,40,Stretch pace vs slip
+Total visits target,"3,210","2,946","2,310",Derived
+Visit → Meeting rate,5%,4%,2.50%,Office culture lift vs slip back to May
+Meeting → Booking rate,42%,38%,28%,Closer excellence vs May actual
+Active CPs (June MAU),850,758,600,Reactivation + onboarding success vs slip
+Visits per Active CP,4,3.5,2.8,Engagement rigor lift vs current state
+Direct lead inflow,600,492,250,Marketing ramp vs slow burn
+June MAU retention from 2mo,90%,85%,75%,New engagement system effectiveness
+,,,,
+OUTPUTS,,,,
+Total Visits,"3,210","2,946","2,310",
+Meetings,160,118,58,
+Bookings,67,45,16,Headline number
+ATS (80%),54,36,13,
+,,,,

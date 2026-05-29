@@ -1,0 +1,21 @@
+ASSUMPTIONS LOG — every input editable; rebuild model when changing,,,,
+Variable,Value,Source,Confidence,Notes
+,,,,
+TARGETS,,,,
+Plan booking target,45,User-set,Locked,L1 = 40%
+Stretch booking target,48,User-set,Locked,
+Booking definition,Token paid by buyer (not tracked 100% on LSQ yet),User,Locked,Not tracked 100% on LSQ yet — need sheet tracking
+,,,,
+INVENTORY,,,,
+June 1 live units,100,User,High,
+KH in June,17,User,Medium,
+Total June pool,117,Founder,Locked,
+Effective avg inventory,110,Derived,Medium,
+,,,,
+VISIT MODEL,,,,
+Visits/property/8wks,50,Founder rule,High,Pace target
+Working days,22.,Calendar,Locked,
+,,,,
+FUNNEL RATES,,,,
+Visit → Meeting,4%,User direction,Medium,"Apr 0.8%, May 1.2%; 4% is 3-5× lift"
+Meeting → Booking,38.00%,Closer target,Medium-High,May 28.6%; closers must deliver

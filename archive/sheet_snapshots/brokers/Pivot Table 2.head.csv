@@ -1,0 +1,6 @@
+COUNTA of phone_number,activity_category,,,,,,
+city,D30_active,D60_active,D90_active,Dormant,L30_new,Grand Total,
+Ghaziabad,48,10,4,236,114,412,
+Gurgaon,193,124,52,1278,393,2040,
+Noida,179,131,66,1277,206,1859,
+Grand Total,420,265,122,2791,713,4311,8000

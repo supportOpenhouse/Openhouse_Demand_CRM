@@ -1,0 +1,21 @@
+CITY-WISE SUMMARY (unit-level; completed visits only; in-window subset of properties closing between 2025-08-02 and 2026-05-26),,,,,,,,,,,,,
+,,,,,,,,,,,,,
+City,# Sold Properties (all),# in Window,Avg Completed Visits per Unit,Avg Visits per Month (Unit),"Avg Selling TAT (Days, KH→Booking)",,,,,,,,
+Gurgaon,56,29,36.6,24.25,52.2,,,,,,,,
+Noida / GN,41,34,32.9,20.16,49.6,,,,,,,,
+Ghaziabad,4,4,9.5,10.11,19.2,,,,,,,,
+TOTAL,101,67,33.1,21.33,48.9,,,,,,,,
+,,,,,,,,,,,,,
+,,,,,,,,,,,,,
+PER-PROPERTY DETAIL (all 101 sold),,,,,,,,,,,,,
+,,,,,,,,,,,,,
+City,Society,Unit,Tower (parsed),Flat (parsed),Key Handover,Booking Date,"Selling TAT (Days, KH→Booking)",Months on Market,Completed Visits to Unit,Completed Visits per Month (Unit),Match Level,(ref) Completed Visits to Society,(ref) Society Visits per Month
+Ghaziabad,AJNARA GEN-X,B-602,B,602,2026-03-10,2026-04-12,33,1.08,27,24.9,unit,70,64.56
+Ghaziabad,Ajnara Genx,B-2103,B,2103,2026-03-05,2026-03-19,14,0.46,3,6.52,unit,25,54.35
+Ghaziabad,Paramount Symphony,Orchid 1105,ORCHID,1105,2026-03-11,2026-03-14,3,0.1,0,0,unit,1,10.15
+Ghaziabad,SAVIOUR GREENISLE,A1-2201,A1,2201,2026-02-16,2026-03-15,27,0.89,8,9.02,unit,8,9.02
+Gurgaon,Antriksh Heights,AA702,AA,702,2025-01-10,2025-01-31,21,0.69,0,0,unit,0,0
+Gurgaon,Antriksh Heights,AD 504,AD,504,2024-09-12,2024-10-12,30,0.99,0,0,unit,0,0
+Gurgaon,Antriksh Heights,AD-804,AD,804,2025-08-19,2025-09-21,33,1.08,44,40.58,unit,103,95
+Gurgaon,Antriksh Heights,AD1703,AD,1703,2024-11-11,2024-12-12,31,1.02,0,0,unit,0,0
+Gurgaon,Antriksh Heights,AH802,AH,802,2025-03-02,2025-04-27,56,1.84,0,0,unit,0,0

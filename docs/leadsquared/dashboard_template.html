@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OH Demand Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#F9FAFB;--panel:#FFFFFF;--panel2:#F4F6F8;--line:#DFE3E8;--txt:#1C252E;--mut:#637381;--acc:#FA541C;--accBg:#FFF2E8;--accDark:#D4380D;--good:#22C55E;--warn:#FFAB00;--bad:#FF5630}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:13px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+#app{display:flex;min-height:100vh}
+#side{width:210px;background:var(--panel);border-right:1px solid var(--line);position:fixed;height:100vh;padding:18px 0;overflow-y:auto}
+#side h1{font-size:15px;padding:0 18px 14px;color:var(--txt);border-bottom:1px solid var(--line);margin-bottom:10px}
+#side h1 small{display:block;font-size:11px;color:var(--mut);font-weight:400;margin-top:3px}
+.nav{display:block;padding:10px 18px;color:var(--mut);cursor:pointer;border-left:3px solid transparent;font-weight:500}
+.nav:hover{background:var(--panel2);color:var(--txt)}
+.nav.on{color:var(--acc);border-left-color:var(--acc);background:var(--accBg)}
+#main{margin-left:210px;flex:1;min-width:0;padding:18px 24px}
+#filters{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:18px;position:sticky;top:0;z-index:20}
+.fg{display:flex;flex-direction:column;gap:4px}
+.fg label{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+.fg select,.fg input{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:7px 9px;border-radius:6px;font-size:13px;min-width:130px}
+.ms{position:relative;min-width:210px}
+.ms-h{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:7px 9px;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ms-d{position:absolute;top:38px;left:0;z-index:50;background:var(--panel2);border:1px solid var(--line);border-radius:6px;min-width:340px;max-height:340px;overflow:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.ms.open .ms-d{display:block}
+.ms-d label{display:flex;gap:8px;align-items:flex-start;padding:7px 11px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--line)}
+.ms-d label:hover{background:rgba(59,130,246,.12)}
+.ms-d input{margin-top:2px}
+.ss{min-width:150px}
+.ss .ms-d{min-width:230px}
+.ss .ss-q{display:block;width:100%;border:0;border-bottom:1px solid var(--line);background:var(--panel);color:var(--txt);padding:8px 11px;font-size:12px;outline:none;position:sticky;top:0;border-radius:0;margin:0}
+.ss .ss-o{padding:7px 11px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ss .ss-o:hover{background:rgba(59,130,246,.12)}
+.ss .ss-o.sel{color:var(--acc);font-weight:600}
+.btn{background:var(--acc);color:#fff;border:0;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px}
+.btn:hover{filter:brightness(1.12)}
+.btn.sec{background:var(--panel2);border:1px solid var(--line)}
+.btn.csv{background:var(--good)}
+.btn.sheet{background:#0F9D58}
+.segtag{display:inline-block;background:var(--accBg);color:var(--accDark);border:1px solid #f3c2a8;border-radius:8px;padding:1px 6px;font-size:10px;margin:1px 2px;font-weight:600}
+.tgl{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--mut)}
+.tgl button{background:var(--panel2);border:1px solid var(--line);color:var(--mut);padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px}
+.tgl button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--txt);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9998;display:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+#side h1{background:linear-gradient(90deg,var(--acc),var(--accDark));-webkit-background-clip:text;background-clip:text;color:transparent}
+#side h1 small{-webkit-text-fill-color:var(--mut)}
+.view{display:none}.view.on{display:block}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.kpi .v{font-size:26px;font-weight:700;color:var(--txt)}.kpi .l{font-size:12px;color:var(--mut);margin-top:3px}
+.kpi .d{font-size:11px;margin-top:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:18px}
+.card h3{font-size:14px;margin-bottom:4px;color:var(--txt)}
+.card .sub{font-size:11px;color:var(--mut);margin-bottom:12px}
+.card .bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+canvas{max-height:300px}
+.tw{overflow:auto;max-height:620px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:var(--panel2);position:sticky;top:0;cursor:pointer;font-weight:600;z-index:5}
+th:hover{color:var(--acc)}
+/* Property Status: border-collapse:collapse breaks position:sticky on cells in
+   Chrome/Safari — use separate so the frozen left columns actually stick. */
+#tPS{border-collapse:separate;border-spacing:0}
+#tPS th,#tPS td{border-right:1px solid var(--line)}
+tr:hover td{background:rgba(59,130,246,.07)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.sub td{background:var(--accBg);font-weight:700;color:var(--accDark)}
+.tag{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.tag.Active{background:rgba(34,197,94,.18);color:#4ade80}
+.tag.Stopped{background:rgba(239,68,68,.18);color:#f87171}
+.tag.Never{background:rgba(139,152,165,.18);color:var(--mut)}
+.muted{color:var(--mut)}.right{margin-left:auto}
+.heat td{text-align:center;font-variant-numeric:tabular-nums}
+.cnt{font-size:11px;color:var(--mut);margin:8px 0}
+.note{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);color:#fcd34d;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px}
+.recs li{margin:7px 0}
+h2.vt{font-size:18px;color:var(--txt);margin-bottom:4px}
+p.vd{color:var(--mut);font-size:12px;margin-bottom:16px}
+</style></head>
+<body><div id="app">
+<div id="side">
+ <h1><img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOTQ5IiBoZWlnaHQ9IjE4OCIgdmlld0JveD0iMCAwIDk0OSAxODgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik03OS41ODAxIDEyNC44MzFDNzkuNTgwMSAxMjIuNDY5IDgxLjkzODggMTIwLjgwNyA4NC4yMDk0IDEyMS41NjlMMTA4LjY0OCAxMjkuNzcxQzExMC4wNjUgMTMwLjI0NyAxMTEuMDE4IDEzMS41NTkgMTExLjAxOCAxMzMuMDMzVjE3NC44MjVDMTExLjAxOCAxNzYuMjI5IDExMC4xNTIgMTc3LjQ5MyAxMDguODMgMTc4LjAxOUw4NC4zOTE4IDE4Ny43NDZDODIuMDkxIDE4OC42NjEgNzkuNTgwMSAxODYuOTk0IDc5LjU4MDEgMTg0LjU1MVYxMjQuODMxWiIgZmlsbD0iI0ZBNTQxQyIvPgo8cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCIgZD0iTTE4OS42MTQgOTQuNDM1OUMxODkuNjE0IDEzMS4yOTMgMTY4LjUyOCAxNjMuMjE5IDEzNy43NzQgMTc4Ljc3N0MxMzIuMDkyIDE4MS42NTEgMTI2LjA4IDE4My45NjcgMTE5LjgwOSAxODUuNjUyVjExNy40MzVDMTE5LjgwOSAxMDMuOTUyIDEwOC44OTQgOTMuMDIyOCA5NS40Mjg1IDkzLjAyMjhDODEuOTYzNSA5My4wMjI4IDcxLjA0NzYgMTAzLjk1MiA3MS4wNDc2IDExNy40MzVWMTg1LjcyMUM2NC43NzkzIDE4NC4wNTUgNTguNzY3MyAxODEuNzYgNTMuMDgzIDE3OC45MDZDMjIuMTg5OCAxNjMuMzk2IDAuOTg0ODYzIDEzMS4zOTYgMC45ODQ4NjMgOTQuNDM1OUMwLjk4NDg2MyA0Mi4yODA2IDQzLjIxMTQgMCA5NS4zMDAxIDBDMTQ3LjM4OSAwIDE4OS42MTQgNDIuMjgwNiAxODkuNjE0IDk0LjQzNTlaTTE3MS42NDkgOTQuNDM1OUMxNzEuNjQ5IDEyMC45MDQgMTU4LjIwNyAxNDQuMjUzIDEzNy43NzQgMTU3Ljk3OFYxMTcuNDM1QzEzNy43NzQgOTQuMDE4IDExOC44MTUgNzUuMDM0OSA5NS40Mjg1IDc1LjAzNDlDODYuMzI4MiA3NS4wMzQ5IDc3Ljg5ODUgNzcuOTA5MiA3MC45OTUzIDgyLjgwMDVWMjEuOTQyOUM3OC42Mjk4IDE5LjM3NzggODYuODAyOCAxNy45ODc5IDk1LjMwMDEgMTcuOTg3OUMxMzcuNDY3IDE3Ljk4NzkgMTcxLjY0OSA1Mi4yMTQ2IDE3MS42NDkgOTQuNDM1OVpNNTMuMTU4MiAzMC42Nzc4QzMyLjU0MjQgNDQuMzY2NSAxOC45NDk5IDY3LjgxMTcgMTguOTQ5OSA5NC40MzU5QzE4Ljk0OTkgMTIxLjAxNCAzMi41MDQ2IDE0NC40NDggNTMuMDgzIDE1OC4xNDlWMTE3LjQzNUM1My4wODMgMTE2LjU3OSA1My4xMDgzIDExNS43MjkgNTMuMTU4MiAxMTQuODg2VjMwLjY3NzhaIiBmaWxsPSIjMTYxQzI0Ii8+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNNjIxLjk1MyAxNTEuMjQ5VjMzLjcyMzZINjI5LjA2NlYxMDMuMzM3QzYzMS4xNDUgOTkuNTAzOCA2MzQuMjg5IDk2LjI0NzYgNjM4LjQ5OSA5My41Njg2QzY0My4xMzkgOTAuNTc4OSA2NDguNDQ4IDg5LjA4NDEgNjU0LjQyNyA4OS4wODQxQzY2MC4wOTcgODkuMDg0MSA2NjQuNjg1IDkwLjc4NTEgNjY4LjE5IDk0LjE4NzFDNjcxLjY5NSA5Ny40ODYxIDY3My40OTkgMTAxLjgxNiA2NzMuNjAyIDEwNy4xNzdWMTUxLjI0OUg2NjYuMThWMTA5LjE4N0M2NjYuMDc3IDEwNS4yNyA2NjQuODM5IDEwMi4wMjIgNjYyLjQ2OCA5OS40NDQ4QzY2MC4wOTcgOTYuODY3NSA2NTYuNjQ0IDk1LjUyNzMgNjUyLjEwOCA5NS40MjQyQzY0OC4wODcgOTUuNDI0MiA2NDQuMzI0IDk2LjQ1NTIgNjQwLjgxOSA5OC41MTdDNjM3LjMxNCAxMDAuNTc5IDYzNC40NzkgMTAzLjM2MiA2MzIuMzE0IDEwNi44NjdDNjMwLjI1MiAxMTAuMzczIDYyOS4yMjEgMTE0LjM0MiA2MjkuMjIxIDExOC43NzVWMTUxLjI0OUg2MjEuOTUzWk02OTMuNTUxIDEwNC41NUM2OTAuNzY4IDEwOS4zOTUgNjg5LjM3NiAxMTQuNzU2IDY4OS4zNzYgMTIwLjYzMkM2ODkuMzc2IDEyNi44MTggNjkwLjc2OCAxMzIuMzMzIDY5My41NTEgMTM3LjE3OUM2OTYuNDM4IDE0MS45MjEgNzAwLjMwNCAxNDUuNjg0IDcwNS4xNDkgMTQ4LjQ2N0M3MDkuOTk0IDE1MS4xNDcgNzE1LjUxIDE1Mi40ODggNzIxLjY5NSAxNTIuNDg4QzcyNy43NzggMTUyLjQ4OCA3MzMuMjQxIDE1MS4wOTYgNzM4LjA4NyAxNDguMzEyQzc0My4wMzUgMTQ1LjQyNiA3NDYuOTAxIDE0MS41NiA3NDkuNjg1IDEzNi43MTVDNzUyLjQ2OCAxMzEuODY5IDc1My44NiAxMjYuNTA4IDc1My44NiAxMjAuNjMyQzc1My44NiAxMTQuNzU2IDc1Mi40NjggMTA5LjM5NSA3NDkuNjg1IDEwNC41NUM3NDYuOTAxIDk5LjcwNDUgNzQzLjA4NyA5NS44OTAxIDczOC4yNDEgOTMuMTA2NkM3MzMuMzk2IDkwLjIyMDEgNzI3Ljg4MSA4OC43NzY4IDcyMS42OTUgODguNzc2OEM3MTUuNjEzIDg4Ljc3NjggNzEwLjA5NyA5MC4yMjAxIDcwNS4xNDkgOTMuMTA2NkM3MDAuMzA0IDk1Ljg5MDEgNjk2LjQzOCA5OS43MDQ1IDY5My41NTEgMTA0LjU1Wk02OTkuODkxIDEzMy43NzZDNjk3LjcyNiAxMjkuODU5IDY5Ni42NDQgMTI1LjUyOSA2OTYuNjQ0IDEyMC43ODdDNjk2LjY0NCAxMTYuMzU0IDY5Ny43MjYgMTEyLjE3OSA2OTkuODkxIDEwOC4yNjFDNzAyLjA1NiAxMDQuMzQ0IDcwNC45OTQgMTAxLjE5OSA3MDguNzA2IDk4LjgyODJDNzEyLjUyIDk2LjM1NCA3MTYuNzk4IDk1LjExNjkgNzIxLjU0IDk1LjExNjlDNzI2LjE4IDk1LjExNjkgNzMwLjM1NSA5Ni4zMDI1IDczNC4wNjYgOTguNjczNkM3MzcuODgxIDEwMC45NDIgNzQwLjg3IDEwNC4wMzQgNzQzLjAzNSAxMDcuOTUyQzc0NS4zMDMgMTExLjc2NiA3NDYuNDM3IDExNi4wNDUgNzQ2LjQzNyAxMjAuNzg3Qzc0Ni40MzcgMTI1LjUyOSA3NDUuMzAzIDEyOS44NTkgNzQzLjAzNSAxMzMuNzc2Qzc0MC44NyAxMzcuNTkxIDczNy44ODEgMTQwLjYzMiA3MzQuMDY2IDE0Mi45QzczMC4zNTUgMTQ1LjE2OCA3MjYuMTggMTQ2LjMwMiA3MjEuNTQgMTQ2LjMwMkM3MTYuOTAxIDE0Ni4zMDIgNzEyLjY3NSAxNDUuMTY4IDcwOC44NiAxNDIuOUM3MDUuMTQ5IDE0MC42MzIgNzAyLjE1OSAxMzcuNTkxIDY5OS44OTEgMTMzLjc3NlpNODU1LjY5NCAxNTIuNDg4Qzg1Mi4xODkgMTUyLjQ4OCA4NDguNTI5IDE1MS44NyA4NDQuNzE1IDE1MC42MzNDODQwLjkgMTQ5LjI5MiA4MzcuODA3IDE0Ny4xNzkgODM1LjQzNiAxNDQuMjkyTDgzOC44MzggMTM5LjQ5OUM4NDAuOSAxNDEuNjY0IDg0My4zMjMgMTQzLjQxNiA4NDYuMTA2IDE0NC43NTZDODQ4Ljk5MyAxNDUuOTkzIDg1Mi4wMzQgMTQ2LjYxMiA4NTUuMjMgMTQ2LjYxMkM4NTcuNjAxIDE0Ni42MTIgODU5LjgxOCAxNDYuMzAzIDg2MS44OCAxNDUuNjg0Qzg2NC4wNDQgMTQ0Ljk2MyA4NjUuNzk3IDE0My43NzcgODY3LjEzNyAxNDIuMTI4Qzg2OC40NzcgMTQwLjQ3OCA4NjkuMTQ4IDEzOC4yNjIgODY5LjE0OCAxMzUuNDc4Qzg2OS4xNDggMTMyLjU5MiA4NjguMzIzIDEzMC4zNzUgODY2LjY3MyAxMjguODI5Qzg2NS4xMjcgMTI3LjI4MiA4NjMuMTE3IDEyNi4wNDUgODYwLjY0MiAxMjUuMTE3Qzg1OC4yNzEgMTI0LjA4NiA4NTUuNzQ2IDEyMy4xNTkgODUzLjA2NSAxMjIuMzM0Qzg0OC42MzIgMTIwLjg5MSA4NDQuOTcyIDExOC45MzIgODQyLjA4NiAxMTYuNDU4QzgzOS4zMDIgMTEzLjk4MyA4MzcuOTExIDExMC40NzggODM3LjkxMSAxMDUuOTQyQzgzNy45MTEgMTAyLjY0MyA4MzguNjg0IDk5Ljc1NjcgODQwLjIzIDk3LjI4MjVDODQxLjg4IDk0LjgwODMgODQ0LjA5NiA5Mi45MDExIDg0Ni44OCA5MS41NjA5Qzg0OS42NjMgOTAuMTE3NiA4NTIuODA3IDg5LjM5NiA4NTYuMzEyIDg5LjM5NkM4NTkuNTA4IDg5LjM5NiA4NjIuNjUzIDg5LjkxMTQgODY1Ljc0NSA5MC45NDIzQzg2OC45NDEgOTEuOTczMyA4NzEuODI4IDkzLjcyNTggODc0LjQwNSA5Ni4yTDg3MS4xNTggMTAxLjMwM0M4NjkuNTA4IDk5LjAzNTEgODY3LjI5MiA5Ny40ODg3IDg2NC41MDggOTYuNjYzOUM4NjEuODI4IDk1LjgzOTIgODU5LjQ1NyA5NS4zNzUzIDg1Ny4zOTUgOTUuMjcyMkM4NTUuNjQyIDk1LjI3MjIgODUzLjc4NyA5NS42MzMgODUxLjgyOCA5Ni4zNTQ3Qzg0OS45NzIgOTcuMDc2MyA4NDguMzc0IDk4LjE1ODggODQ3LjAzNCA5OS42MDIxQzg0NS43OTcgMTAwLjk0MiA4NDUuMTc5IDEwMi43NDYgODQ1LjE3OSAxMDUuMDE0Qzg0NS4xNzkgMTA3LjM4NiA4NDUuODQ5IDEwOS4zNDQgODQ3LjE4OSAxMTAuODkxQzg0OC41MjkgMTEyLjMzNCA4NTAuMjMgMTEzLjUxOSA4NTIuMjkyIDExNC40NDdDODU0LjQ1NyAxMTUuMzc1IDg1Ni42NzMgMTE2LjI1MSA4NTguOTQxIDExNy4wNzZDODYxLjkzMSAxMTguMDA0IDg2NC43MTUgMTE5LjEzOCA4NjcuMjkyIDEyMC40NzhDODY5Ljk3MiAxMjEuNzE1IDg3Mi4xMzcgMTIzLjQxNiA4NzMuNzg3IDEyNS41ODFDODc1LjUzOSAxMjcuNjQzIDg3Ni40MTYgMTMwLjQyNyA4NzYuNDE2IDEzMy45MzJDODc2LjQxNiAxMzcuNDM3IDg3NS42NDIgMTQwLjYzMyA4NzQuMDk2IDE0My41MTlDODcyLjU1IDE0Ni4zMDMgODcwLjIzIDE0OC41MTkgODY3LjEzNyAxNTAuMTY5Qzg2NC4xNDggMTUxLjcxNSA4NjAuMzMzIDE1Mi40ODggODU1LjY5NCAxNTIuNDg4Wk03ODguNjI1IDE1Mi45NUM3ODIuOTU1IDE1Mi45NSA3NzguNDE5IDE1MS4zIDc3NS4wMTcgMTQ4LjAwMUM3NzEuNjE1IDE0NC41OTkgNzY5LjgxMSAxNDAuMjE4IDc2OS42MDUgMTM0Ljg1N1Y5MC43ODUxSDc3Ni44NzNWMTMyLjY5MkM3NzcuMDc5IDEzNi42MSA3NzguMzE2IDEzOS44NTcgNzgwLjU4NCAxNDIuNDM0Qzc4Mi45NTUgMTQ1LjAxMiA3ODYuNDYgMTQ2LjQwMyA3OTEuMDk5IDE0Ni42MDlDNzk1LjAxNyAxNDYuNjA5IDc5OC42NzcgMTQ1LjU3OSA4MDIuMDc5IDE0My41MTdDODA1LjQ4MSAxNDEuNDU1IDgwOC4yMTMgMTM4LjY3MSA4MTAuMjc0IDEzNS4xNjZDODEyLjQzOSAxMzEuNTU4IDgxMy41MjIgMTI3LjQ4NiA4MTMuNTIyIDEyMi45NVY5MC43ODUxSDgyMC43OVYxNTEuMjQ5SDgxNC4yOTVMODEzLjc3NiAxMzguNDY4QzgxMi42ODkgMTQwLjc2OSA4MTEuMTEgMTQyLjkxNiA4MDkuMDM3IDE0NC45MDhDODA2LjQ2IDE0Ny4zODMgODAzLjM2NyAxNDkuMzQxIDc5OS43NTkgMTUwLjc4NUM3OTYuMjU0IDE1Mi4yMjggNzkyLjU0MyAxNTIuOTUgNzg4LjYyNSAxNTIuOTVaTTU1Ni4zOTcgOTQuNDMwNEw1NTQuODggODMuNjcyM0g1MzUuMjQxVjE1MS4yNDlINTU2Ljg5VjEyMy43MjRDNTU2Ljg5IDExOC44NzggNTU3LjU2IDExNC42IDU1OC45MDEgMTEwLjg4OUM1NjAuMjQxIDEwNy4xNzcgNTYyLjE0OCAxMDQuMjM5IDU2NC42MjIgMTAyLjA3NEM1NjcuMDk2IDk5LjkwOTMgNTY5Ljk4MyA5OC44MjY4IDU3My4yODIgOTguODI2OEM1NzYuNzg3IDk4LjgyNjggNTc5LjI2MSA5OS43NTQ3IDU4MC43MDUgMTAxLjYxQzU4Mi4yNTEgMTAzLjM2MyA1ODMuMDc2IDEwNS43MzQgNTgzLjE3OSAxMDguNzI0VjE1MS4yNDlINjA0LjgyOFYxMDAuNjgyQzYwNC43MjUgOTQuNzAzMSA2MDIuNTA5IDg5Ljg1NzggNTk4LjE3OSA4Ni4xNDY1QzU5My45NTIgODIuMzMyMSA1ODguNjQzIDgwLjQyNDkgNTgyLjI1MSA4MC40MjQ5QzU3NS45NjIgODAuNDI0OSA1NzAuNjUzIDgxLjc2NTEgNTY2LjMyMyA4NC40NDU1QzU2Mi4wNjkgODYuOTc3NyA1NTguNzYgOTAuMzA2IDU1Ni4zOTcgOTQuNDMwNFpNNDAzLjM3MSAxNTMuMTA1QzM5OS4zNTEgMTUzLjEwNSAzOTUuMzgyIDE1Mi4zODQgMzkxLjQ2NCAxNTAuOTRDMzg3Ljk0OSAxNDkuNTE1IDM4NC45NiAxNDcuNTY1IDM4Mi40OTUgMTQ1LjA5VjE4My43MjRIMzYxVjgyLjEyNjRIMzc5LjU1N0wzODEuNDU4IDkwLjIwMzVDMzg0LjgzMiA4Ny40MDQ5IDM4OC41OCA4NS4wNzMzIDM5Mi43MDEgODMuMjA4OEMzOTcuMDMxIDgxLjI1MDEgNDAyLjAzMSA4MC4yNzA3IDQwNy43MDEgODAuMjcwN0M0MTMuOTkgODAuMjcwNyA0MTkuNjA4IDgxLjc2NTUgNDI0LjU1NyA4NC43NTUyQzQyOS41MDUgODcuNjQxOCA0MzMuMzcxIDkxLjg2ODYgNDM2LjE1NSA5Ny40MzU1QzQzOS4wNDEgMTAyLjg5OSA0NDAuNDg0IDEwOS40OTcgNDQwLjQ4NCAxMTcuMjI5QzQ0MC40ODQgMTI0Ljg1OCA0MzguODg2IDEzMS4zNTMgNDM1LjY5MSAxMzYuNzE0QzQzMi40OTUgMTQyLjA3NCA0MjguMTEzIDE0Ni4xNDcgNDIyLjU0NiAxNDguOTNDNDE2Ljk3OSAxNTEuNzE0IDQxMC41ODggMTUzLjEwNSA0MDMuMzcxIDE1My4xMDVaTTM5OS4wNDEgMTM2LjA5NUM0MDIuNTQ3IDEzNi4wOTUgNDA1Ljc0MiAxMzUuMzIyIDQwOC42MjkgMTMzLjc3NUM0MTEuNjE5IDEzMi4yMjkgNDEzLjk5IDEzMC4wNjQgNDE1Ljc0MiAxMjcuMjgxQzQxNy41OTggMTI0LjM5NCA0MTguNTI2IDEyMS4xNDcgNDE4LjUyNiAxMTcuNTM4QzQxOC41MjYgMTEzLjcyNCA0MTcuNzAxIDExMC40MjUgNDE2LjA1MiAxMDcuNjQyQzQxNC41MDUgMTA0Ljc1NSA0MTIuMzQgMTAyLjUzOSA0MDkuNTU3IDEwMC45OTJDNDA2Ljg3NiA5OS4zNDI3IDQwMy44ODcgOTguNTE4IDQwMC41ODggOTguNTE4QzM5Ny43MDEgOTguNTE4IDM5NS4xMjQgOTguOTMwNCAzOTIuODU2IDk5Ljc1NTFDMzkwLjY5MSAxMDAuNDc3IDM4OC43MzIgMTAxLjYxMSAzODYuOTggMTAzLjE1N0MzODUuMzMgMTA0LjYgMzgzLjg4NyAxMDYuNDU2IDM4Mi42NSAxMDguNzI0VjEyNS4yN0MzODMuNDc0IDEyNy40MzUgMzg0LjY2IDEyOS4zNDMgMzg2LjIwNiAxMzAuOTkyQzM4Ny43NTMgMTMyLjY0MSAzODkuNjA4IDEzMy45MyAzOTEuNzczIDEzNC44NThDMzk0LjA0MSAxMzUuNjgzIDM5Ni40NjQgMTM2LjA5NSAzOTkuMDQxIDEzNi4wOTVaTTIzOS4xMTUgNzIuMjI3NkMyMzYuMTI2IDc5LjIzNzkgMjM0LjYzMSA4Ni42NjA1IDIzNC42MzEgOTQuNDk1NUMyMzQuNjMxIDEwMi41MzcgMjM2LjEyNiAxMTAuMDYyIDIzOS4xMTUgMTE3LjA3M0MyNDIuMTA1IDEyNC4wODMgMjQ2LjIyOSAxMzAuMjY4IDI1MS40ODYgMTM1LjYyOUMyNTYuODQ3IDE0MC44ODcgMjYzLjAzMyAxNDUuMDExIDI3MC4wNDMgMTQ4QzI3Ny4wNTMgMTUwLjk5IDI4NC41NzkgMTUyLjQ4NSAyOTIuNjIgMTUyLjQ4NUMzMDAuNTU4IDE1Mi40ODUgMzA4LjAzMiAxNTAuOTkgMzE1LjA0MyAxNDhDMzIyLjA1MyAxNDUuMDExIDMyOC4yMzggMTQwLjg4NyAzMzMuNTk5IDEzNS42MjlDMzM5LjA2MyAxMzAuMjY4IDM0My4yOSAxMjQuMDgzIDM0Ni4yOCAxMTcuMDczQzM0OS4zNzIgMTEwLjA2MiAzNTAuOTE5IDEwMi41MzcgMzUwLjkxOSA5NC40OTU1QzM1MC45MTkgODYuNjYwNSAzNDkuMzcyIDc5LjIzNzkgMzQ2LjI4IDcyLjIyNzZDMzQzLjI5IDY1LjIxNzQgMzM5LjA2MyA1OS4wMzE5IDMzMy41OTkgNTMuNjcxMUMzMjguMjM4IDQ4LjIwNzIgMzIyLjA1MyA0My45Mjg5IDMxNS4wNDMgNDAuODM2MUMzMDguMDMyIDM3Ljc0MzMgMzAwLjU1OCAzNi4xOTcgMjkyLjYyIDM2LjE5N0MyODQuNTc5IDM2LjE5NyAyNzcuMDUzIDM3Ljc0MzMgMjcwLjA0MyA0MC44MzYxQzI2My4wMzMgNDMuOTI4OSAyNTYuODQ3IDQ4LjIwNzIgMjUxLjQ4NiA1My42NzExQzI0Ni4yMjkgNTkuMDMxOSAyNDIuMTA1IDY1LjIxNzQgMjM5LjExNSA3Mi4yMjc2Wk0yNjAuNDU1IDEwOC43MjJDMjU4LjcwMyAxMDQuMjg5IDI1Ny44MjcgOTkuNTQ3IDI1Ny44MjcgOTQuNDk1NUMyNTcuODI3IDg5LjM0MDkgMjU4LjcwMyA4NC41NDcxIDI2MC40NTUgODAuMTE0MkMyNjIuMjA4IDc1LjY4MTIgMjY0LjY4MiA3MS44MTUzIDI2Ny44NzggNjguNTE2M0MyNzEuMDc0IDY1LjExNDMgMjc0Ljc4NSA2Mi40ODU0IDI3OS4wMTIgNjAuNjI5OEMyODMuMjM5IDU4Ljc3NDEgMjg3LjgyNiA1Ny44NDYzIDI5Mi43NzUgNTcuODQ2M0MyOTcuNzIzIDU3Ljg0NjMgMzAyLjMxMSA1OC43NzQxIDMwNi41MzggNjAuNjI5OEMzMTAuNzY0IDYyLjQ4NTQgMzE0LjQyNCA2NS4xMTQzIDMxNy41MTcgNjguNTE2M0MzMjAuNzEzIDcxLjgxNTMgMzIzLjE4NyA3NS42ODEyIDMyNC45NCA4MC4xMTQyQzMyNi43OTUgODQuNTQ3MSAzMjcuNzIzIDg5LjM0MDkgMzI3LjcyMyA5NC40OTU1QzMyNy43MjMgOTkuNTQ3IDMyNi44NDcgMTA0LjI4OSAzMjUuMDk0IDEwOC43MjJDMzIzLjM0MiAxMTMuMDUyIDMyMC45MTkgMTE2LjkxOCAzMTcuODI2IDEyMC4zMkMzMTQuNzMzIDEyMy42MTkgMzExLjA3NCAxMjYuMTk2IDMwNi44NDcgMTI4LjA1MkMzMDIuNzIzIDEyOS45MDggMjk4LjIzOSAxMzAuODM1IDI5My4zOTMgMTMwLjgzNUMyODguMzQyIDEzMC44MzUgMjgzLjY1MSAxMjkuOTA4IDI3OS4zMjEgMTI4LjA1MkMyNzUuMDk0IDEyNi4xOTYgMjcxLjMzMiAxMjMuNjE5IDI2OC4wMzMgMTIwLjMyQzI2NC44MzcgMTE2LjkxOCAyNjIuMzExIDExMy4wNTIgMjYwLjQ1NSAxMDguNzIyWk00NTkuNTI3IDE0MS41NTVDNDY0LjE0MyAxNDYuMjAxIDQ3MC4zOTUgMTQ5LjcyOSA0NzguMjgyIDE1Mi4xNDFDNDgxLjgzMSAxNTMuMjI2IDQ4NS43NTggMTUzLjc4IDQ5MC4wNjQgMTUzLjgwMkM0OTQuNDY3IDE1My44NTUgNDk4LjY5NiAxNTMuNDIzIDUwMi43NDkgMTUyLjUwNkM1MDkuNzg5IDE1MC44MDggNTE1Ljg1NCAxNDcuNDk0IDUxOC43NzYgMTQ1LjU3NUw1MTQuOTEgMTM3Ljg0M0w1MTEuMDQ0IDEyOS45MTJDNTA2Ljc5NCAxMzIuMDQ4IDUwMS45MDIgMTMzLjQ5NSA0OTguMjg0IDEzNC4zNDZDNDk2Ljc2MSAxMzQuNjk4IDQ5NS4yIDEzNS4wMDYgNDk0LjMxNSAxMzUuMTQ2TDQ5NC4zMTYgMTM1LjE1MkM0OTMuMTk3IDEzNS4zMTcgNDkyLjA4MyAxMzUuNDI3IDQ5MC45NzQgMTM1LjQ4NUM0ODguNjYzIDEzNS42NCA0ODYuMzczIDEzNS4zNzIgNDg0LjEwNiAxMzQuNjc4QzQ4MC45NTEgMTMzLjcxNCA0NzguMzAzIDEzMi4xNSA0NzYuMTYyIDEyOS45ODZDNDc0Ljc4NSAxMjguNTk0IDQ3My43MTMgMTI3LjAwNiA0NzIuOTQ2IDEyNS4yMjFMNTI0Ljg0NyAxMjQuNjU3QzUyNi4xNzcgMTEzLjk2IDUyNC42NDkgMTA1LjAzMSA1MjAuMjYyIDk3Ljg2ODJDNTE2LjAwNSA5MC42Mzc0IDUwOS4yNDIgODUuNjA1NCA0OTkuOTc1IDgyLjc3MjFDNDkzLjA3NCA4MC42NjIzIDQ4Ni4zMzIgODAuMzI1NyA0NzkuNzQ4IDgxLjc2MjRDNDczLjE5NCA4My4xMDA2IDQ2Ny40NDIgODUuODY5OSA0NjIuNDkzIDkwLjA3MDJDNDU3LjU0MyA5NC4yNzA1IDQ1NC4wNzQgOTkuNjI0MSA0NTIuMDg0IDEwNi4xMzFDNDUwLjAwNSAxMTIuOTMzIDQ0OS41OTYgMTE5LjM4NCA0NTAuODU3IDEyNS40ODNDNDUyLjExOSAxMzEuNTgzIDQ1NS4wMDkgMTM2Ljk0IDQ1OS41MjcgMTQxLjU1NVpNNDcyLjQ4MSAxMTIuNTAzTDUwMy43ODMgMTExLjYwNEM1MDMuNjk5IDEwOC45NzMgNTAyLjk1MSAxMDYuNDc1IDUwMS41MzcgMTA0LjEwOUM1MDAuMTY4IDEwMS41MzUgNDk3LjQ2MyA5OS42Mjk2IDQ5My40MjEgOTguMzkzOUM0OTAuMzY0IDk3LjQ1OTUgNDg3LjQyNyA5Ny4zNyA0ODQuNjA5IDk4LjEyNTRDNDgxLjkxOSA5OC44MTI0IDQ3OS41MjcgMTAwLjI5MSA0NzcuNDMxIDEwMi41NjFDNDc1LjQ2NSAxMDQuNzYzIDQ3My45MzkgMTA3LjYzOCA0NzIuODU0IDExMS4xODdDNDcyLjcxOCAxMTEuNjMxIDQ3Mi41OTQgMTEyLjA2OSA0NzIuNDgxIDExMi41MDNaTTkwNi4xNDggMTUyLjc0QzkwMC4zIDE1MC40MjYgODk1LjYzNiAxNDcuMDg0IDg5Mi4xNTQgMTQyLjcxM0M4ODguNjczIDEzOC4zNDMgODg2LjUxIDEzMy40NCA4ODUuNjY3IDEyOC4wMDdDODg0Ljk1NyAxMjIuNTE1IDg4NS43MDIgMTE2Ljk4OSA4ODcuOTAyIDExMS40MjlDODkwLjA2MyAxMDUuOTY1IDg5My4zNzggMTAxLjUxMSA4OTcuODQ0IDk4LjA2NzdDOTAyLjMxMSA5NC42MjQxIDkwNy4zMjggOTIuNDUxNSA5MTIuODk2IDkxLjU1QzkxOC41NTkgOTAuNjg2NCA5MjQuMTcxIDkxLjM1NDQgOTI5LjczMSA5My41NTQyQzkzNi40NDEgOTYuMjA5MSA5NDEuMjcxIDEwMC4zOTMgOTQ0LjIyMiAxMDYuMTA2Qzk0Ny4yNjggMTExLjg1NyA5NDguNTQ2IDExOC4yOTQgOTQ4LjA1NiAxMjUuNDE3TDg5Mi43MDggMTI0Ljk1MkM4OTIuNzM0IDEyNS41MjkgODkyLjc3OCAxMjYuMTA4IDg5Mi44NDEgMTI2LjY4N0M4OTMuNDEzIDEzMS4xMjcgODk1LjAzNiAxMzUuMTUgODk3LjcxIDEzOC43NThDOTAwLjM4NSAxNDIuMzY3IDkwNC4wMjMgMTQ1LjA4MSA5MDguNjI0IDE0Ni45MDFDOTExLjY5MiAxNDguMTE1IDkxNC44NDMgMTQ4LjY5NyA5MTguMDc4IDE0OC42NDZDOTE4Ljk1OCAxNDguNjQzIDkxOS44MjQgMTQ4LjYwNyA5MjAuNjc1IDE0OC41MzhDOTIzLjA0NyAxNDguMzQ3IDkyNS4zMTIgMTQ4LjExIDkyNy40NjUgMTQ3LjQxMUM5MzEuODc1IDE0Ni4wNDMgOTM3LjI3MSAxNDMuMzA5IDk0MS44MjYgMTM4LjI3NEw5NDYuMjUzIDE0My4xOTNDOTQzLjMwMiAxNDYuOCA5MzIuNDggMTU0LjUwNiA5MjAuNjc1IDE1NC45QzkxOS42NjQgMTU0Ljk1OCA5MTguNjM0IDE1NC45NTMgOTE3LjU4NSAxNTQuOTM3QzkxMy42MDMgMTU0LjkxMyA5MDkuNzkxIDE1NC4xODEgOTA2LjE0OCAxNTIuNzRaTTg5NC42MyAxMTMuNzU5Qzg5My45MSAxMTUuNTc3IDg5My4zOSAxMTcuNDEyIDg5My4wNjkgMTE5LjI2NUw5NDAuOTI5IDExOS41MDhDOTQwLjYyMSAxMTUuNTUyIDkzOS40NjIgMTExLjc0NCA5MzcuNDUyIDEwOC4wODRDOTM1LjI5MyAxMDQuMDE1IDkzMS44MTcgMTAxLjAzMiA5MjcuMDI0IDk5LjEzNTJDOTIyLjcxIDk3LjQyODUgOTE4LjQxIDk2Ljk0NyA5MTQuMTI1IDk3LjY5MDVDOTA5LjgzOSA5OC40MzQxIDkwNS45NDEgMTAwLjE2MiA5MDIuNDI4IDEwMi44NzVDODk5LjAxMiAxMDUuNjI1IDg5Ni40MTIgMTA5LjI1MyA4OTQuNjMgMTEzLjc1OVoiIGZpbGw9IiMxNjFDMjQiLz4KPC9zdmc+Cg==" alt="OpenHouse" style="width:158px;height:auto;display:block;margin:0 0 6px"><span style="font-size:13px;font-weight:700">OH Demand Dashboard</span><small id="gen"></small></h1>
+ <div class="nav on" data-v="overview">Overview</div>
+ <div class="nav" data-v="va">Visits Analysis</div>
+ <div class="nav" data-v="brokers">Brokers</div>
+ <div class="nav" data-v="cohorts">Cohorts</div>
+ <div class="nav" data-v="segments">Segments</div>
+ <div class="nav" data-v="funnel">Funnel</div>
+ <div class="nav" data-v="propstatus">Property Status</div>
+ <div class="nav" data-v="owners">CP Owners</div>
+ <div class="nav" data-v="founder">Key Product Metrics</div>
+ <div class="nav" data-v="raw">Raw Data</div>
+ <div class="nav" data-v="summary">Summary &amp; Recs</div>
+</div>
+<div id="main">
+ <div id="filters">
+  <div class="fg"><label>City</label><select id="fCity"></select></div>
+  <div class="fg"><label>CP Owner</label><select id="fOwner"></select></div>
+  <div class="fg"><label>Month from</label><select id="fM1"></select></div>
+  <div class="fg"><label>Month to</label><select id="fM2"></select></div>
+  <div class="fg"><label>Date from (visit/task)</label><input type="date" id="fD1"></div>
+  <div class="fg"><label>Date to (visit/task)</label><input type="date" id="fD2"></div>
+  <div class="fg"><label>Visit status · VA tab</label><select id="fVStat">
+   <option value="completed">Completed only (default)</option>
+   <option value="all">All (completed + cancelled + upcoming)</option>
+   <option value="cancelled">Cancelled only</option>
+   <option value="upcoming">Upcoming only</option></select></div>
+  <div class="fg"><label>Search broker / CP / company</label><input id="fQ" placeholder="type to filter…"></div>
+  <div class="fg"><label>Segment</label><div class="ms" id="fSegBox"><div class="ms-h" id="fSegH">All segments ▾</div><div class="ms-d" id="fSegD"></div></div></div>
+  <div class="fg"><label>Pipeline status</label><select id="fPipe"></select></div>
+  <div class="fg"><label>Sales Manager</label><select id="fSM"></select></div>
+  <div class="fg"><label>Source</label><select id="fSrc"></select></div>
+  <div class="fg"><label>Lead status</label><select id="fLS"></select></div>
+  <div class="fg"><label>Society</label><select id="fSoc"></select></div>
+  <div class="fg"><label>Unit</label><select id="fUnit"></select></div>
+  <button class="btn sec" id="fReset">Reset</button>
+  <span class="right muted" id="fStat"></span>
+ </div>
+
+ <div class="view on" id="v-overview">
+  <h2 class="vt">Overview</h2><p class="vd">Demand-side health. All cards & charts respect the filters above.</p>
+  <div class="kpis" id="kpis"></div>
+  <div class="grid2">
+   <div class="card"><h3>Visits &amp; Active Brokers (MAU)</h3><div class="sub">monthly</div><canvas id="cVis"></canvas></div>
+   <div class="card"><h3>Visits per Active Broker</h3><div class="sub">engagement depth — is it rising?</div><canvas id="cVpb"></canvas></div>
+  </div>
+  <div class="grid2">
+   <div class="card"><h3>MoM Stickiness %</h3><div class="sub">active→active carryover</div><canvas id="cStk"></canvas></div>
+   <div class="card"><h3>Visits per Live Property</h3><div class="sub">is growth real or just more inventory?</div><canvas id="cPP"></canvas></div>
+  </div>
+ </div>
+
+ <div class="view" id="v-va">
+  <h2 class="vt">Visits Analysis</h2><p class="vd">Recreation of the App-Visits Looker report. Every table & the trend chart respect the filter bar; <b>click any row to cross-filter the whole dashboard</b> (click again / Reset to clear). Completed visits only.</p>
+  <div class="card"><div class="bar"><h3>Daily visits by city — Noida / Gurgaon / Ghaziabad</h3><span class="muted" id="vaTrendNote"></span></div><canvas id="cVATrend" style="max-height:320px"></canvas></div>
+  <div class="kpis" id="vaKpis"></div>
+  <div id="vaGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px"></div>
+ </div>
+
+ <div class="view" id="v-brokers">
+  <h2 class="vt">Brokers</h2><p class="vd">Per-broker monthly visits, onboarding, owner, status. Filtered + sortable. Export = current view.</p>
+  <div class="card"><div class="bar"><div><b id="bkN"></b> brokers</div>
+   <button class="btn csv" onclick="dlCSV('brokers')">⬇ Download CSV (filtered)</button></div>
+   <div class="tw"><table id="tBrk"></table></div></div>
+ </div>
+
+ <div class="view" id="v-cohorts">
+  <h2 class="vt">Cohorts</h2><p class="vd">Brokers grouped by onboarding month. Retention triangle = % of cohort active each month.</p>
+  <div class="card"><div class="bar"><div class="tgl" id="cohTgl"><span>Cohort metric tables:</span>
+    <button class="on" data-m="abs" onclick="setCohMode('abs')">Absolute</button>
+    <button data-m="pct" onclick="setCohMode('pct')">% of onboarded</button>
+    <span id="cohModeLbl" class="muted" style="margin-left:8px"></span></div></div></div>
+  <div class="card"><div class="bar"><h3>Cohort Retention Triangle (%)</h3>
+   <button class="btn csv" onclick="dlCSV('cohortret')">⬇ CSV</button></div>
+   <div class="sub">green = healthy, red = decayed</div><div class="tw"><table id="tCoh" class="heat"></table></div></div>
+  <div class="card"><div class="bar"><h3>Cohort — Visits (by activity month)</h3>
+   <button class="btn csv" onclick="dlCSV('cohort_Visits')">⬇ CSV</button></div>
+   <div class="tw"><table id="tCohV"></table></div></div>
+  <div class="card"><div class="bar"><h3>Cohort — Unique active brokers</h3>
+   <button class="btn csv" onclick="dlCSV('cohort_Unique active brokers')">⬇ CSV</button></div>
+   <div class="tw"><table id="tCohU"></table></div></div>
+  <div class="card"><div class="bar"><h3>Cohort — Active %</h3>
+   <button class="btn csv" onclick="dlCSV('cohort_Active %')">⬇ CSV</button></div>
+   <div class="tw"><table id="tCohP"></table></div></div>
+  <div class="card" style="border-left:4px solid var(--good)"><div class="bar"><h3>Cohort Retention — % of <b>activated</b> brokers (≥1 visit ever)</h3>
+   <button class="btn csv" onclick="dlCSV('cohortret_act')">⬇ CSV</button></div>
+   <div class="sub">Size = brokers in the cohort who ever did ≥1 visit (not all onboarded). Each cell = % of <b>those</b> brokers active that month — true retention of the brokers who actually started.</div>
+   <div class="tw"><table id="tCohA" class="heat"></table></div></div>
+  <div class="card" style="border-left:4px solid var(--good)"><div class="bar"><h3>Cohort Retention — <b>rolling 3-month</b> active % (of activated brokers)</h3>
+   <button class="btn csv" onclick="dlCSV('cohortret_act3')">⬇ CSV</button></div>
+   <div class="sub">Each cell = % of the cohort's activated brokers active in <b>that month OR either of the 2 prior months</b> (e.g. May = active in Mar, Apr or May). Smooths single-month gaps — a broker on a 2-month cadence still counts as retained.</div>
+   <div class="tw"><table id="tCohA3" class="heat"></table></div></div>
+  <div class="card"><div class="bar"><h3>Broker spread — distinct <b>units / properties</b> visited <span class="muted" id="sprUN"></span></h3>
+   <button class="btn csv" onclick="dlCSV('spread_unit')">⬇ CSV</button></div>
+   <div class="sub">Last 3 months. Brokers bucketed by how many distinct units (society + unit) they visited — "similar properties" spread. CSV = per-broker list.</div>
+   <div class="tw"><table id="tSprU"></table></div></div>
+  <div class="card"><div class="bar"><h3>Broker spread — distinct <b>societies</b> visited <span class="muted" id="sprSN"></span></h3>
+   <button class="btn csv" onclick="dlCSV('spread_soc')">⬇ CSV</button></div>
+   <div class="sub">Last 3 months. Brokers bucketed by how many distinct societies they visited. CSV = per-broker list.</div>
+   <div class="tw"><table id="tSprS"></table></div></div>
+ </div>
+
+ <div class="view" id="v-segments">
+  <h2 class="vt">Segments</h2><p class="vd">Recency &amp; onboarding behavioural segments (May=2026-05 partial to 18th). Respect City / CP Owner / Search filters. Each is also a global Segment filter (multiselect) usable on every tab.</p>
+  <div id="segWrap"></div>
+ </div>
+
+ <div class="view" id="v-owners">
+  <h2 class="vt">CP Owners</h2><p class="vd">Onboarded / active / visits per owner (Jan-26+), city-subgrouped, and task-intent.</p>
+  <div class="card"><div class="bar"><h3>MoM Onboarded CPs (credited to who added them)</h3>
+   <button class="btn csv" onclick="dlCSV('owners_onb')">⬇ CSV</button></div><div class="tw"><table id="tOwnOnb"></table></div></div>
+  <div class="card"><div class="bar"><h3>MoM Active CPs (≥1 visit)</h3>
+   <button class="btn csv" onclick="dlCSV('owners_act')">⬇ CSV</button></div><div class="tw"><table id="tOwnAct"></table></div></div>
+  <div class="card"><div class="bar"><h3>MoM Total CP Visits</h3>
+   <button class="btn csv" onclick="dlCSV('owners_vis')">⬇ CSV</button></div><div class="tw"><table id="tOwnVis"></table></div></div>
+  <div class="card"><div class="bar"><h3>Task-intent — completed vs created (excl. Prashant)</h3>
+   <button class="btn csv" onclick="dlCSV('intent')">⬇ CSV</button></div><div class="tw"><table id="tInt"></table></div></div>
+ </div>
+
+ <div class="view" id="v-founder">
+  <h2 class="vt">Key Product Metrics</h2><p class="vd">MAU, DAU, stickiness, retention, visits per active broker & per live property.</p>
+  <div class="grid2">
+   <div class="card"><h3>MAU</h3><canvas id="cMau"></canvas></div>
+   <div class="card"><h3>DAU (avg brokers / active visit-day)</h3><canvas id="cDau"></canvas></div>
+  </div>
+  <div class="card"><div class="bar"><h3>All founder metrics</h3><button class="btn csv" onclick="dlCSV('founder')">⬇ CSV</button></div>
+   <div class="tw"><table id="tFnd"></table></div></div>
+ </div>
+
+ <div class="view" id="v-funnel">
+  <h2 class="vt">LSQ Follow-up Funnel</h2><p class="vd">Where leads leak out of the LSQ flow (visits since LSQ adoption, ~Mar-2026+). Filter-aware. "Leaked" = the expected next LSQ action was never recorded.</p>
+  <div class="card"><div class="bar"><h3>Flow</h3><button class="btn csv" onclick="dlCSV('funnel')">⬇ CSV</button></div>
+   <div id="fnNote" class="sub"></div>
+   <div style="overflow:auto"><svg id="fnSvg" width="1180" height="540"></svg></div></div>
+  <div class="card"><div class="bar"><h3>Stage summary</h3></div>
+   <div class="tw"><table id="tFun"></table></div></div>
+ </div>
+
+ <div class="view" id="v-propstatus">
+  <h2 class="vt">Property Status</h2><p class="vd">Unit-level property ageing & visit-bucket report (source: Unit Level – Property Visits Report sheet). Respects City / Society / Unit / search filters.</p>
+  <div class="card"><div class="bar"><div><b id="psN"></b> properties</div>
+   <button class="btn csv" onclick="dlCSV('propstatus')">⬇ CSV</button></div>
+   <div class="tw"><table id="tPS"></table></div></div>
+ </div>
+
+ <div class="view" id="v-raw">
+  <h2 class="vt">Raw Data</h2><p class="vd">Every completed visit (filtered) — incl. buyer contact + all remarks/feedback from LSQ & visitors data. Apply filters, then download.</p>
+  <div class="card"><div class="bar"><div><b id="rwN"></b> visit rows</div>
+   <button class="btn csv" onclick="dlCSV('raw')">⬇ Download raw visits CSV (filtered)</button></div>
+   <div class="tw"><table id="tRaw"></table></div></div>
+ </div>
+
+ <div class="view" id="v-summary">
+  <h2 class="vt">Summary &amp; Recommendations</h2>
+  <div class="note" id="sNote"></div>
+  <div class="card" style="border-left:4px solid var(--acc)"><h3>📌 May Watch — what changed vs April (read this first)</h3>
+   <div class="sub">May 2026 is only 17 days in. Numbers below separate "to-date" from 31-day run-rate so they aren't misread.</div>
+   <div id="sMay"></div></div>
+  <div class="card"><h3>Headline</h3><div id="sHead"></div></div>
+  <div class="card"><h3>Founder questions — answered</h3><div id="sFnd"></div></div>
+  <div class="card"><h3>Findings</h3><ul class="recs" id="sFind"></ul></div>
+  <div class="card"><h3>Recommendations</h3><ul class="recs" id="sRec"></ul></div>
+ </div>
+</div></div>
+<script id="DATA" type="application/json">__DATA__</script>
+<script>
+const D=JSON.parse(document.getElementById('DATA').textContent);
+document.getElementById('gen').textContent='generated 2026-05-18 · *May partial';
+const M=D.months;
+const $=s=>document.querySelector(s);
+let charts={};
+// ---- filter UI ----
+const cities=[...new Set(D.brokers.map(b=>b.city))].sort();
+const ownerList=[...new Set(D.brokers.map(b=>b.owner))].sort();
+function opt(sel,arr,all){sel.innerHTML=`<option value="">${all}</option>`+arr.map(x=>`<option>${x}</option>`).join('')}
+opt($('#fCity'),cities,'All cities');opt($('#fOwner'),ownerList,'All owners');
+$('#fM1').innerHTML=M.map(m=>`<option>${m}</option>`).join('');
+$('#fM2').innerHTML=M.map(m=>`<option>${m}</option>`).join('');
+$('#fM1').value=M[0];$('#fM2').value=M[M.length-1];
+// ---- behavioural segments (May=2026-05 partial) ----
+const SV=(b,k)=>(+b[k]||0);
+const SEG=[
+ {id:'s1',label:'1. May visits',t:b=>SV(b,'2026-05')>0},
+ {id:'s2',label:'2. Apr visits, no May',t:b=>SV(b,'2026-04')>0&&SV(b,'2026-05')===0},
+ {id:'s3',label:'3. Mar visits, no Apr/May',t:b=>SV(b,'2026-03')>0&&SV(b,'2026-04')===0&&SV(b,'2026-05')===0},
+ {id:'s4',label:'4. Feb visits, no Mar/Apr/May',t:b=>SV(b,'2026-02')>0&&SV(b,'2026-03')===0&&SV(b,'2026-04')===0&&SV(b,'2026-05')===0},
+ {id:'s5',label:'5. Onboarded May, no May visits',t:b=>b.onb==='2026-05'&&SV(b,'2026-05')===0},
+ {id:'s6',label:'6. Onboarded Apr, no Apr/May visits',t:b=>b.onb==='2026-04'&&SV(b,'2026-04')===0&&SV(b,'2026-05')===0},
+ {id:'s7',label:'7. Onboarded Apr, Apr visit but no May',t:b=>b.onb==='2026-04'&&SV(b,'2026-04')>0&&SV(b,'2026-05')===0},
+ {id:'s8',label:'8. Onboarded Mar, no visits till date',t:b=>b.onb==='2026-03'&&(+b.total||0)===0},
+ {id:'s9',label:'9. Onboarded Mar, Mar/Apr visits but no May',t:b=>b.onb==='2026-03'&&(SV(b,'2026-03')>0||SV(b,'2026-04')>0)&&SV(b,'2026-05')===0}];
+const segCP={};SEG.forEach(s=>segCP[s.id]=new Set());
+D.brokers.forEach(b=>SEG.forEach(s=>{if(s.t(b))segCP[s.id].add(b.cp)}));
+const PIPES=['Hot','Warm','Cold','Dead','Unknown'];
+opt($('#fPipe'),PIPES,'All pipeline');
+const SMS=[...new Set((D.visits||[]).map(v=>v.sm).filter(s=>s&&s.trim()))].sort();
+opt($('#fSM'),SMS,'All sales mgrs');
+const SRCS=[...new Set((D.visits||[]).map(v=>v.src).filter(s=>s&&s.trim()))].sort();
+opt($('#fSrc'),SRCS,'All sources');
+const LSS=[...new Set((D.visits||[]).map(v=>v.lead_status).filter(s=>s&&s.trim()))].sort();
+opt($('#fLS'),LSS,'All lead status');
+const SOCS=[...new Set((D.visits||[]).map(v=>v.society).filter(s=>s&&s.trim()))].sort();
+opt($('#fSoc'),SOCS,'All societies');
+const UNITS_BY_SOC={};const ALL_UNITS=new Set();
+(D.visits||[]).forEach(v=>{const u=(''+(v.unit||'')).trim();if(!u)return;ALL_UNITS.add(u);
+ const s=v.society;if(s){(UNITS_BY_SOC[s]=UNITS_BY_SOC[s]||new Set()).add(u);}});
+function fillUnits(soc){const list=soc&&UNITS_BY_SOC[soc]?[...UNITS_BY_SOC[soc]].sort():[...ALL_UNITS].sort();
+ opt($('#fUnit'),list,'All units');}
+fillUnits('');
+const F={city:'',owner:'',m1:M[0],m2:M[M.length-1],q:'',segs:[],pipe:'',soc:'',unit:'',sm:'',src:'',ls:'',d1:'',d2:'',vstat:'completed',_cps:null};
+function recompCps(){if(!F.soc&&!F.unit){F._cps=null;return;}
+ F._cps=new Set((D.visits||[]).filter(v=>(!F.soc||v.society===F.soc)&&(!F.unit||(''+(v.unit||''))===F.unit)).map(v=>v.cp).filter(Boolean));}
+function segOK(cp){if(!F.segs.length)return true;if(!cp)return false;return F.segs.some(id=>segCP[id].has(cp))}
+function suOK_b(b){if(!F.soc&&!F.unit)return true;return F._cps&&F._cps.has(b.cp);}
+function suOK_v(v){return (!F.soc||v.society===F.soc)&&(!F.unit||(''+(v.unit||''))===F.unit);}
+function syncF(){F.city=$('#fCity').value;F.owner=$('#fOwner').value;F.m1=$('#fM1').value;F.m2=$('#fM2').value;F.q=$('#fQ').value.trim().toLowerCase();F.pipe=$('#fPipe').value;F.soc=$('#fSoc').value;F.unit=$('#fUnit').value;F.sm=$('#fSM').value;F.src=$('#fSrc').value;F.ls=$('#fLS').value;F.d1=$('#fD1').value;F.d2=$('#fD2').value;F.vstat=$('#fVStat').value;recompCps();syncCombos();render()}
+['#fCity','#fOwner','#fM1','#fM2','#fPipe','#fSM','#fSrc','#fLS','#fD1','#fD2','#fVStat'].forEach(s=>$(s).addEventListener('change',syncF));
+$('#fSoc').addEventListener('change',()=>{fillUnits($('#fSoc').value);syncF();});
+$('#fUnit').addEventListener('change',syncF);
+$('#fQ').addEventListener('input',()=>{clearTimeout(window._t);window._t=setTimeout(syncF,180)});
+$('#fSegD').innerHTML=SEG.map(s=>`<label><input type="checkbox" value="${s.id}"> ${s.label} <span class="muted">&nbsp;(${segCP[s.id].size})</span></label>`).join('');
+$('#fSegH').onclick=e=>{e.stopPropagation();$('#fSegBox').classList.toggle('open')};
+document.addEventListener('click',e=>{if(!$('#fSegBox').contains(e.target))$('#fSegBox').classList.remove('open')});
+$('#fSegD').addEventListener('change',()=>{F.segs=[...$('#fSegD').querySelectorAll('input:checked')].map(i=>i.value);
+ $('#fSegH').textContent=(F.segs.length?F.segs.length+' segment(s) selected':'All segments')+' ▾';render()});
+$('#fReset').onclick=()=>{$('#fCity').value='';$('#fOwner').value='';$('#fM1').value=M[0];$('#fM2').value=M[M.length-1];$('#fQ').value='';$('#fPipe').value='';$('#fSoc').value='';fillUnits('');$('#fUnit').value='';$('#fSM').value='';$('#fSrc').value='';$('#fLS').value='';$('#fD1').value='';$('#fD2').value='';$('#fVStat').value='completed';
+ $('#fSegD').querySelectorAll('input:checked').forEach(i=>i.checked=false);F.segs=[];F.pipe='';F.soc='';F.unit='';F.sm='';F.src='';F.ls='';F.d1='';F.d2='';F.vstat='completed';F._cps=null;$('#fSegH').textContent='All segments ▾';syncF()};
+// ---- searchable single-selects (string filters only; dates & segment excluded) ----
+function makeSearchable(sel){
+ if(sel.__ss)return sel.__ss;          // idempotent — never double-wrap a select
+ const wrap=document.createElement('div');wrap.className='ms ss';
+ sel.parentNode.insertBefore(wrap,sel);wrap.appendChild(sel);sel.style.display='none';
+ const h=document.createElement('div');h.className='ms-h';wrap.appendChild(h);
+ const d=document.createElement('div');d.className='ms-d';wrap.appendChild(d);
+ const lbl=()=>{const o=sel.options[sel.selectedIndex];h.textContent=((o&&o.textContent)||'')+' ▾';};
+ const pick=v=>{sel.value=v;sel.dispatchEvent(new Event('change'));wrap.classList.remove('open');lbl();};
+ const draw=q=>{q=(q||'').toLowerCase();
+  const opts=[...sel.options].filter(o=>(o.textContent||'').toLowerCase().includes(q));
+  d.innerHTML='<input class="ss-q" placeholder="type to filter…">'+
+   opts.map(o=>`<div class="ss-o${o.value===sel.value?' sel':''}" data-v="${(o.value||'').replace(/"/g,'&quot;')}">${o.textContent}</div>`).join('');
+  const qi=d.querySelector('.ss-q');qi.value=q;qi.oninput=()=>draw(qi.value);
+  qi.onkeydown=e=>{if(e.key==='Enter'){const f=d.querySelector('.ss-o');if(f)pick(f.dataset.v);}else if(e.key==='Escape')wrap.classList.remove('open');};
+  d.querySelectorAll('.ss-o').forEach(el=>el.onclick=()=>pick(el.dataset.v));
+  setTimeout(()=>qi.focus(),0);};
+ h.onclick=e=>{e.stopPropagation();const op=!wrap.classList.contains('open');
+  document.querySelectorAll('.ss.open').forEach(x=>x.classList.remove('open'));
+  if(op){wrap.classList.add('open');draw('');}};
+ document.addEventListener('click',e=>{if(!wrap.contains(e.target))wrap.classList.remove('open');});
+ sel.addEventListener('change',lbl);lbl();
+ sel.__ss={lbl};return sel.__ss;
+}
+const SS=['#fCity','#fOwner','#fPipe','#fSM','#fSrc','#fLS','#fSoc','#fUnit'].map(s=>makeSearchable($(s)));
+function syncCombos(){SS.forEach(w=>w.lbl());}
+function setFilter(kind,val){const map={city:'#fCity',owner:'#fOwner',sm:'#fSM',src:'#fSrc',soc:'#fSoc',ls:'#fLS'};
+ const sel=map[kind];if(!sel)return;const cur=$(sel).value;$(sel).value=(cur===val?'':val);
+ if(kind==='soc')fillUnits($(sel).value);syncF();}
+const inRange=m=>m>=F.m1&&m<=F.m2;
+const mr=()=>M.filter(inRange);
+function bMatch(b){return (!F.city||b.city===F.city)&&(!F.owner||b.owner===F.owner)&&segOK(b.cp)&&suOK_b(b)&&
+ (!F.pipe||((b.pis||[]).includes(F.pipe)))&&
+ (!F.q||(b.name+' '+b.cp+' '+b.company+' '+b.owner).toLowerCase().includes(F.q))}
+function vMatch(v){return (!F.city||v.city===F.city)&&(!F.owner||v.owner===F.owner)&&inRange(v.month)&&segOK(v.cp)&&suOK_v(v)&&
+ (!F.pipe||v.pi===F.pipe)&&(!F.sm||v.sm===F.sm)&&(!F.src||v.src===F.src)&&(!F.ls||v.lead_status===F.ls)&&
+ (!F.q||(v.broker+' '+v.cp+' '+v.company+' '+v.buyer+' '+v.society+' '+v.sm).toLowerCase().includes(F.q))}
+// ---- nav ----
+document.querySelectorAll('.nav').forEach(n=>n.onclick=()=>{
+ document.querySelectorAll('.nav').forEach(x=>x.classList.remove('on'));n.classList.add('on');
+ document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+ $('#v-'+n.dataset.v).classList.add('on');render()});
+// ---- table util ----
+function mkTable(el,cols,rows,opts={}){
+ let s=el._sort||{k:null,d:1};
+ const head='<tr>'+cols.map(c=>`<th class="${c.n?'n':''}" data-k="${c.k}">${c.t}${s.k===c.k?(s.d>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
+ let rs=[...rows];
+ if(s.k)rs.sort((a,b)=>{let x=a[s.k],y=b[s.k];x=x==null?'':x;y=y==null?'':y;
+   return (typeof x==='number'&&typeof y==='number'?x-y:(''+x).localeCompare(''+y))*s.d});
+ const body=rs.map(r=>r._sub?
+   `<tr class="sub">`+cols.map((c,i)=>`<td class="${c.n?'n':''}">${i===0?r._sub:(r[c.k]??'')}</td>`).join('')+`</tr>`
+   :'<tr>'+cols.map(c=>`<td class="${c.n?'n':''}">${fmtCell(c,r[c.k])}</td>`).join('')+'</tr>').join('');
+ el.innerHTML=head+body;
+ el.querySelectorAll('th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;
+   el._sort=(s.k===k)?{k,d:-s.d}:{k,d:1};mkTable(el,cols,rows,opts)});
+}
+function fmtCell(c,v){if(v==null||v==='')return c.n?'0':'';
+ if(c.k==='status')return `<span class="tag ${v}">${v}</span>`;
+ if(c.k==='segs'&&v)return String(v).split(',').filter(x=>x).map(x=>`<span class="segtag">S${x}</span>`).join('');
+ return v}
+// city-subgrouped rows
+function subgroup(rows,numKeys){
+ const order=['Gurgaon','Noida','Ghaziabad','Delhi','Multicity','Unknown'];
+ const by={};rows.forEach(r=>{(by[r.city]=by[r.city]||[]).push(r)});
+ let out=[];
+ order.filter(c=>by[c]).forEach(c=>{
+  const mem=by[c];const sub={_sub:`▌ ${c} (n=${mem.length})`,city:c};
+  numKeys.forEach(k=>sub[k]=mem.reduce((a,b)=>a+(+b[k]||0),0));
+  out.push(sub);out=out.concat(mem)});
+ return out;
+}
+// ---- KPIs + charts ----
+function fseries(){
+ const ms=mr();
+ const vis=ms.map(m=>D.visits.filter(v=>v.month===m&&vMatch(v)).length);
+ const act=ms.map(m=>new Set(D.visits.filter(v=>v.month===m&&vMatch(v)&&v.cp).map(v=>v.cp)).size);
+ const vpb=ms.map((m,i)=>act[i]?+(vis[i]/act[i]).toFixed(2):0);
+ return {ms,vis,act,vpb};
+}
+function kpis(){
+ const {ms,vis,act,vpb}=fseries();
+ const tv=vis.reduce((a,b)=>a+b,0);
+ const lastA=act.filter(x=>x).slice(-1)[0]||0;
+ const rv=D.visits.filter(v=>vMatch(v)&&v.revisit).length;
+ const stopped=D.brokers.filter(b=>bMatch(b)&&b.status==='Stopped').length;
+ const avgVpb=vpb.length?(vpb.reduce((a,b)=>a+b,0)/vpb.filter(x=>x).length||0).toFixed(2):0;
+ const cards=[['Total visits',tv,'in filtered range'],
+  ['Active brokers (last mo)',lastA,ms.slice(-1)[0]],
+  ['Avg visits / active broker',avgVpb,'engagement depth'],
+  ['Revisits',rv,(tv?Math.round(rv/tv*100):0)+'% of visits'],
+  ['Brokers (filtered)',D.brokers.filter(bMatch).length,'in selection'],
+  ['Stopped brokers',stopped,'2-mo zero window']];
+ $('#kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="v">${c[1]}</div><div class="l">${c[0]}</div><div class="d muted">${c[2]}</div></div>`).join('');
+}
+function chart(id,type,labels,ds){if(charts[id])charts[id].destroy();
+ charts[id]=new Chart($('#'+id),{type,data:{labels,datasets:ds},
+  options:{responsive:true,interaction:{mode:'index',intersect:false},
+   plugins:{legend:{labels:{color:'#637381'}},tooltip:{enabled:true,mode:'index',intersect:false}},
+   scales:{x:{ticks:{color:'#637381'},grid:{color:'#DFE3E8'}},y:{ticks:{color:'#637381'},grid:{color:'#DFE3E8'}}}}})}
+function overview(){
+ kpis();const {ms,vis,act,vpb}=fseries();
+ chart('cVis','bar',ms,[{label:'Visits',data:vis,backgroundColor:'#3b82f6'},
+   {label:'Active brokers',data:act,type:'line',borderColor:'#22c55e',backgroundColor:'#22c55e',yAxisID:'y'}]);
+ chart('cVpb','line',ms,[{label:'Visits/active broker',data:vpb,borderColor:'#f59e0b',backgroundColor:'#f59e0b',tension:.3}]);
+ const stk=D.fm_stick.filter(s=>inRange(s.To));
+ chart('cStk','line',stk.map(s=>s.To),[{label:'Stickiness %',data:stk.map(s=>s['Stickiness %']),borderColor:'#a78bfa',backgroundColor:'#a78bfa',tension:.3}]);
+ const pp=D.fm_perprop.filter(p=>inRange(p.Month));
+ chart('cPP','line',pp.map(p=>p.Month),[{label:'Visits/live property',data:pp.map(p=>p['Visits / live property']),borderColor:'#06b6d4',backgroundColor:'#06b6d4',tension:.3}]);
+}
+function brokers(){
+ const ms=mr();
+ let rows=D.brokers.filter(bMatch).map(b=>{const o={...b};o._t=ms.reduce((a,m)=>a+(+b[m]||0),0);
+   o.segs=SEG.filter(s=>s.t(b)).map(s=>s.id.replace('s','')).join(',');return o});
+ $('#bkN').textContent=rows.length;
+ const cols=[{k:'name',t:'Broker'},{k:'company',t:'Company'},{k:'cp',t:'CP Code'},
+  {k:'owner',t:'CP Owner'},{k:'city',t:'City'},{k:'onb',t:'Onboarded'},{k:'status',t:'Status'},
+  {k:'segs',t:'Segment(s)'},...ms.map(m=>({k:m,t:m,n:1})),{k:'_t',t:'Total',n:1}];
+ mkTable($('#tBrk'),cols,subgroup(rows,[...ms,'_t']));
+}
+// ---- last-3-month broker→property spread + activated-base retention ----
+const LAST3=M.slice(-3);
+function spreadDetail(level){ // 'unit' = distinct society|unit, 'soc' = distinct society
+ const bmeta={};(D.brokers||[]).forEach(b=>bmeta[b.cp]=b);
+ const acc={};
+ (D.visits||[]).forEach(v=>{ if(!v.cp||LAST3.indexOf(v.month)<0)return;
+   if(level==='soc'){if(!v.society)return;} else {if(!v.unit)return;}
+   const key=level==='soc'?(''+v.society):((v.society||'')+' | '+(v.unit||''));
+   (acc[v.cp]=acc[v.cp]||new Set()).add(key); });
+ return Object.keys(acc).map(cp=>{const m=bmeta[cp]||{};
+   return {cp,name:m.name||'',company:m.company||'',owner:m.owner||'',city:m.city||'',count:acc[cp].size};})
+   .sort((a,b)=>b.count-a.count);
+}
+function spreadBuckets(level){
+ const det=spreadDetail(level),tot=det.length,B={'1':0,'2':0,'3':0,'4':0,'5+':0};
+ det.forEach(r=>{const k=r.count>=5?'5+':String(r.count);if(B[k]!=null)B[k]++;});
+ return {tot,rows:['1','2','3','4','5+'].map(k=>({bucket:k,brokers:B[k],pct:tot?+(100*B[k]/tot).toFixed(1):0}))};
+}
+function actRetData(){
+ const cohs=[...new Set((D.brokers||[]).map(b=>b.onb).filter(x=>M.indexOf(x)>=0))].sort();
+ return cohs.map(C=>{
+   const act=(D.brokers||[]).filter(b=>b.onb===C&&(+b.total||0)>0);
+   const row={Cohort:C,Size:act.length};
+   M.forEach(m=>{ if(m<C){row[m]='';return;}
+     const a=act.filter(b=>(+b[m]||0)>0).length;
+     row[m]=act.length?+(100*a/act.length).toFixed(1):0; });
+   return row;});
+}
+function actRet3moData(){ // rolling 3-mo: active in m OR m-1 OR m-2
+ const cohs=[...new Set((D.brokers||[]).map(b=>b.onb).filter(x=>M.indexOf(x)>=0))].sort();
+ return cohs.map(C=>{
+   const act=(D.brokers||[]).filter(b=>b.onb===C&&(+b.total||0)>0);
+   const row={Cohort:C,Size:act.length};
+   M.forEach((m,mi)=>{ if(m<C){row[m]='';return;}
+     const win=M.slice(Math.max(0,mi-2),mi+1);
+     const a=act.filter(b=>win.some(w=>(+b[w]||0)>0)).length;
+     row[m]=act.length?+(100*a/act.length).toFixed(1):0; });
+   return row;});
+}
+function heatTri(elId,rows){
+ const cc=[{k:'Cohort',t:'Cohort'},{k:'Size',t:'Size',n:1},...M.map(m=>({k:m,t:m,n:1}))];
+ $('#'+elId).innerHTML='<tr>'+cc.map(c=>`<th class="${c.n?'n':''}">${c.t}</th>`).join('')+'</tr>'+
+  rows.map(r=>'<tr>'+cc.map(c=>{let v=r[c.k];if(c.k==='Cohort'||c.k==='Size')return `<td>${v??''}</td>`;
+   if(v===''||v==null)return '<td></td>';let g=Math.min(1,v/40);
+   let bg=`rgba(${Math.round(239-(239-34)*g)},${Math.round(68+(197-68)*g)},${Math.round(68+(94-68)*g)},.30)`;
+   return `<td style="background:${bg}">${v}</td>`}).join('')+'</tr>').join('');
+}
+function cohorts(){
+ const cr=D.fm_cohort_ret;
+ const cc=[{k:'Cohort',t:'Cohort'},{k:'Size',t:'Size',n:1},...M.map(m=>({k:m,t:m,n:1}))];
+ // heat coloring
+ $('#tCoh').innerHTML='<tr>'+cc.map(c=>`<th class="${c.n?'n':''}">${c.t}</th>`).join('')+'</tr>'+
+  cr.map(r=>'<tr>'+cc.map(c=>{let v=r[c.k];if(c.k==='Cohort'||c.k==='Size')return `<td>${v??''}</td>`;
+   if(v===''||v==null)return '<td></td>';let g=Math.min(1,v/40);
+   let bg=`rgba(${Math.round(239-(239-34)*g)},${Math.round(68+(197-68)*g)},${Math.round(68+(94-68)*g)},.30)`;
+   return `<td style="background:${bg}">${v}</td>`}).join('')+'</tr>').join('');
+ const c2=[{k:'Cohort',t:'Cohort'},{k:'Brokers onboarded',t:'Onboarded',n:1},...M.map(m=>({k:m,t:m,n:1}))];
+ const pct=window.cohMode==='pct';
+ const conv=(src,isActivePct)=>src.map(r=>{if(!pct||isActivePct)return r;const o={...r};const on=+r['Brokers onboarded']||0;
+   M.forEach(m=>{o[m]=on?+(100*(+r[m]||0)/on).toFixed(1):0});return o});
+ $('#cohModeLbl').textContent=pct?'Showing: % of onboarded (per cohort)':'Showing: absolute counts';
+ mkTable($('#tCohV'),c2,conv(D.cohort.filter(r=>r.Metric==='Visits'),false));
+ mkTable($('#tCohU'),c2,conv(D.cohort.filter(r=>r.Metric==='Unique active brokers'),false));
+ mkTable($('#tCohP'),c2,conv(D.cohort.filter(r=>r.Metric==='Active %'),true));
+ heatTri('tCohA',actRetData());
+ heatTri('tCohA3',actRet3moData());
+ const su=spreadBuckets('unit');
+ $('#sprUN').textContent='— '+su.tot+' active brokers (≥1 visit, last 3 mo: '+LAST3.join(', ')+')';
+ mkTable($('#tSprU'),[{k:'bucket',t:'Distinct units'},{k:'brokers',t:'Brokers',n:1},{k:'pct',t:'% of active brokers',n:1}],su.rows);
+ const ss=spreadBuckets('soc');
+ $('#sprSN').textContent='— '+ss.tot+' active brokers (≥1 visit, last 3 mo)';
+ mkTable($('#tSprS'),[{k:'bucket',t:'Distinct societies'},{k:'brokers',t:'Brokers',n:1},{k:'pct',t:'% of active brokers',n:1}],ss.rows);
+}
+window.cohMode='abs';
+function setCohMode(m){window.cohMode=m;
+ document.querySelectorAll('#cohTgl button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));cohorts();}
+function segments(){
+ const ms=mr();
+ const W=$('#segWrap');W.innerHTML='';
+ SEG.forEach(s=>{
+  let rows=D.brokers.filter(b=>s.t(b)&&(!F.city||b.city===F.city)&&(!F.owner||b.owner===F.owner)
+    &&(!F.q||(b.name+' '+b.cp+' '+b.company+' '+b.owner).toLowerCase().includes(F.q)));
+  rows=rows.map(b=>({...b,_t:ms.reduce((a,m)=>a+(+b[m]||0),0)}));
+  const cols=[{k:'cp',t:'CP Code'},{k:'name',t:'Broker'},{k:'company',t:'Company'},
+   {k:'owner',t:'CP Owner'},{k:'city',t:'City'},{k:'onb',t:'Onboarded'},{k:'last_active',t:'Last active'},
+   {k:'status',t:'Status'},...ms.map(m=>({k:m,t:m,n:1})),{k:'_t',t:'Visits (range)',n:1}];
+  const id='seg_'+s.id;
+  W.insertAdjacentHTML('beforeend',
+   `<div class="card"><div class="bar"><h3>${s.label} <span class="muted">— ${rows.length} brokers</span></h3>
+    <button class="btn csv" onclick="dlCSV('${id}')">⬇ CSV</button></div>
+    <div class="tw"><table id="t_${id}"></table></div></div>`);
+  mkTable($('#t_'+id),cols,subgroup(rows,[...ms,'_t']));
+ });
+}
+// infer a team member's city from the CPs they own (visit city) then SM visits
+let _ownCity=null;
+function ownerCityMap(){
+ if(_ownCity)return _ownCity;
+ const byO={},byS={};
+ (D.visits||[]).forEach(v=>{const c=v.city;if(!c||c==='Unknown')return;
+  if(v.owner){(byO[v.owner]=byO[v.owner]||{})[c]=(byO[v.owner][c]||0)+1;}
+  const s=(''+(v.sm||'')).trim();if(s){(byS[s]=byS[s]||{})[c]=(byS[s][c]||0)+1;}});
+ const top=o=>o?Object.keys(o).sort((a,b)=>o[b]-o[a])[0]:'';
+ _ownCity={byO,byS,top};return _ownCity;}
+function inferOwnerCity(name){const m=ownerCityMap();const n=(''+(name||'')).trim();
+ return m.top(m.byO[name])||m.top(m.byS[n])||'';}
+function ownCity(x){return (x.City&&x.City!=='Unknown')?x.City:(inferOwnerCity(x['CP Owner'])||x.City||'Unknown');}
+function ownerRows(){return D.cp_owner.map(x=>{const cy=ownCity(x);return {...x,City:cy,city:cy};})
+ .filter(x=>(!F.city||x.City===F.city||x.City==='Multicity')&&(!F.owner||x['CP Owner']===F.owner)&&(!F.q||(''+x['CP Owner']).toLowerCase().includes(F.q)));}
+function ownerSplitCols(metric){const cm=D.cpo_months;
+ return [{k:'CP Owner',t:'CP Owner'},{k:'City',t:'City'},...cm.map(m=>({k:metric+' '+m,t:m,n:1})),
+   ...(metric==='Visits'?[{k:'Total visits',t:'Total',n:1}]:[])];}
+// Recompute task-intent client-side so the date filter (F.d1/F.d2, by task date)
+// applies. Default window = LSQ era to today (matches engine intent_tbl scope).
+// RegInteraction defaults to last 3w; if a date filter is set, uses that window.
+function intentFromTasks(){
+ const LSQ='2026-03-20', TODAY=new Date().toISOString().slice(0,10);
+ const dateFiltered=!!(F.d1||F.d2);
+ const d1=F.d1||LSQ, d2=F.d2||TODAY;
+ const reg3=new Date(); reg3.setDate(reg3.getDate()-21);
+ const r1=dateFiltered?d1:reg3.toISOString().slice(0,10);
+ const r2=dateFiltered?d2:TODAY;
+ const KEYS=['AVFU done','AVFU created','Revisit task done','Revisit created',
+   'Nego task done','Nego created','RegInteraction done (3w)','RegInteraction created (3w)'];
+ const m={};
+ (D.tasks_intent||[]).forEach(t=>{
+  const o=t.o; if(!o)return;
+  if(!t.c) return;                             // cohort = tasks CREATED in window
+  const row=m[o]||(m[o]={'CP Owner':o,...Object.fromEntries(KEYS.map(k=>[k,0]))});
+  // "Done" = of that same created-in-window cohort, how many have completed
+  // (s=1, not Prashant-completed). Like-to-like → AVFU% bounded 0–100%.
+  const doneOK = (t.s===1 && !t.p);
+  if(t.t==='a' && t.c>=d1 && t.c<=d2){
+   row['AVFU created']++; if(doneOK) row['AVFU done']++;
+  } else if(t.t==='r' && t.c>=d1 && t.c<=d2){
+   row['Revisit created']++; if(doneOK) row['Revisit task done']++;
+  } else if(t.t==='n' && t.c>=d1 && t.c<=d2){
+   row['Nego created']++; if(doneOK) row['Nego task done']++;
+  } else if(t.t==='g' && t.c>=r1 && t.c<=r2){
+   row['RegInteraction created (3w)']++; if(doneOK) row['RegInteraction done (3w)']++;
+  }
+ });
+ const out=[];
+ for(const o of Object.keys(m)){
+  const r=m[o]; r['City']=ownCity({'CP Owner':o,'City':((D.intent||[]).find(x=>x['CP Owner']===o)||{}).City||'Unknown'});
+  r['AVFU completion %']=r['AVFU created']?+(100*r['AVFU done']/r['AVFU created']).toFixed(1):0;
+  if(F.owner && o!==F.owner) continue;
+  if(F.q && !(''+o).toLowerCase().includes(F.q)) continue;
+  if(F.city && r['City']!==F.city && r['City']!=='Multicity') continue;
+  out.push(r);
+ }
+ return out.sort((a,b)=>(''+a.City).localeCompare(''+b.City)||(b['AVFU done']-a['AVFU done']));
+}
+function owners(){
+ const r=ownerRows();
+ const mk=(el,metric)=>{const c=ownerSplitCols(metric);mkTable($(el),c,subgroup(r,c.filter(x=>x.n).map(x=>x.k)));};
+ mk('#tOwnOnb','Onboarded');mk('#tOwnAct','Active CPs');mk('#tOwnVis','Visits');
+ const dateOn=!!(F.d1||F.d2);
+ const ic=[{k:'CP Owner',t:'CP Owner'},{k:'City',t:'City'},{k:'AVFU done',t:'AVFU done',n:1},
+  {k:'AVFU created',t:'AVFU created',n:1},{k:'AVFU completion %',t:'AVFU %',n:1},
+  {k:'Revisit task done',t:'Revisit done',n:1},{k:'Nego task done',t:'Nego done',n:1},
+  {k:'RegInteraction done (3w)',t:dateOn?'RegInt done (in range)':'RegInt done 3w',n:1},
+  {k:'RegInteraction created (3w)',t:dateOn?'RegInt cre (in range)':'RegInt cre 3w',n:1}];
+ mkTable($('#tInt'),ic,intentFromTasks());
+}
+function founder(){
+ chart('cMau','bar',D.fm_mau.map(x=>x.Month),[{label:'MAU',data:D.fm_mau.map(x=>x['MAU (active brokers)']),backgroundColor:'#3b82f6'}]);
+ chart('cDau','bar',D.fm_dau.map(x=>x.Month),[{label:'Avg DAU',data:D.fm_dau.map(x=>x['Avg DAU (brokers/active day)']),backgroundColor:'#06b6d4'}]);
+ const pp={};(D.fm_perprop||[]).forEach(p=>pp[p.Month]=p);
+ const rows=D.fm_mau.map(r=>({...r,
+   'Live properties':(pp[r.Month]||{})['Live properties']??'',
+   'Visits / live property':(pp[r.Month]||{})['Visits / live property']??''}));
+ const cols=[{k:'Month',t:'Month'},{k:'MAU (active brokers)',t:'MAU',n:1},{k:'Total visits',t:'Visits',n:1},
+  {k:'Visits / active broker',t:'V/broker',n:1},{k:'Live properties',t:'Live properties',n:1},
+  {k:'Visits / live property',t:'Visits / live property',n:1}];
+ mkTable($('#tFnd'),cols,rows);
+}
+function raw(){
+ const rows=D.visits.filter(vMatch);
+ $('#rwN').textContent=rows.length;
+ const cols=[{k:'date',t:'Visit date'},{k:'month',t:'Month'},{k:'cp',t:'CP Code'},{k:'broker',t:'Broker'},
+  {k:'company',t:'Company'},{k:'city',t:'City'},{k:'buyer',t:'Buyer'},{k:'buyer_contact',t:'Buyer Contact'},
+  {k:'sm',t:'Sales Mgr'},{k:'society',t:'Society'},{k:'unit',t:'Unit'},{k:'pstatus',t:'Prop Status'},
+  {k:'owner',t:'CP Owner'},{k:'onb',t:'Broker onboarded'},{k:'pi',t:'Pipeline'},{k:'revisit',t:'Revisit',n:1},
+  {k:'remarks',t:'Remarks / Feedback'}];
+ mkTable($('#tRaw'),cols,rows.slice(0,3000));
+ if(rows.length>3000)$('#tRaw').insertAdjacentHTML('afterend',`<div class="cnt">showing first 3000 of ${rows.length} — CSV exports ALL ${rows.length}</div>`);
+}
+function isoWeek(s){const d=new Date(s+'T00:00:00');if(isNaN(d))return '';const dt=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+ const day=(dt.getUTCDay()+6)%7;dt.setUTCDate(dt.getUTCDate()-day+3);const ft=new Date(Date.UTC(dt.getUTCFullYear(),0,4));
+ const wk=1+Math.round(((dt-ft)/86400000-3+((ft.getUTCDay()+6)%7))/7);return dt.getUTCFullYear()+''+String(wk).padStart(2,'0');}
+function vaCard(title,keyf,opts){
+ const fs=opts.rows;const agg={};
+ fs.forEach(v=>{const k=keyf(v);if(k==null||k==='')return;
+   const a=agg[k]||(agg[k]={n:0,buyers:new Set(),props:new Set(),cps:new Set()});
+   a.n++;if(v.lead_key)a.buyers.add(v.lead_key);if(v.society||v.unit)a.props.add((v.society||'')+'|'+(v.unit||''));if(v.cp)a.cps.add(v.cp);});
+ let arr=Object.keys(agg).map(k=>({k,...agg[k]}));
+ if(opts.sortKey==='k')arr.sort((a,b)=>(''+b.k).localeCompare(''+a.k));
+ else arr.sort((a,b)=>b.n-a.n);
+ const cols=opts.cols;
+ const clk=opts.click;
+ let h='<table><tr><th>'+title+'</th>'+cols.map(c=>`<th class="n">${c.t}</th>`).join('')+'</tr>';
+ const tot={n:0};
+ arr.forEach(r=>{tot.n+=r.n;
+  const cell=c=>c.f(r);
+  h+=`<tr${clk?` style="cursor:pointer" onclick="setFilter('${clk}',${JSON.stringify(''+r.k).replace(/"/g,'&quot;')})"`:''}>`+
+     `<td>${(''+r.k).slice(0,64)}</td>`+cols.map(c=>`<td class="n">${cell(c)}</td>`).join('')+'</tr>';});
+ h+=`<tr class="sub"><td>Grand total (${arr.length})</td>`+cols.map(c=>`<td class="n">${c.tot?c.tot(arr):''}</td>`).join('')+'</tr></table>';
+ return `<div class="card"><div class="bar"><h3>${title}${clk?' <span class="muted" style="font-weight:400">· click to filter</span>':''}</h3></div><div class="tw" style="max-height:380px">${h}</div></div>`;
+}
+function va(){
+ // VA tab ONLY: status pool. Every other tab/computation stays completed-only.
+ const EX=D.visits_extra||[];
+ let pool = F.vstat==='completed' ? D.visits
+   : (F.vstat==='all' ? D.visits.concat(EX)
+   : EX.filter(v=>v.status===F.vstat));
+ let fs=pool.filter(vMatch);
+ if(F.d1)fs=fs.filter(v=>v.date&&v.date>=F.d1);
+ if(F.d2)fs=fs.filter(v=>v.date&&v.date<=F.d2);
+ const uB=new Set(),uP=new Set(),uC=new Set();
+ fs.forEach(v=>{if(v.lead_key)uB.add(v.lead_key);if(v.society||v.unit)uP.add((v.society||'')+'|'+(v.unit||''));if(v.cp)uC.add(v.cp);});
+ const K=[['Total visits',fs.length],['Unique buyers',uB.size],['Properties',uP.size],
+   ['Brokers (CP)',uC.size],['Visits / property',uP.size?(fs.length/uP.size).toFixed(2):0],
+   ['Visits / buyer',uB.size?(fs.length/uB.size).toFixed(2):0]];
+ $('#vaKpis').innerHTML=K.map(c=>`<div class="kpi"><div class="v">${(''+c[1]).toLocaleString?(+c[1]).toLocaleString():c[1]}</div><div class="l">${c[0]}</div></div>`).join('');
+ // daily visits trend by city
+ const days=[...new Set(fs.map(v=>v.date).filter(Boolean))].sort();
+ const byd=(city)=>days.map(d=>fs.filter(v=>v.date===d&&v.city===city).length);
+ chart('cVATrend','line',days,[
+   {label:'Noida',data:byd('Noida'),borderColor:'#3b82f6',backgroundColor:'#3b82f6',tension:.25,pointRadius:0},
+   {label:'Gurgaon',data:byd('Gurgaon'),borderColor:'#FA541C',backgroundColor:'#FA541C',tension:.25,pointRadius:0},
+   {label:'Ghaziabad',data:byd('Ghaziabad'),borderColor:'#22C55E',backgroundColor:'#22C55E',tension:.25,pointRadius:0}]);
+ $('#vaTrendNote').textContent=`${days.length} days · ${fs.length} visits in selection`;
+ const N=r=>r.n.toLocaleString(),NB=r=>r.buyers.size,NP=r=>r.props.size,NC=r=>r.cps.size;
+ const cV=[{t:'Visits',f:N,tot:a=>a.reduce((x,y)=>x+y.n,0).toLocaleString()}];
+ const cVB=[{t:'Visits',f:N,tot:a=>a.reduce((x,y)=>x+y.n,0).toLocaleString()},{t:'Unique buyers',f:NB}];
+ const cVP=[{t:'Visits',f:N},{t:'Properties',f:NP},{t:'Visits/prop',f:r=>r.props.size?(r.n/r.props.size).toFixed(2):'—'}];
+ const cOwn=[{t:'Total Visits',f:N,tot:a=>a.reduce((x,y)=>x+y.n,0).toLocaleString()},{t:'Active CPs',f:NC}];
+ const G=$('#vaGrid');G.innerHTML='';
+ const add=(html)=>G.insertAdjacentHTML('beforeend',html);
+ add(vaCard('Month',v=>v.month,{rows:fs,cols:cVP,sortKey:'k'}));
+ add(vaCard('Week',v=>isoWeek(v.date),{rows:fs,cols:cV,sortKey:'k'}));
+ add(vaCard('City',v=>v.city,{rows:fs,cols:cVP,click:'city'}));
+ add(vaCard('Society',v=>v.society,{rows:fs,cols:cVB,click:'soc'}));
+ add(vaCard('Society · Unit (Tower)',v=>v.society&&v.unit?(v.society+' · '+v.unit):'',{rows:fs,cols:cVB}));
+ add(vaCard('Sales Manager',v=>v.sm,{rows:fs,cols:cV,click:'sm'}));
+ add(vaCard('CP Owner',v=>v.owner,{rows:fs,cols:cOwn,click:'owner'}));
+ add(vaCard('Source',v=>v.src,{rows:fs,cols:cV,click:'src'}));
+ add(vaCard('Lead status',v=>v.lead_status,{rows:fs,cols:cV,click:'ls'}));
+ add(vaCard('Broker (company · CP code)',v=>(v.broker||'?')+' · '+(v.company||'')+' · '+(v.cp||''),{rows:fs,cols:cV}));
+ add(vaCard('Added by',v=>v.added_by,{rows:fs,cols:cV}));
+ add(vaCard('First added by',v=>v.first_added_by,{rows:fs,cols:cV}));
+ add(vaCard('Visit date (daily)',v=>v.date,{rows:fs,cols:cVB,sortKey:'k'}));
+}
+function summary(){
+ $('#sNote').textContent='Visit spine = Visitors sheet completed rows (LSQ = 1:1 mirror). May-26 partial to 18th. Negotiation tracking near-absent in LSQ (29 events).';
+ $('#sMay').innerHTML=`
+  <table style="width:100%;margin:8px 0 14px">
+   <tr><th>Metric</th><th class="n">April (full)</th><th class="n">May (17 days)</th><th class="n">May 31-day run-rate</th><th>Read</th></tr>
+   <tr><td><b>Sales / bookings</b></td><td class="n">19</td><td class="n">8</td><td class="n">~15</td><td>Below April and far below the <b>30 target</b> — this is the core gap (run-rate ≈ −21% vs Apr, −50% vs target).</td></tr>
+   <tr><td>Completed visits</td><td class="n">1,152</td><td class="n">755</td><td class="n">~1,377</td><td>Visits are <b>not</b> down — run-rate is <b>above</b> April. The "drop" is a partial-month illusion.</td></tr>
+   <tr><td>Active brokers</td><td class="n">431</td><td class="n">332</td><td class="n">~430+</td><td>Tracks visits; partial-month, not a real fall.</td></tr>
+   <tr><td>Visits / active broker</td><td class="n">2.67</td><td class="n">2.27</td><td class="n">~2.6</td><td>Engagement depth still flat ~2.5 — unchanged structural issue.</td></tr>
+   <tr><td>Buyer intent — Hot</td><td class="n">5 (0.4%)</td><td class="n">13 (1.7%)</td><td class="n">—</td><td>Hot & Warm share actually <b>rose</b> (Warm 3.4%→10.1%); more visits are being tagged at all.</td></tr>
+   <tr><td>Buyer intent — Cold</td><td class="n">237 (20.5%)</td><td class="n">246 (32.6%)</td><td class="n">—</td><td><b>Cold share jumped 20.5%→32.6%</b> — visit mix is lower-quality even though Hot/Warm rose.</td></tr>
+   <tr><td>MoM stickiness</td><td class="n">46.0%</td><td class="n">29.2%</td><td class="n">—</td><td>Apr→May retention collapsed (partly partial-month, but the fall is real and large).</td></tr>
+   <tr><td>Brokers onboarded</td><td class="n">990</td><td class="n">402</td><td class="n">~730</td><td><b>87–88% of newly-onboarded brokers never do a single visit</b> — the treadmill that starves sales.</td></tr>
+   <tr><td>Visits / live property</td><td class="n">10.2</td><td class="n">8.0</td><td class="n">—</td><td>More inventory + higher sales target, same engagement → per-property attention is thinning.</td></tr>
+  </table>
+  <p><b>What likely caused the sales shortfall (8 vs 30):</b></p>
+  <ul class="recs">
+   <li><b>Not a visit-volume problem.</b> Visit & active-broker run-rates are at/above April — the funnel top is fine.</li>
+   <li><b>Quality & conversion problem.</b> Cold-tagged visits jumped to ~1/3 of all visits; the visit→booking conversion fell (April 19 sales on 1,152 visits ≈ 1.6%; May ≈ 8 on 755 ≈ 1.1%).</li>
+   <li><b>Retention collapse.</b> Only 29% of April-active brokers have returned in May (vs 46% Mar→Apr) — the productive base is shrinking while onboarding adds non-activating brokers.</li>
+   <li><b>Inventory grew & target rose</b> (more properties to sell, 30 vs prior) but engagement depth (2.5 visits/active broker) and conversion did not scale with it — so the same effort now has to cover more inventory and a higher target.</li>
+   <li><b>Onboarding treadmill</b>: ~88% of Apr/May onboarded brokers have zero visits — acquisition spend isn't converting to supply of qualified visits.</li>
+  </ul>
+  <p><b>To hit 30 (from a ~15 run-rate) in the remaining ~14 days:</b> the lever is conversion & re-activation, not more onboarding —
+   (1) re-activate the 126→ lapsed April-active brokers, (2) prioritise Hot/Warm follow-ups (intent tagging is working — act on it), (3) cut Cold-heavy low-intent visits, (4) enforce after-visit follow-up SLA on the highest-intent buyers.</p>`;
+ $('#sHead').innerHTML='<p>Total visits rose 44→1,152 (Aug→Apr) but <b>almost entirely from onboarding more brokers</b>. Visits/active broker plateaued ~2.5 since Jan-26. MoM stickiness 30–46% with no upward trend; every cohort decays to &lt;10% within ~4 months. <b>Retention, not acquisition, is the constraint.</b></p>';
+ const fq=[['Visits/active-broker rising?','No — plateaued ~2.4–2.7 since Jan (peak 2.79 Jan, 2.27 May).'],
+  ['Retention / stickiness','30–46% MoM, no trend; ~2 of 3 active brokers don\'t return.'],
+  ['Real growth or more inventory?','Visits/live-property flat ~8–11; growth tracks inventory + onboarding, not efficiency.'],
+  ['Progress or just new brokers?','Just new brokers — old cohorts near-dead (<10%).'],
+  ['Target','Visits/active broker 2.5→4.0 & stickiness 35%→55% in 2 quarters.']];
+ $('#sFnd').innerHTML='<table style="width:100%"><tr><th>Question</th><th>Answer</th></tr>'+fq.map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td></tr>`).join('')+'</table>';
+ const fnd=['Onboarding treadmill: 4,431 onboarded, only ~1,207 ever gave a visit.',
+  'Severe churn: 875 stopped (1-mo) / 570 (2-mo) / 397 (3-mo).',
+  'Cohort decay: no cohort sustains >20% active.',
+  'Engagement depth flat despite 2× inventory growth.',
+  'Negotiation/closing UNTRACKED in LSQ (29 events, no CP) — funnel blind spot.',
+  'After-visit follow-up completion low (~45% at a top owner).'];
+ $('#sFind').innerHTML=fnd.map(x=>`<li>${x}</li>`).join('');
+ const rec=['Shift KPI from total visits to visits/active broker + MoM retention.',
+  'Re-activate the 570 "stopped (2-mo)" brokers — cheapest incremental visits.',
+  'Measure CP owners on broker activation %, not raw onboarding.',
+  'Make Demand-Negotiation (event 215) mandatory in SM flow.',
+  'Enforce after-visit follow-up SLA per CP owner.',
+  'Root-cause the Apr→May stickiness drop (46%→29%).'];
+ $('#sRec').innerHTML=rec.map(x=>`<li>${x}</li>`).join('');
+}
+// ---- CSV ----
+function toCSV(cols,rows){const esc=v=>{v=v==null?'':''+v;return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+ return [cols.map(c=>esc(c.t)).join(',')].concat(rows.map(r=>cols.map(c=>esc(r[c.k])).join(','))).join('\n')}
+function dl(name,csv){const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');
+ a.href=URL.createObjectURL(b);a.download=name;a.click()}
+function tableFor(which){
+ const ms=mr();let cols,rows,nm;
+ if(which==='brokers'){rows=D.brokers.filter(bMatch).map(b=>({...b,_t:ms.reduce((a,m)=>a+(+b[m]||0),0)}));
+  cols=[{k:'cp',t:'CP Code'},{k:'name',t:'Broker'},{k:'company',t:'Company'},{k:'city',t:'City'},
+   {k:'owner',t:'CP Owner'},{k:'added_by',t:'Added By'},{k:'onb',t:'Onboarded'},{k:'status',t:'Status'},
+   {k:'last_active',t:'Last Active'},...ms.map(m=>({k:m,t:m})),{k:'_t',t:'Total Visits (range)'}];nm='brokers'}
+ else if(which==='raw'){rows=D.visits.filter(vMatch);
+  cols=[{k:'date',t:'Visit Date'},{k:'month',t:'Month'},{k:'cp',t:'CP Code'},{k:'broker',t:'Broker'},
+   {k:'company',t:'Company'},{k:'city',t:'City'},{k:'buyer',t:'Buyer'},{k:'buyer_contact',t:'Buyer Contact'},
+   {k:'sm',t:'Sales Manager'},{k:'society',t:'Society'},{k:'unit',t:'Unit'},{k:'pstatus',t:'Prop Status'},
+   {k:'owner',t:'CP Owner'},{k:'onb',t:'Broker Onboarded'},{k:'pi',t:'Pipeline'},{k:'revisit',t:'Is Revisit'},
+   {k:'remarks',t:'Remarks / Feedback'}];nm='raw_visits'}
+ else if(which==='propstatus'){rows=propRows();cols=(D.propstatus.headers||[]).map(hh=>({k:hh,t:hh}));nm='property_status'}
+ else if(which==='cohortret'){rows=D.fm_cohort_ret;cols=[{k:'Cohort',t:'Cohort'},{k:'Size',t:'Size'},...M.map(m=>({k:m,t:m}))];nm='cohort_retention'}
+ else if(which==='cohortret_act'){rows=actRetData();cols=[{k:'Cohort',t:'Cohort'},{k:'Size',t:'Activated (≥1 visit)'},...M.map(m=>({k:m,t:m}))];nm='cohort_retention_activated'}
+ else if(which==='cohortret_act3'){rows=actRet3moData();cols=[{k:'Cohort',t:'Cohort'},{k:'Size',t:'Activated (≥1 visit)'},...M.map(m=>({k:m,t:m}))];nm='cohort_retention_activated_3mo'}
+ else if(which==='spread_unit'){rows=spreadDetail('unit');cols=[{k:'cp',t:'CP Code'},{k:'name',t:'Broker'},{k:'company',t:'Company'},{k:'owner',t:'CP Owner'},{k:'city',t:'City'},{k:'count',t:'Distinct units (last 3 mo)'}];nm='broker_unit_spread'}
+ else if(which==='spread_soc'){rows=spreadDetail('soc');cols=[{k:'cp',t:'CP Code'},{k:'name',t:'Broker'},{k:'company',t:'Company'},{k:'owner',t:'CP Owner'},{k:'city',t:'City'},{k:'count',t:'Distinct societies (last 3 mo)'}];nm='broker_society_spread'}
+ else if(which.indexOf('cohort_')===0){const met=which.slice(7);rows=D.cohort.filter(r=>r.Metric===met);
+  cols=[{k:'Cohort',t:'Cohort'},{k:'Brokers onboarded',t:'Onboarded'},...M.map(m=>({k:m,t:m}))];nm='cohort_'+met.replace(/[^a-z0-9]+/gi,'_')}
+ else if(which.indexOf('seg_')===0){const s=SEG.find(x=>x.id===which.slice(4));
+  rows=D.brokers.filter(b=>s.t(b)&&(!F.city||b.city===F.city)&&(!F.owner||b.owner===F.owner)
+   &&(!F.q||(b.name+' '+b.cp+' '+b.company+' '+b.owner).toLowerCase().includes(F.q)))
+   .map(b=>({...b,_t:ms.reduce((a,m)=>a+(+b[m]||0),0)}));
+  cols=[{k:'cp',t:'CP Code'},{k:'name',t:'Broker'},{k:'company',t:'Company'},{k:'owner',t:'CP Owner'},
+   {k:'city',t:'City'},{k:'added_by',t:'Added By'},{k:'onb',t:'Onboarded'},{k:'last_active',t:'Last Active'},
+   {k:'status',t:'Status'},...ms.map(m=>({k:m,t:m})),{k:'_t',t:'Visits (range)'}];nm='segment_'+s.id}
+ else if(which.indexOf('owners_')===0){const mp={owners_onb:'Onboarded',owners_act:'Active CPs',owners_vis:'Visits'};
+  const met=mp[which];rows=ownerRows();cols=ownerSplitCols(met);nm=which}
+ else if(which==='intent'){rows=D.intent;cols=Object.keys(rows[0]||{}).map(k=>({k,t:k}));nm='cp_owner_taskintent'}
+ else if(which==='founder'){rows=D.fm_mau.map((r,i)=>({...r,...(D.fm_perprop[i]||{}),Stickiness:(D.fm_stick.find(s=>s.To===r.Month)||{})['Stickiness %']}));
+  cols=[{k:'Month',t:'Month'},{k:'MAU (active brokers)',t:'MAU'},{k:'Total visits',t:'Total Visits'},
+   {k:'Visits / active broker',t:'Visits/Broker'},{k:'Stickiness',t:'Stickiness %'},{k:'Live properties',t:'Live Properties'},{k:'Visits / live property',t:'Visits/Live Prop'}];nm='founder_metrics'}
+ else if(which==='funnel'){const s=funnelStages();rows=s;
+  cols=[{k:'Stage',t:'Stage'},{k:'Count',t:'Count'},{k:'pct_start',t:'% of start'},{k:'pct_prev',t:'% of previous (info)'},{k:'pct_top',t:'% of LSQ-created'},{k:'leak',t:'Leaked / not progressed here'}];nm='funnel'}
+ return {cols,rows,nm};
+}
+// ---- Funnel ----
+function funnelFiltered(){
+ return (D.lsq_funnel||[]).filter(r=>(!F.city||r.city===F.city)&&(!F.owner||r.owner===F.owner)
+  &&inRange(r.m)&&segOK(r.cp)&&(!F.pipe||r.pi===F.pipe)
+  &&(!(F.soc||F.unit)||(F._cps&&F._cps.has(r.cp))));}
+function propRows(){const PS=D.propstatus||{headers:[],rows:[]};
+ const cc=h=>(''+h).toLowerCase();
+ const cityH=(PS.headers||[]).find(h=>cc(h)==='city')||'City';
+ const socH=(PS.headers||[]).find(h=>cc(h).includes('society'))||'Society Name';
+ const u=(F.unit||'').toLowerCase();
+ return (PS.rows||[]).filter(r=>(!F.city||(''+r[cityH]).toLowerCase().includes(F.city.toLowerCase()))
+  &&(!F.soc||(''+r[socH])===F.soc||(''+r[socH]).toLowerCase().includes(F.soc.toLowerCase()))
+  &&(!u||Object.values(r).join(' ').toLowerCase().includes(u))
+  &&(!F.q||Object.values(r).join(' ').toLowerCase().includes(F.q)));}
+const PS_GROUPS=[
+ {re:/^(region|society name|unit no|config|flat status)$/i,bg:'#FFF2E8'},
+ {re:/^(ask price|responsible person)$/i,bg:'#F1F3F5'},
+ {re:/(kh date|forfeit date|days since|days left)/i,bg:'#FFF8E1'},
+ {re:/(total visits|last week|prev week|wks ago|older)/i,bg:'#E3F4F6'},
+ {re:/(week 1|week 2|week 3|week 4|month [2-6])/i,bg:'#E9F6EC'},
+ {re:/^(hot leads|warm leads|cold leads)$/i,bg:'#FFE9E5'},
+ {re:/^lsq (hot|warm|cold)$/i,bg:'#FCEAD8'},
+ {re:/^(revisit|negotiation|booking)$/i,bg:'#E8F0FE'},
+ {re:/(not interested|need more|future prospect)/i,bg:'#EFE8FB'}];
+function psBg(h){const g=PS_GROUPS.find(x=>x.re.test(h));return g?g.bg:'#FFFFFF';}
+const PS_W={'Region':82,'Society Name':190,'Unit No':92,'Config':150,'Flat Status':108};
+function propstatus(){const PS=D.propstatus||{headers:[],rows:[]};
+ const rows=propRows();$('#psN').textContent=rows.length;
+ const HIDE=new Set(['Property Key','City']);
+ const cols=(PS.headers||[]).filter(h=>!HIDE.has(h));
+ const fIdx=cols.findIndex(h=>/^flat status$/i.test(h));
+ const frozen=fIdx>=0?fIdx+1:0;
+ const isNum=h=>!/^(region|society name|unit no|config|flat status|ask price|responsible person|kh date|forfeit date)$/i.test(h);
+ // cumulative left offsets for frozen cols
+ let lefts=[],acc=0;
+ cols.forEach((h,i)=>{lefts[i]=acc;if(i<frozen)acc+=(PS_W[h]||120);});
+ let st=window._psSort||{k:null,d:1};
+ let rs=[...rows];
+ if(st.k){rs.sort((a,b)=>{let x=a[st.k],y=b[st.k];const nx=parseFloat((''+x).replace(/[^0-9.\-]/g,'')),ny=parseFloat((''+y).replace(/[^0-9.\-]/g,''));
+   if(!isNaN(nx)&&!isNaN(ny))return (nx-ny)*st.d;return (''+x).localeCompare(''+y)*st.d;});}
+ const fw=h=>PS_W[h]||120;
+ const frz=i=>`position:sticky;left:${lefts[i]}px;min-width:${fw(cols[i])}px;max-width:${fw(cols[i])}px;width:${fw(cols[i])}px;overflow:hidden;text-overflow:ellipsis;`;
+ const thStyle=(h,i)=>{let s=`background:${psBg(h)};`;if(i<frozen)s+=frz(i)+'z-index:7;';return s;};
+ const tdStyle=(h,i)=>{let s=`background:${psBg(h)};`;if(i<frozen)s+=frz(i)+'z-index:3;';if(isNum(h))s+='text-align:right;font-variant-numeric:tabular-nums;';return s;};
+ let html='<tr>'+cols.map((h,i)=>`<th data-k="${h.replace(/"/g,'')}" style="${thStyle(h,i)}">${h}${st.k===h?(st.d>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
+ html+=rs.map(r=>'<tr>'+cols.map((h,i)=>`<td style="${tdStyle(h,i)}">${r[h]==null?'':r[h]}</td>`).join('')+'</tr>').join('');
+ const el=$('#tPS');el.innerHTML=html;
+ el.querySelectorAll('th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;window._psSort=(st.k===k)?{k,d:-st.d}:{k,d:1};propstatus();});}
+function funnelStages(){
+ const FS=funnelFiltered(),S=(k)=>FS.reduce((a,b)=>a+(b[k]||0),0);
+ const total=FS.length, sheetN=(D.funnel_meta||{}).sheet_unique_visits_lsqera||0;
+ const avfu=S('avfu'),noavfu=total-avfu,fwd=S('fwd'),park=S('park'),out=S('out');
+ const rev=S('revisit'),nego=S('nego'),book=S('booking'),ats=S('ats'),pay=S('pay');
+ const revNego=FS.reduce((a,b)=>a+((b.revisit&&b.nego)?1:0),0);
+ const negoBook=FS.reduce((a,b)=>a+((b.nego&&b.booking)?1:0),0);
+ const bookAts=FS.reduce((a,b)=>a+((b.booking&&b.ats)?1:0),0);
+ const pct=(n,d)=>d? (100*n/d).toFixed(1)+'%':'—';
+ const noFilt=!(F.city||F.owner||F.segs.length||F.pipe);
+ const start=sheetN||total||1;          // single consistent base = the starting number
+ const ST=[
+  {Stage:'Unique visits on sheet (LSQ-era, all) — START',Count:sheetN,pct_prev:'—',pct_top:'—',leak:'reference (sheet is the spine — this is the starting number)'},
+  {Stage:'Created on LSQ (event-12001)',Count:total,pct_prev:noFilt?pct(total,sheetN):'(filtered)',pct_top:'100%',leak:noFilt?`${sheetN-total} sheet visits not in LSQ`:'—'},
+  {Stage:'After-Visit Follow-up DONE',Count:avfu,pct_prev:pct(avfu,total),pct_top:pct(avfu,total),leak:`${noavfu} visits with NO follow-up logged`},
+  {Stage:'  ↳ Forward (Revisit/Nego/Booking status)',Count:fwd,pct_prev:pct(fwd,avfu),pct_top:pct(fwd,total),leak:`${out} marked Not-Interested/Dead · ${park} parked (Follow-up/Need-more/Future)`},
+  {Stage:'Revisit (AVFU status = Revisit)',Count:rev,pct_prev:pct(rev,avfu),pct_top:pct(rev,total),leak:`${rev-revNego} revisit but NO negotiation`},
+  {Stage:'Negotiation (event-215 / status)',Count:nego,pct_prev:pct(nego,rev||1),pct_top:pct(nego,total),leak:`${nego-negoBook} negotiation but NO booking`},
+  {Stage:'Booking (event-216 / status)',Count:book,pct_prev:pct(book,nego||1),pct_top:pct(book,total),leak:`${book-bookAts} booking but NO ATS`},
+  {Stage:'ATS signed (event-217)',Count:ats,pct_prev:pct(ats,book||1),pct_top:pct(ats,total),leak:`${ats-pay} ATS but NO payment`},
+  {Stage:'Payment (event-220)',Count:pay,pct_prev:pct(pay,ats||1),pct_top:pct(pay,total),leak:'—'}];
+ return ST.map(o=>({...o,pct_start:o.Stage.indexOf('START')>=0?'100% (base)':pct(+o.Count||0,start)}));
+}
+function funnel(){
+ const st=funnelStages();
+ const startN=(+st[0].Count||0);
+ $('#fnNote').innerHTML=`<b>▶ Starting point = ${startN.toLocaleString()} unique LSQ-era sheet visits</b> (completed visits on the Visitors sheet since ~Mar-2026 — the spine). <b>"% of start" is the consistent base: every stage ÷ this same starting number.</b> Selection: ${F.city||'All cities'} · ${F.owner||'All owners'} · ${F.pipe||'All pipeline'} · ${F.m1}→${F.m2}${F.segs.length?` · ${F.segs.length} seg`:''}. Note: Negotiation/Booking/ATS/Payment come from independent LSQ events (215/216/217/220), <i>not</i> strict subsets of Revisit — so "% of prev" can exceed 100% and is informational only; use "% of start" for consistency. AVFU dense from mid-Apr.`;
+ // table
+ mkTable($('#tFun'),[{k:'Stage',t:'Stage'},{k:'Count',t:'Count',n:1},{k:'pct_start',t:`% of start (${startN.toLocaleString()})`,n:1},
+   {k:'pct_prev',t:'% of prev (info)',n:1},{k:'pct_top',t:'% of LSQ-created',n:1},{k:'leak',t:'Leaked / not progressed here'}],st);
+ // ---- node & hub flow chart ----
+ const sp=st.filter(s=>!s.Stage.startsWith('  ↳'));
+ const svg=$('#fnSvg');
+ const NW=158,NH=66,GX=86,X0=24,SY=46,HUBY=210;
+ const W=X0+sp.length*(NW+GX);
+ const max=Math.max(...sp.map(s=>+s.Count||0),1);
+ const num=v=>{const m=String(v||'').replace(/,/g,'').match(/\d+/);return m?+m[0]:0;};
+ const short=t=>t.replace(/^\s*↳\s*/,'').replace(/\s*\(.*$/,'').trim();
+ const cx=i=>X0+i*(NW+GX);
+ let defs='<defs><linearGradient id="lk" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FA541C" stop-opacity="0.55"/><stop offset="1" stop-color="#FA541C" stop-opacity="0.30"/></linearGradient></defs>';
+ let h='';
+ sp.forEach((s,i)=>{
+  const x=cx(i), c=+s.Count||0;
+  if(i>0){ // ribbon from prev node to this node, thickness ∝ this count
+   const px=cx(i-1)+NW, py=SY+NH/2, ty=SY+NH/2;
+   const th=Math.max(5,Math.round(34*Math.sqrt(c/max)));
+   const mx=(px+x)/2;
+   h+=`<path d="M${px} ${py-th/2} C ${mx} ${py-th/2}, ${mx} ${ty-th/2}, ${x} ${ty-th/2} L ${x} ${ty+th/2} C ${mx} ${ty+th/2}, ${mx} ${py+th/2}, ${px} ${py+th/2} Z" fill="url(#lk)"/>`;
+   // red leak hub under the gap
+   const lk=num(s.leak);
+   if(lk>0){const hubX=mx-70,labelW=140;
+    const lth=Math.max(3,Math.round(22*Math.sqrt(lk/max)));
+    h+=`<path d="M${mx} ${py+th/2} C ${mx} ${(py+HUBY)/2}, ${mx} ${(py+HUBY)/2}, ${mx} ${HUBY-2}" stroke="#FF5630" stroke-width="${lth}" fill="none" opacity="0.5"/>`;
+    h+=`<rect x="${hubX}" y="${HUBY}" width="${labelW}" height="42" rx="8" fill="#FFE9E5" stroke="#FF5630" stroke-opacity="0.4"/>`;
+    h+=`<text x="${hubX+labelW/2}" y="${HUBY+17}" text-anchor="middle" font-size="13" font-weight="700" fill="#FF5630">▼ ${lk.toLocaleString()} lost</text>`;
+    h+=`<text x="${hubX+labelW/2}" y="${HUBY+33}" text-anchor="middle" font-size="9.5" fill="#b3402a">${(s.leak||'').replace(/^\d[\d,]*\s*/,'').slice(0,30)}</text>`;}
+  }
+  // node
+  const g=c>=0;
+  h+=`<rect x="${x}" y="${SY}" width="${NW}" height="${NH}" rx="12" fill="#FFF2E8" stroke="#FA541C" stroke-width="1.5"/>`;
+  h+=`<text x="${x+NW/2}" y="${SY+24}" text-anchor="middle" font-size="11" fill="#637381">${short(s.Stage).slice(0,24)}</text>`;
+  h+=`<text x="${x+NW/2}" y="${SY+50}" text-anchor="middle" font-size="22" font-weight="800" fill="#FA541C">${c.toLocaleString()}</text>`;
+  const psv=s.pct_start&&s.pct_start!=='—'?s.pct_start:'';
+  if(psv)h+=`<text x="${x+NW/2}" y="${SY+NH+15}" text-anchor="middle" font-size="10" fill="#637381">${psv} of start</text>`;
+ });
+ svg.setAttribute('width',W); svg.setAttribute('height',270); svg.setAttribute('viewBox',`0 0 ${W} 270`);
+ svg.innerHTML=defs+h;
+}
+function fname(nm){return `lsq_${nm}_${F.city||'all'}_${F.m1}_${F.m2}`}
+function dlCSV(which){const {cols,rows,nm}=tableFor(which);dl(fname(nm)+'.csv',toCSV(cols,rows));}
+function toast(msg){const t=$('#toast');t.textContent=msg;t.style.display='block';
+ clearTimeout(window._tt);window._tt=setTimeout(()=>t.style.display='none',4200);}
+function openSheets(which){const {cols,rows,nm}=tableFor(which);
+ if(!window.__cred){toast('Open in Sheets needs you to be signed in — reload & sign in, or use Download CSV');return;}
+ toast('Writing '+rows.length+' rows to Google Sheets…');
+ const header=cols.map(c=>c.t);
+ const data=rows.map(r=>cols.map(c=>{let v=r[c.k];return v==null?'':(''+v)}));
+ fetch('/.netlify/functions/export',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({credential:window.__cred,title:fname(nm),header,rows:data})})
+  .then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)))
+  .then(d=>{toast('✓ Written — opening Google Sheets');window.open(d.url,'_blank');})
+  .catch(e=>{toast((e&&e.error)?e.error:'Export failed — use Download CSV');});
+}
+function decorateSheetBtns(){document.querySelectorAll('.btn.csv').forEach(b=>{
+ if(b.dataset.dec)return;const oc=b.getAttribute('onclick')||'';const m=oc.match(/dlCSV\('([^']+)'\)/);
+ if(!m)return;b.dataset.dec='1';const s=document.createElement('button');s.className='btn sheet';
+ s.style.marginLeft='8px';s.textContent='⤴ Open in Sheets';s.onclick=()=>openSheets(m[1]);
+ b.parentNode.insertBefore(s,b.nextSibling);});}
+// ---- render dispatcher ----
+function render(){
+ const v=document.querySelector('.nav.on').dataset.v;
+ $('#fStat').textContent=`${F.city||'All cities'} · ${F.owner||'All owners'} · ${F.sm||'All SM'} · ${F.src||'All src'} · ${F.pipe||'All pipeline'} · ${F.ls||'All LS'} · ${F.soc||'All societies'}${F.unit?` · unit:${F.unit}`:''} · ${F.m1}→${F.m2}${(F.d1||F.d2)?` · date ${F.d1||'…'}→${F.d2||'…'}`:''}${F.vstat&&F.vstat!=='completed'?` · VA status:${F.vstat}`:''}${F.segs.length?` · ${F.segs.length} seg`:''}${F.q?` · "${F.q}"`:''}`;
+ ({overview,va,brokers,cohorts,segments,funnel,propstatus,owners,founder,raw,summary}[v])();
+ decorateSheetBtns();
+}
+render();
+</script>
+<div id="toast"></div>
+</body></html>

@@ -1,0 +1,28 @@
+name: refresh-daily
+on:
+  schedule: [{cron: '30 21 * * *'}]    # ~03:00 IST (21:30 UTC prev day)
+  workflow_dispatch: {}
+concurrency: { group: refresh, cancel-in-progress: false }
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -r automation/requirements.txt
+      - name: Full extract + push bundle & caches to Drive
+        working-directory: automation
+        env:
+          LSQ_ACCESS_KEY: ${{ secrets.LSQ_ACCESS_KEY }}
+          LSQ_SECRET_KEY: ${{ secrets.LSQ_SECRET_KEY }}
+          LSQ_API_HOST:   ${{ secrets.LSQ_API_HOST }}
+          GS_SA_JSON:     ${{ secrets.GS_SA_JSON }}
+          DRIVE_BUNDLE_FILE_ID: ${{ secrets.DRIVE_BUNDLE_FILE_ID }}
+          DRIVE_CACHES_FILE_ID: ${{ secrets.DRIVE_CACHES_FILE_ID }}
+        run: python pipeline.py --mode daily
+      # Optional: redeploy ONLY if code (template/functions) changed - <=1/day
+      - name: Trigger Netlify code redeploy (optional)
+        if: ${{ secrets.NETLIFY_BUILD_HOOK != '' }}
+        run: curl -fsS -X POST -d '{}' "${{ secrets.NETLIFY_BUILD_HOOK }}" || true

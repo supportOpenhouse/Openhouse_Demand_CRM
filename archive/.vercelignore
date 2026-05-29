@@ -1,0 +1,27 @@
+# Vercel ships every file in the project root that isn't ignored here.
+# Frontend only needs: crm.html, brand/, openhouse_logo.png, vercel.json.
+
+# Backend / infra
+api/
+migrations/
+deploy/
+
+# Python sources
+*.py
+__pycache__/
+.venv/
+
+# Old prototype data + seed (frontend now loads from /api/seed)
+seed.json
+sheet_snapshots/
+leadsquared/
+
+# Docs (not needed at runtime)
+*.md
+
+# OS / editor
+.DS_Store
+.git/
+.github/
+.idea/
+.vscode/

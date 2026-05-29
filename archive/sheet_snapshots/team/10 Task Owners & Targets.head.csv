@@ -1,0 +1,21 @@
+TASK OWNERS & TARGETS — every input item has 1 owner accountable,,,,,,
+,,,,,,
+Category,Input / Task,Target (June),Owner (single point),Supporting,Deadline,Tracking method
+,,,,,,
+#ERROR!,,,,,,
+Output,Total Bookings (Plan),45,Manish Pal,All teams,Jun 30,Daily WA + 06 Weekly Targets
+Output,Total Bookings (Stretch),48,Manish Pal,All teams,Jun 30,
+Output,Gurgaon bookings,17 (Plan) / 18 (Stretch),Puran (Closer Ggn),Ggn Hybrid + Field,Jun 30,
+Output,Noida bookings,19 / 20,Ajitesh (Closer Nod),Nod Hybrid + Field,Jun 30,
+Output,Ghaziabad bookings,9 / 10,2 Gha Closers (NEW),Gha Hybrid + Field,Jun 30,
+Output,ATS Signed (June),36,Operations (Legal/Doc team),Closers,Jun 30 + spillover Jul,CRM tracking
+,,,,,,
+#ERROR!,,,,,,
+Visits,Total Visits,"2,946",Adiksha + Rajnish (jointly),HQ Eng + Field + Direct,Jun 30,Visitors sheet + new CRM
+Visits,CP-sourced visits,"2,651",Adiksha (engagement),HQ Eng + Field,,
+Visits,Direct visits,295,Adiksha (Direct team),Marketing + Direct callers,,
+Visits,OH-led visits (hosted),"~1,232",Rajnish (Field),Field reps,,
+Visits,CP self-service (digital lock),"~1,714",CP — supported by Engagement,,,
+Visits,Visits per Active CP (productivity),3.5,Adiksha + Manish,HQ Engagement,,Daily MAU dashboard
+,,,,,,
+#ERROR!,,,,,,

@@ -1,0 +1,68 @@
+# Render service blueprint. Connect this repo at https://dashboard.render.com → New → Blueprint.
+# All secrets are placeholders — set the actual values via Environment Group "oh-crm-secrets".
+
+services:
+  # ── 1. Web service · the FastAPI app ────────────────────────────────────
+  - type: web
+    name: oh-demand-crm-api
+    runtime: python
+    region: singapore                    # closest to Neon ap-southeast-1 + India users
+    plan: starter                        # bump to standard before public launch
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ALLOWED_EMAIL_DOMAIN
+        value: openhouse.in
+      - key: FRONTEND_ORIGIN
+        value: https://oh-demand-crm.vercel.app
+      - key: API_BASE_URL
+        value: https://oh-demand-crm-api.onrender.com
+      - key: SEED_VISITS_LIMIT
+        value: "1500"
+      - key: RUN_SYNC_IN_PROCESS
+        value: "0"
+      # Pulled from the Environment Group below
+      - fromGroup: oh-crm-secrets
+
+  # ── 2. Cron job · sheet sync every 15 min ──────────────────────────────
+  - type: cron
+    name: oh-demand-crm-sheet-sync
+    runtime: python
+    region: singapore
+    plan: starter
+    rootDir: backend
+    schedule: "*/15 * * * *"
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    # Hit the web service's /admin/sync endpoint with the internal token.
+    # Curl is preinstalled on Render's Python runtime.
+    startCommand: |
+      curl -fsS -X POST \
+        -H "X-Internal-Cron-Token: $INTERNAL_CRON_TOKEN" \
+        "$API_BASE_URL/admin/sync"
+    envVars:
+      - key: API_BASE_URL
+        value: https://oh-demand-crm-api.onrender.com
+      - fromGroup: oh-crm-secrets
+
+# ── Shared secrets ────────────────────────────────────────────────────────
+# Define ONCE in the Render dashboard under Environment Groups; both services consume.
+envVarGroups:
+  - name: oh-crm-secrets
+    envVars:
+      - key: DATABASE_URL                    # Neon pooler URL (with ?sslmode=require)
+        value: ""
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        value: ""
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        value: ""
+      - key: SESSION_SECRET                  # any 32+ char random string
+        value: ""
+      - key: INTERNAL_CRON_TOKEN             # any 32+ char random string
+        value: ""
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON     # paste full JSON contents on one line
+        value: ""

@@ -1,0 +1,25 @@
+# SECURITY: build context = project root. NEVER upload secrets/PII to Cloud Build.
+.env
+.env.*
+**/service_account.json
+**/_sa.json
+credentials/
+snapshots/
+dm_site/
+_preview/
+/tmp/
+**/__pycache__/
+*.pyc
+*.log
+# data caches / outputs
+**/dm_*.json
+*.xlsx
+*.csv
+# keep ONLY what the Dockerfile COPYies: _dm_*.py, dashboard_template.html, automation/
+!_dm_extract_lsq.py
+!_dm_engine.py
+!_dm_dashdata.py
+!_dm_enrich.py
+!_dm_build_authsite.py
+!dashboard_template.html
+!automation/**

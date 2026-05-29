@@ -1,0 +1,21 @@
+BROKERS FROM OH NETWORK PER LIVE-INVENTORY PROPERTY,,,,,,,,,,,,,,,,
+"For each of 101 live-inventory properties, lists OH brokers who: (a) have a completed visit on that unit (tower+flat match), and/or (b) listed the society in their self-declared 'societies' field, and/or (c) have visited the society and it appears in 'societies_worked'. Sorted: visit-bearers first (by #visits desc), then listed-only.",,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,
+"▶ Nector - 2104, Ajnara Gen 10  |  Ajnara Gen 10  ·  Ghaziabad  ·  Coming Soon  ·  2 BHK  ·  Sales Mgr: Sahil Kumar",,,,,,,,,,,,,,,,
+  No OH brokers found with visit history or society listing for this property.,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,
+"▶ D - 1101, Amrapali Empire  |  Amrapali Empire  ·  Ghaziabad  ·  Ready  ·  2 BHK  ·  Sales Mgr: Sahil Kumar",,,,,,,,,,,,,,,,
+Broker Name,Phone,CP Code,Company,Broker City,CP Owner (LSQ),Onboarded By,Visit Sales Managers (OH SMs),Visits at society (any unit),Last Visit at Society,Visits at THIS unit,Last Visit at Unit,All-time Visits,Listed in 'societies' (self),Listed in 'societies_worked',Activity Category,Source
+Jay Mishra,9990546354,CP02282,RJ Homes,Noida,adiksha.sahu@openhouse.in,Animesh,Sahil Kumar,4,2026-04-25,4,2026-04-25,8,,Yes,D30_active,Visit + Listed (worked)
+Hardik ,7701843722,CP04088,Avenue consultancy ,Ghaziabad,adiksha.sahu@openhouse.in,Hashim,"Hashim, Sahil Kumar",3,2026-05-10,3,2026-05-10,5,,Yes,D30_active,Visit + Listed (worked)
+Bijendra Prajapati,8383886364,CP02432,Individual,Ghaziabad,saket.kumar@openhouse.in,Saket Kumar,Sahil Kumar,3,2026-04-19,3,2026-04-19,3,,Yes,D60_active,Visit + Listed (worked)
+Rinku Chauhan ,9643112965,CP01550,Individual,Noida,adiksha.sahu@openhouse.in,Mayank Chauhan,Sahil Kumar,2,2026-04-11,2,2026-04-11,27,,Yes,D30_active,Visit + Listed (worked)
+Pawan Kumar,9899553318,CP01332,Individual,Noida,sahil.kumar@openhouse.in,Ajitesh Singh,"Hashim, Sahil Kumar",2,2026-05-04,2,2026-05-04,12,,Yes,D30_active,Visit + Listed (worked)
+Yash jairam property ,8743823442,CP02251,Jai Ram property ,Noida,sahil.kumar@openhouse.in,Sahil Kumar,"Hashim, Sahil Kumar",2,2026-05-03,2,2026-05-03,7,,Yes,D30_active,Visit + Listed (worked)
+Vansh,9910438510,CP02507,Individual,Ghaziabad,sahil.kumar@openhouse.in,Sahil Kumar,Sahil Kumar,2,2026-04-25,2,2026-04-25,7,,Yes,D60_active,Visit + Listed (worked)
+Preeti verma,7678605041,CP02875,Individual,Ghaziabad,sahil.kumar@openhouse.in,Sahil Kumar,Sahil Kumar,2,2026-03-30,2,2026-03-30,6,,Yes,D30_active,Visit + Listed (worked)
+VIVEK SRIVASTVA,9045752223,CP02423,Individual,Ghaziabad,saket.kumar@openhouse.in,Saket Kumar,Sahil Kumar,2,2026-05-16,2,2026-05-16,6,,Yes,D30_active,Visit + Listed (worked)
+Hardev Kumar ,9599706441,CP01291,Global Properties ,Noida,shubham.sharma@openhouse.in,,Sahil Kumar,2,2026-05-04,2,2026-05-04,6,,Yes,D30_active,Visit + Listed (worked)
+LALIT KUMAR,8287295474,CP02268,Easy homes,Ghaziabad,saket.kumar@openhouse.in,Saket Kumar,Sahil Kumar,2,2026-05-02,2,2026-05-02,4,,Yes,D30_active,Visit + Listed (worked)
+Sunil Sharma ,9718872060,CP02346,Sangam Properties ,Noida,adiksha.sahu@openhouse.in,Animesh,Sahil Kumar,2,2026-03-19,2,2026-03-19,2,,Yes,D90_active,Visit + Listed (worked)
+Saurabh kaushal,7703917619,CP02250,Individual,Noida,sahil.kumar@openhouse.in,Sahil Kumar,"Mayank Chauhan, Sahil Kumar",1,2026-04-21,1,2026-04-21,10,,Yes,D30_active,Visit + Listed (worked)

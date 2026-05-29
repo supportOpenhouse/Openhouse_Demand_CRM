@@ -1,0 +1,8 @@
+.env
+**/service_account.json
+**/_sa.json
+/tmp/
+__pycache__/
+*.pyc
+dm_site/netlify/functions/_sa.json
+dm_site/netlify/functions/_data.json

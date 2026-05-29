@@ -1,0 +1,989 @@
+{
+  "visitors": {
+    "title": "Visitors data",
+    "tabs": [
+      {
+        "name": "Sheet1",
+        "rows": 7691,
+        "cols": 42,
+        "header": [
+          "id",
+          "selected_date",
+          "selected_time",
+          "status",
+          "buyer_feedback",
+          "created_at",
+          "updated_at",
+          "visit_date",
+          "lead_status",
+          "sales_feedback",
+          "sales_manager",
+          "source",
+          "broker_name",
+          "broker_contact",
+          "broker_alt_contact",
+          "cp_code",
+          "company_name",
+          "city",
+          "buyer_name",
+          "buyer_contact",
+          "profession",
+          "buyer_registration_date",
+          "added_by",
+          "floor",
+          "furnishing_status",
+          "unit_address_line1",
+          "unit_address_line2",
+          "society_name",
+          "all_feedback",
+          "lead_key",
+          "lead_occurrence_count",
+          "first_added_by",
+          "latest_followup_date",
+          "latest_followup_note",
+          "reminder_status",
+          "listing_status",
+          "time_spent_on_site",
+          "society_amenity_tour",
+          "price_discussion",
+          "client_queries",
+          "closing_signal",
+          "buyer_primary_concern"
+        ]
+      },
+      {
+        "name": "Sheet6",
+        "rows": 24,
+        "cols": 4,
+        "header": [
+          "SF",
+          "102",
+          "I",
+          "SS The Coralwood"
+        ]
+      },
+      {
+        "name": "Leadsquare",
+        "rows": 0,
+        "cols": 0,
+        "header": []
+      },
+      {
+        "name": "Sheet2",
+        "rows": 7691,
+        "cols": 9,
+        "header": [
+          "id",
+          "CP Owner",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "listing_status"
+        ]
+      },
+      {
+        "name": "Sheet5",
+        "rows": 4,
+        "cols": 36,
+        "header": [
+          "id",
+          "selected_date",
+          "selected_time",
+          "status",
+          "buyer_feedback",
+          "created_at",
+          "updated_at",
+          "visit_date",
+          "lead_status",
+          "sales_feedback",
+          "sales_manager",
+          "source",
+          "broker_name",
+          "broker_contact",
+          "broker_alt_contact",
+          "cp_code",
+          "company_name",
+          "city",
+          "buyer_name",
+          "buyer_contact",
+          "profession",
+          "buyer_registration_date",
+          "added_by",
+          "floor",
+          "furnishing_status",
+          "unit_address_line1",
+          "unit_address_line2",
+          "society_name",
+          "all_feedback",
+          "lead_key",
+          "lead_occurrence_count",
+          "first_added_by",
+          "lsq_status",
+          "lsq_error",
+          "lsq_lead_id",
+          "lsq_deal_id"
+        ]
+      }
+    ]
+  },
+  "brokers": {
+    "title": "Broker_data_query",
+    "tabs": [
+      {
+        "name": "Sheet1",
+        "rows": 4681,
+        "cols": 23,
+        "header": [
+          "id",
+          "name",
+          "phone_number",
+          "created_at",
+          "updated_at",
+          "feb_visits",
+          "localities",
+          "societies",
+          "cp_code",
+          "cp_code_verify",
+          "company_name",
+          "city",
+          "added_by",
+          "d30_visits",
+          "d60_visits",
+          "d90_visits",
+          "all_time_visits",
+          "societies_worked",
+          "visit_sales_managers",
+          "activity_category",
+          "micro_markets",
+          "dec_visits",
+          "jan_visits"
+        ]
+      },
+      {
+        "name": "Pivot Table 3",
+        "rows": 1,
+        "cols": 2,
+        "header": [
+          "",
+          "Columns"
+        ]
+      },
+      {
+        "name": "Sheet21",
+        "rows": 62,
+        "cols": 3,
+        "header": [
+          "Broker Code",
+          "Broker Phone",
+          ""
+        ]
+      },
+      {
+        "name": "Pivot Table 2",
+        "rows": 5,
+        "cols": 8,
+        "header": [
+          "COUNTA of phone_number",
+          "activity_category",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "DB",
+        "rows": 61,
+        "cols": 23,
+        "header": [
+          "id",
+          "name",
+          "phone_number",
+          "created_at",
+          "updated_at",
+          "alternate_number",
+          "localities",
+          "societies",
+          "cp_code",
+          "cp_code_verify",
+          "company_name",
+          "city",
+          "added_by",
+          "d30_visits",
+          "d60_visits",
+          "d90_visits",
+          "all_time_visits",
+          "societies_worked",
+          "visit_sales_managers",
+          "activity_category",
+          "micro_markets",
+          "dec_visits",
+          "jan_visits"
+        ]
+      },
+      {
+        "name": "LeadSquare",
+        "rows": 4873,
+        "cols": 17,
+        "header": [
+          "Id",
+          "name",
+          "societies",
+          "phone number",
+          "city",
+          "cp code",
+          "company",
+          "added by",
+          "micromarket",
+          "source",
+          "status",
+          "CP owner",
+          "Sync Status",
+          "lsq_lead_id",
+          "lsq_error",
+          "lsq_synced_at",
+          "lsq_raw_response"
+        ]
+      },
+      {
+        "name": "Sheet18",
+        "rows": 6608,
+        "cols": 19,
+        "header": [
+          "3533",
+          "Ajay ",
+          "None",
+          "9311374013",
+          "Gurgaon",
+          "CP02417",
+          "Go Realtors Sector 109",
+          "Rahul Singh",
+          "Dwarka Expressway",
+          "brokerApp",
+          "Onboarded",
+          "6a582cae-0324-11f1-a635-0630e4b64663",
+          "",
+          "",
+          "",
+          "",
+          "cp_code",
+          "Assigned to",
+          "assigned_to_email"
+        ]
+      },
+      {
+        "name": "MM_updated_data",
+        "rows": 2200,
+        "cols": 25,
+        "header": [
+          "Id",
+          "name",
+          "societies",
+          "phone number",
+          "city",
+          "cp code",
+          "company",
+          "added by",
+          "micromarket",
+          "micromarket 2",
+          "micromarket 3",
+          "micromarket 4",
+          "micromarket 5",
+          "source",
+          "object stage",
+          "CP owner",
+          "Sync Status",
+          "Supply Team Owner",
+          "Demand Team Owner",
+          "lsq_sync_status",
+          "lsq_lead_id",
+          "lsq_error",
+          "lsq_synced_at",
+          "lsq_opportunity_id",
+          "lsq_raw_response"
+        ]
+      },
+      {
+        "name": "stage",
+        "rows": 2,
+        "cols": 24,
+        "header": [
+          "Id",
+          "name",
+          "societies",
+          "phone number",
+          "city",
+          "cp code",
+          "company",
+          "added by",
+          "micromarket",
+          "micromarket 2",
+          "micromarket 3",
+          "micromarket 4",
+          "micromarket 5",
+          "source",
+          "object stage",
+          "CP owner",
+          "Supply Team Owner",
+          "Demand Team Owner",
+          "lsq_sync_status",
+          "lsq_lead_id",
+          "lsq_error",
+          "lsq_synced_at",
+          "lsq_opportunity_id",
+          "lsq_raw_response"
+        ]
+      },
+      {
+        "name": "Pivot Table 1",
+        "rows": 17,
+        "cols": 2,
+        "header": [
+          "micromarket",
+          "COUNTA of micromarket"
+        ]
+      },
+      {
+        "name": "Test",
+        "rows": 6,
+        "cols": 12,
+        "header": [
+          "Id",
+          "name",
+          "societies",
+          "phone number",
+          "city",
+          "cp code",
+          "company",
+          "added by",
+          "micromarket",
+          "source",
+          "status",
+          "CP owner"
+        ]
+      },
+      {
+        "name": "Gurgaon City Master",
+        "rows": 483,
+        "cols": 12,
+        "header": [
+          "PROP_NAME",
+          "LOCALITY",
+          "Micromarket",
+          "Assignment",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "Sheet12",
+        "rows": 483,
+        "cols": 12,
+        "header": [
+          "PROP_NAME",
+          "LOCALITY",
+          "Micromarket",
+          "normalised",
+          "",
+          "Assignment",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "Noida City Master",
+        "rows": 910,
+        "cols": 8,
+        "header": [
+          "PROP_NAME",
+          "LOCALITY",
+          "Micromarket",
+          "Assignment",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "Micromarket",
+        "rows": 74,
+        "cols": 11,
+        "header": [
+          "Micromarket",
+          "",
+          "micro_markets",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "Copy of Sheet1",
+        "rows": 2013,
+        "cols": 23,
+        "header": [
+          "id",
+          "name",
+          "phone_number",
+          "created_at",
+          "updated_at",
+          "alternate_number",
+          "localities",
+          "societies",
+          "cp_code",
+          "cp_code_verify",
+          "company_name",
+          "city",
+          "added_by",
+          "d30_visits",
+          "d60_visits",
+          "d90_visits",
+          "all_time_visits",
+          "societies_worked",
+          "visit_sales_managers",
+          "activity_category",
+          "micro_markets",
+          "dec_visits",
+          "jan_visits"
+        ]
+      },
+      {
+        "name": "Sheet6",
+        "rows": 483,
+        "cols": 6,
+        "header": [
+          "PROP_NAME",
+          "LOCALITY",
+          "Micromarket",
+          "ASSIGNMENT",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "BrokerBitrix",
+        "rows": 643,
+        "cols": 13,
+        "header": [
+          "id",
+          "name",
+          "phone_number",
+          "create_at",
+          "updated_at",
+          "alternate_number",
+          "localities",
+          "societies",
+          "cp_code",
+          "cp_code_verify",
+          "company_name",
+          "city",
+          ""
+        ]
+      },
+      {
+        "name": "Sheet3",
+        "rows": 353,
+        "cols": 10,
+        "header": [
+          "CP Ref No",
+          "Deal Name",
+          "Stage",
+          "Responsible",
+          "Source",
+          "Remarks",
+          "Created",
+          "Comment",
+          "Modified by",
+          "ID"
+        ]
+      },
+      {
+        "name": "Sheet4",
+        "rows": 368,
+        "cols": 10,
+        "header": [
+          "CP Ref No",
+          "Deal Name",
+          "Stage",
+          "Responsible",
+          "Source",
+          "Remarks",
+          "Created",
+          "Comment",
+          "Modified by",
+          "ID"
+        ]
+      }
+    ]
+  },
+  "live_inventory": {
+    "title": "Openhouse Live inventory",
+    "tabs": [
+      {
+        "name": "Sheet1",
+        "rows": 102,
+        "cols": 17,
+        "header": [
+          "Last refreshed: 2026-05-28 04:00 IST  |  101 rows",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "All Properties",
+        "rows": 283,
+        "cols": 17,
+        "header": [
+          "Last refreshed: 2026-05-28 04:00 IST  |  282 rows",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      }
+    ]
+  },
+  "team": {
+    "title": "Demand Planning sheet",
+    "tabs": [
+      {
+        "name": "00 Summary",
+        "rows": 86,
+        "cols": 6,
+        "header": [
+          "OH Demand Plan \u2014 June 2026 (v5 LOCKED with Incentives)",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "01 Booking Funnel",
+        "rows": 26,
+        "cols": 7,
+        "header": [
+          "BOOKING FUNNEL \u2014 June 2026 (PLAN 45 / STRETCH 48) v5",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "02 CP Plan",
+        "rows": 36,
+        "cols": 6,
+        "header": [
+          "CHANNEL PARTNER PLAN \u2014 June 2026 (v4) \u2014 June MAU definition",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "03 Engagement & Productivity",
+        "rows": 42,
+        "cols": 5,
+        "header": [
+          "ENGAGEMENT MECHANICS \u2014 v4",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "04 Onboarding Plan",
+        "rows": 48,
+        "cols": 6,
+        "header": [
+          "NEW CP ONBOARDING PLAN \u2014 June 2026 (v4)",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "05 Team Structure",
+        "rows": 70,
+        "cols": 7,
+        "header": [
+          "DEMAND TEAM \u2014 June 2026 (v5, Cap = 34)",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "06 Weekly Targets",
+        "rows": 42,
+        "cols": 6,
+        "header": [
+          "WEEKLY MILESTONES \u2014 May 22-31 (pre-plan) + June 2026 (v4)",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "07 Assumptions Log",
+        "rows": 72,
+        "cols": 5,
+        "header": [
+          "ASSUMPTIONS LOG \u2014 every input editable; rebuild model when changing",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "08 Risks & Sensitivities",
+        "rows": 36,
+        "cols": 5,
+        "header": [
+          "RISKS & SENSITIVITIES \u2014 June 45 plan (v4)",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "09 Incentive Structure",
+        "rows": 77,
+        "cols": 6,
+        "header": [
+          "INCENTIVE STRUCTURE \u2014 June 2026 (v5)",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "10 Onboarding Performance",
+        "rows": 104,
+        "cols": 18,
+        "header": [
+          "Broker Onboarding Performance Snapshot",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "10 Task Owners & Targets",
+        "rows": 97,
+        "cols": 7,
+        "header": [
+          "TASK OWNERS & TARGETS \u2014 every input item has 1 owner accountable",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "11 Scenarios",
+        "rows": 46,
+        "cols": 5,
+        "header": [
+          "SCENARIOS \u2014 Best / Expected / Worst case bookings",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "12 Sold Buyer Analysis",
+        "rows": 101,
+        "cols": 24,
+        "header": [
+          "City",
+          "Society",
+          "Unit",
+          "Buyer Name",
+          "Buyer Sourcing",
+          "Booking Date",
+          "ATS Date",
+          "Registry Date",
+          "Sale Price",
+          "Match Method",
+          "Sales Broker Name",
+          "Sales Broker CP",
+          "Sales Broker Company",
+          "Sales Broker Onboarder",
+          "First Visit Date",
+          "Days First Visit \u2192 Booking",
+          "Visits to This Property",
+          "  Completed",
+          "  Cancelled",
+          "Revisit Same Property?",
+          "Properties Buyer Visited (via matched broker)",
+          "Total Visits Buyer Made (via matched broker)",
+          "  Completed (all properties)",
+          "Brokers Buyer Engaged With (for this property)"
+        ]
+      },
+      {
+        "name": "13 Broker Performance",
+        "rows": 1239,
+        "cols": 20,
+        "header": [
+          "Broker Name",
+          "CP Code",
+          "City",
+          "Company",
+          "Phone",
+          "Onboarded By",
+          "Onboarded On",
+          "Total Visits",
+          "Completed Visits",
+          "Cancelled Visits",
+          "Upcoming Visits",
+          "First Visit",
+          "Last Visit",
+          "Unique Societies Shown",
+          "Unique Buyers Brought",
+          "phone_clean",
+          "Sales (Closings)",
+          "GMV \u20b9",
+          "Cancellation %",
+          "Conversion % (Sales/Completed Visits)"
+        ]
+      },
+      {
+        "name": "14 Onboarder People",
+        "rows": 43,
+        "cols": 14,
+        "header": [
+          "Onboarder",
+          "Channel",
+          "Brokers Onboarded",
+          "Activated (\u22651 visit)",
+          "Total Visits Brought",
+          "Completed Visits Brought",
+          "Unique Buyers Brought",
+          "Sales (Closings) Brought",
+          "GMV \u20b9 Brought",
+          "First Onboarded",
+          "Last Onboarded",
+          "Activation %",
+          "Visits per Onboarded Broker",
+          "Visits per Activated Broker"
+        ]
+      },
+      {
+        "name": "15 Online vs Offline",
+        "rows": 16,
+        "cols": 5,
+        "header": [
+          "Online vs Offline rollup \u2014 auto-updates from '14 Onboarder People' Channel column",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "16 Property Demand & TAT",
+        "rows": 112,
+        "cols": 14,
+        "header": [
+          "CITY-WISE SUMMARY (unit-level; completed visits only; in-window subset of properties closing between 2025-08-02 and 2026-05-26)",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "17 Issue Diagnostics & Actions",
+        "rows": 336,
+        "cols": 18,
+        "header": [
+          "OPENHOUSE DEMAND DIAGNOSTICS \u2014 Generated 2026-05-25",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "18 Broker Tiers",
+        "rows": 264,
+        "cols": 19,
+        "header": [
+          "BROKER TIERING \u2014 Top brokers per city, ranked by consistency + sales priority",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "19 Broker Tier Benefits",
+        "rows": 51,
+        "cols": 5,
+        "header": [
+          "BROKER TIER BENEFITS \u2014 what we offer Gold / Silver brokers",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "20 Broker Lead-Gen Channels",
+        "rows": 120,
+        "cols": 8,
+        "header": [
+          "BROKER LEAD-GEN CHANNELS \u2014 exhaustive list of how NCR resale brokers source buyers",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      {
+        "name": "21 99acres Brokers \u2014 Gurgaon",
+        "rows": 446,
+        "cols": 14,
+        "header": [
+          "TOP 99ACRES BROKERS IN GURGAON \u2014 by listings on OH live-inventory societies",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      }
+    ]
+  }
+}

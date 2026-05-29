@@ -1,0 +1,21 @@
+"BROKER TIERING — Top brokers per city, ranked by consistency + sales priority",,,,,,,,,,,,,,,,,,
+"Tier 1 = Gold, Tier 2 = Silver.  Tier 1: 50 GG + 50 N + 25 GZ = 125.  Tier 2: 50 GG + 50 N + 25 GZ = 125.  Total tiered = 250. Priority order: (1) ≥3 completed visits/month in ALL of Mar+Apr+May 2026, (2) Has sold a property, (3) Bookings Apr-May, (4) Bookings Mar-May, (5) Total Mar-May visits, (6) All-time visits",,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,
+SUMMARY,,,,,,,,,,,,,,,,,,
+city,Tier,brokers,consistent,has_sold,total_sales,bookings_apr_may,avg_mar_may_visits,consistent_pct,sold_pct,,,,,,,,,
+Gurgaon,Gold,50,11,19,23,6,12.3,22,38,,,,,,,,,
+Gurgaon,Silver,50,0,0,0,0,6.1,0,0,,,,,,,,,
+Noida,Gold,50,3,26,27,7,8.3,6,52,,,,,,,,,
+Noida,Silver,50,0,0,0,0,5.4,0,0,,,,,,,,,
+Ghaziabad,Gold,25,0,2,2,0,5.2,0,8,,,,,,,,,
+Ghaziabad,Silver,25,0,0,0,0,1.2,0,0,,,,,,,,,
+,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,
+TIERED BROKER LIST,,,,,,,,,,,,,,,,,,
+Tier,Rank in City,City,Broker Name,CP Code,Company,Phone,Consistent (≥3 vpm Mar/Apr/May),Mar Visits,Apr Visits,May Visits,Total Visits Mar-May,Has Sold (Ever),Total Sales Attributed,Bookings Apr-May,Bookings Mar-May,All-time Completed Visits,Onboarded By,Onboarded On
+Gold,1,Gurgaon,Rahul Singh,CP01233,Elbrus Infratech,7033387333,Yes,25,3,7,35,Yes,1,1,1,53,,2025-11-06
+Gold,2,Gurgaon,Mohd Imran,CP00023,Vertical Heights Realty ,9625023734,Yes,5,6,6,17,Yes,1,1,1,60,,2025-03-19
+Gold,3,Gurgaon,Sumit Rustagi,CP00286,New Propmart,9999484883,Yes,14,15,10,39,Yes,2,0,1,83,,2025-03-19
+Gold,4,Gurgaon,Saurabh Pradhan,CP00538,Arihant Realty Group,8076065844,Yes,10,6,7,23,Yes,1,0,0,61,,2025-07-23
+Gold,5,Gurgaon,Gopal Jha,CP00015,Makaan Search Realty,9289281126,Yes,4,4,15,23,No,0,0,0,51,,2025-03-19
+Gold,6,Gurgaon,Mohan,CP02669,Individual,8930524050,Yes,3,5,12,20,No,0,0,0,20,Aman Rawat,2026-03-15

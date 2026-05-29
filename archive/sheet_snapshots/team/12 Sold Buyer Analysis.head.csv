@@ -1,0 +1,21 @@
+City,Society,Unit,Buyer Name,Buyer Sourcing,Booking Date,ATS Date,Registry Date,Sale Price,Match Method,Sales Broker Name,Sales Broker CP,Sales Broker Company,Sales Broker Onboarder,First Visit Date,Days First Visit → Booking,Visits to This Property,  Completed,  Cancelled,Revisit Same Property?,Properties Buyer Visited (via matched broker),Total Visits Buyer Made (via matched broker),  Completed (all properties),Brokers Buyer Engaged With (for this property)
+Gurgaon,SS Almeria,15B SF,,Direct,,2025-03-10,,17000000,N/A (Direct sale),Direct,,,,,,0,0,0,FALSE,16,26,17,0
+Gurgaon,DLF Express Greens,G 171,Shubhangi /,Direct,2024-10-13,2026-04-09,,13100000,N/A (Direct sale),Direct,,,,,,0,0,0,FALSE,27,54,48,0
+Gurgaon,Antriksh Heights,AD 504,Garmina Sharma / Arun Sharma,CP,2024-10-12,2024-10-12,,14351000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,51,210,165,0
+Gurgaon,SS Coralwood,A 101,Ritiz Pandey,Direct,2025-01-16,2025-01-16,2025-04-15,18000000,N/A (Direct sale),Direct,,,,,,0,0,0,FALSE,4,4,4,0
+Gurgaon,SS Almeria,17B FF,Ritin Mittal,CP,,2024-11-21,,19400000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,3,3,2,0
+Gurgaon,Antriksh Heights,AM 402,Braj Raj Kumar Singh,CP,2024-12-22,2024-12-22,,11600000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,20,31,21,0
+Gurgaon,SS Coralwood,H 701,Yogesh/Vaibhav Chaudhary,CP,2025-02-25,2025-02-25,2025-04-22,17500000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,25,38,32,0
+Gurgaon,Antriksh Heights,AD1703,Shreyansh,CP,2024-12-12,2024-12-12,,14250000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,16,20,11,0
+Gurgaon,Antriksh Heights,AA702,Raj Kumar Mittal,CP,2025-01-31,2025-05-04,2025-04-15,14950000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,10,13,10,0
+Gurgaon,Antriksh Heights,AM 201,Sukarma Sharma,Direct,2025-03-17,2025-03-17,2025-04-26,12240000,N/A (Direct sale),Direct,,,,,,0,0,0,FALSE,27,56,36,0
+Gurgaon,Antriksh Heights,AH802,,Direct,2025-04-27,2025-04-27,2025-07-06,9450000,N/A (Direct sale),Direct,,,,,,0,0,0,FALSE,16,26,17,0
+Gurgaon,Tulip Ace,C1-1002,Sudhir Kumar Jain,CP,2025-03-20,2025-03-20,2025-05-14,19700000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,9,11,8,0
+Gurgaon,DLF Express Greens,C-073,,CP,2025-04-01,2025-04-01,2025-08-01,13800000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,16,26,17,0
+Gurgaon,Antriksh Heights,AM 1707,,Direct,2025-05-04,2025-07-24,2025-06-05,11650000,N/A (Direct sale),Direct,,,,,,0,0,0,FALSE,16,26,17,0
+Gurgaon,Vipul Lavanya,T4/1402,,Direct,2025-04-18,2025-04-18,2025-05-31,16900000,N/A (Direct sale),Direct,,,,,,0,0,0,FALSE,16,26,17,0
+Gurgaon,Godrej Oasis,B-604,,CP,2025-05-11,2025-05-11,2025-06-14,14200000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,16,26,17,0
+Gurgaon,Antriksh Heights,AM 702,,CP,2025-05-04,2025-05-04,2025-06-15,11760000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,16,26,17,0
+Gurgaon,NTH 90,K-181,,Direct,2025-06-26,2025-06-26,2025-08-02,20500000,N/A (Direct sale),Direct,,,,,,0,0,0,FALSE,16,26,17,0
+Gurgaon,Emaar Palm Heights,C-502,,CP,2025-11-10,2025-11-10,2026-03-30,26500000,Direct (buyer name + society),[Unmatched],,,,2025-08-30,72,3,2,1,TRUE,3,5,4,3
+Gurgaon,Tulip Petals,D5/601,,CP,2025-06-15,2025-06-15,2025-07-17,13800000,Unmatched,[Unmatched],,,,,,0,0,0,FALSE,16,26,17,0

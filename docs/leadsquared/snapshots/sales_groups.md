@@ -1,0 +1,18 @@
+# Sales Groups
+
+Total: **2**
+
+```json
+{
+  "RecordCount": 1,
+  "UserGroups": [
+    {
+      "GroupId": "e88be634-ea23-11f0-a635-0630e4b64663",
+      "Name": "Supply Team Admin",
+      "Description": "",
+      "CreatedOn": "2026-01-05 10:47:19",
+      "UserCount": "0"
+    }
+  ]
+}
+```

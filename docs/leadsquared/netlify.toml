@@ -1,0 +1,5 @@
+# Static deploy — ONLY the dashboard_deploy folder is published.
+# This prevents .env, credentials, snapshots and scripts from ever shipping.
+[build]
+  publish = "dashboard_deploy"
+  command = ""

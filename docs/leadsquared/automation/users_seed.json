@@ -1,0 +1,492 @@
+[
+  {
+    "ID": "251d306c-d9b7-11f0-a635-0630e4b64663",
+    "FirstName": "Abhash",
+    "LastName": "Kumar",
+    "EmailAddress": "abhash.kumar@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "fa4db14f-2839-11f1-a635-0630e4b64663",
+    "FirstName": "Adiksha",
+    "LastName": "Sahu",
+    "EmailAddress": "adiksha.sahu@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "6c8df8df-b996-11f0-a986-06c72fc46c23",
+    "FirstName": "Admin",
+    "LastName": "",
+    "EmailAddress": "shad@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "6a5a4f5e-d9b7-11f0-a635-0630e4b64663",
+    "FirstName": "Ajitesh",
+    "LastName": "Singh",
+    "EmailAddress": "ajitesh.singh@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "65970b55-029b-11f1-a635-0630e4b64663",
+    "FirstName": "Aman",
+    "LastName": "rawat",
+    "EmailAddress": "aman.rawat@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "0255d0b8-3894-11f1-a635-0630e4b64663",
+    "FirstName": "Ankit",
+    "LastName": "Gupta",
+    "EmailAddress": "ankit.gupta@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "beb90c10-d9b6-11f0-a635-0630e4b64663",
+    "FirstName": "Ankit",
+    "LastName": "Kumar",
+    "EmailAddress": "ankit.kumar@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "235208e0-1e19-11f1-a635-0630e4b64663",
+    "FirstName": "Ankit",
+    "LastName": "Khemka",
+    "EmailAddress": "ankit@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "6c5ce22b-d9bb-11f0-a635-0630e4b64663",
+    "FirstName": "Arti",
+    "LastName": "Ahirwar",
+    "EmailAddress": "arti.ahirwar@openhouse.in",
+    "Role": "Marketing_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "8302b1e1-1939-11f1-a635-0630e4b64663",
+    "FirstName": "Ashish",
+    "LastName": "Bibyan",
+    "EmailAddress": "ashish@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "d8b7d03a-2839-11f1-a635-0630e4b64663",
+    "FirstName": "Ashwani",
+    "LastName": "Sharma",
+    "EmailAddress": "ashwani.sharma@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "5cf3984d-42c6-11f1-a635-0630e4b64663",
+    "FirstName": "Hashim",
+    "LastName": "Chaudhary",
+    "EmailAddress": "hashim.chaudhary@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "197e41ab-029b-11f1-a635-0630e4b64663",
+    "FirstName": "Joginder",
+    "LastName": "singh",
+    "EmailAddress": "joginder.singh@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "af6899dc-439e-11f1-a635-0630e4b64663",
+    "FirstName": "Jyoti",
+    "LastName": "Singh",
+    "EmailAddress": "jyoti.singh@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "6a582cae-0324-11f1-a635-0630e4b64663",
+    "FirstName": "Manish",
+    "LastName": "Pal",
+    "EmailAddress": "manish.pal@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "ac88c80a-283a-11f1-a635-0630e4b64663",
+    "FirstName": "Mayank",
+    "LastName": "Chauhan",
+    "EmailAddress": "mayank.chauhan@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "60f1cbb1-2839-11f1-a635-0630e4b64663",
+    "FirstName": "Mukul",
+    "LastName": "Chhabra",
+    "EmailAddress": "mukul.chhabra@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "6fe73846-2101-11f1-a635-0630e4b64663",
+    "FirstName": "Nisha",
+    "LastName": "Deewan",
+    "EmailAddress": "nisha.deewan@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "c61a4fb3-e7ad-11f0-a635-0630e4b64663",
+    "FirstName": "Prashant",
+    "LastName": "Singh",
+    "EmailAddress": "prashant@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "d7bfb912-42c5-11f1-a635-0630e4b64663",
+    "FirstName": "Priyanshu",
+    "LastName": "Kumar",
+    "EmailAddress": "priyanshu.kumar@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "dfe021ee-d9b6-11f0-a635-0630e4b64663",
+    "FirstName": "Puran",
+    "LastName": "Kiraula",
+    "EmailAddress": "kiraula.puran@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "ccf6a85b-d9bb-11f0-a635-0630e4b64663",
+    "FirstName": "Rupali",
+    "LastName": "Prasad",
+    "EmailAddress": "rupali.prasad@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "ebe203d7-2839-11f1-a635-0630e4b64663",
+    "FirstName": "Sahil",
+    "LastName": "Kumar",
+    "EmailAddress": "sahil.kumar@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "7be8e93a-13d0-11f1-a635-0630e4b64663",
+    "FirstName": "Saket",
+    "LastName": "Kumar",
+    "EmailAddress": "Saket.kumar@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "e94a491b-d9b5-11f0-a635-0630e4b64663",
+    "FirstName": "Shubham",
+    "LastName": "Sharma",
+    "EmailAddress": "shubham.sharma@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "2f97f3dc-0e21-11f1-a635-0630e4b64663",
+    "FirstName": "Sushmita",
+    "LastName": "Roy",
+    "EmailAddress": "Sushmita.roy@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "85eee16a-f6c9-11f0-a635-0630e4b64663",
+    "FirstName": "Test Onboarding",
+    "LastName": "",
+    "EmailAddress": "product_marketing@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "96273d51-d9b6-11f0-a635-0630e4b64663",
+    "FirstName": "Umer",
+    "LastName": "Khan",
+    "EmailAddress": "umer.khan@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "985b23a3-d9b7-11f0-a635-0630e4b64663",
+    "FirstName": "Vinay",
+    "LastName": "Kumar",
+    "EmailAddress": "vinay.kumar@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "338376ae-029b-11f1-a635-0630e4b64663",
+    "FirstName": "Vipul",
+    "LastName": "suneja",
+    "EmailAddress": "vipul.suneja@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 0,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "e23146c6-d9bc-11f0-a635-0630e4b64663",
+    "FirstName": "Abhishek",
+    "LastName": "Rathore",
+    "EmailAddress": "abhishek.rathore@openhouse.in",
+    "Role": "Marketing_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "11b72a5d-f12d-11f0-a635-0630e4b64663",
+    "FirstName": "Animesh",
+    "LastName": "Singh",
+    "EmailAddress": "animesh.singh@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "9fc71a03-d9bb-11f0-a635-0630e4b64663",
+    "FirstName": "Apurv",
+    "LastName": "Nath",
+    "EmailAddress": "apurv.nath@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "14d249bb-3276-11f1-a635-0630e4b64663",
+    "FirstName": "Harsh",
+    "LastName": "Arora",
+    "EmailAddress": "harsh.arora@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "df21281d-099f-11f1-a635-0630e4b64663",
+    "FirstName": "Kavita",
+    "LastName": "Rawat",
+    "EmailAddress": "kavita.rawat@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "b9855ab9-d9b5-11f0-a635-0630e4b64663",
+    "FirstName": "Laxmi",
+    "LastName": "Kapoor",
+    "EmailAddress": "laxmi.kapoor@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "1a00a48e-0cc3-11f1-a635-0630e4b64663",
+    "FirstName": "Nishant",
+    "LastName": "Kumar",
+    "EmailAddress": "nishant.kumar@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "ff15a369-1603-11f1-a635-0630e4b64663",
+    "FirstName": "Ojasva",
+    "LastName": "Gupta",
+    "EmailAddress": "ojasva.gupta@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "ffec3fd5-d9bb-11f0-a635-0630e4b64663",
+    "FirstName": "Prakhar",
+    "LastName": "Vaish",
+    "EmailAddress": "prakhar.vaish@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "b5abb9c8-da49-11f0-a635-0630e4b64663",
+    "FirstName": "Prateek",
+    "LastName": "Srivastava",
+    "EmailAddress": "prateek.srivastava@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "7c8e63b5-eace-11f0-a635-0630e4b64663",
+    "FirstName": "Rahool",
+    "LastName": "Sureka",
+    "EmailAddress": "rahool@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "c93b18fe-0cc2-11f1-a635-0630e4b64663",
+    "FirstName": "Rahul",
+    "LastName": "Sheel",
+    "EmailAddress": "rahul.sheel@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "d5e7249b-0aef-11f1-a635-0630e4b64663",
+    "FirstName": "Sahil",
+    "LastName": "Singh",
+    "EmailAddress": "sahil.singh@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "1d3abcd0-d9bb-11f0-a635-0630e4b64663",
+    "FirstName": "Shashank",
+    "LastName": "Kumar",
+    "EmailAddress": "shashank.kumar@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "a4c344cb-3893-11f1-a635-0630e4b64663",
+    "FirstName": "Shhilpesh",
+    "LastName": "Sharma",
+    "EmailAddress": "shhilpesh.sharma@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "350307fb-e7b9-11f0-a635-0630e4b64663",
+    "FirstName": "Sohrab",
+    "LastName": "Warsi",
+    "EmailAddress": "sohrab.warsi@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "d76d5bcd-df0e-11f0-a635-0630e4b64663",
+    "FirstName": "Tazim",
+    "LastName": "",
+    "EmailAddress": "harshit@openhouse.in",
+    "Role": "Administrator",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "ac441cba-058b-11f1-a635-0630e4b64663",
+    "FirstName": "Vaibhav",
+    "LastName": "Dwivedi",
+    "EmailAddress": "Vaibhav.dwivedi@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  },
+  {
+    "ID": "fc2d9b01-f054-11f0-a635-0630e4b64663",
+    "FirstName": "Yatika",
+    "LastName": "Thakur",
+    "EmailAddress": "yatika.thakur@openhouse.in",
+    "Role": "Sales_User",
+    "StatusCode": 1,
+    "Tag": null,
+    "IsPhoneCallAgent": false
+  }
+]
