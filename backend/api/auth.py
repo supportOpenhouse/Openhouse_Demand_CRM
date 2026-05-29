@@ -62,14 +62,32 @@ async def exchange_code_for_userinfo(code: str) -> dict:
                 "grant_type": "authorization_code",
             },
         )
-        token_resp.raise_for_status()
+        if token_resp.status_code != 200:
+            # Surface Google's error description verbatim so we don't have to dig in logs.
+            try:
+                body = token_resp.json()
+                err = body.get("error", "unknown")
+                desc = body.get("error_description", "")
+            except Exception:
+                err, desc = "non_json_response", token_resp.text[:200]
+            raise HTTPException(
+                400,
+                f"Google token exchange failed ({token_resp.status_code} {err}): {desc} · "
+                f"Most common causes: wrong GOOGLE_OAUTH_CLIENT_SECRET on Render; "
+                f"redirect_uri '{_redirect_uri()}' not registered in Google Cloud Console; "
+                f"or the auth code expired (re-try login).",
+            )
         access_token = token_resp.json().get("access_token")
         if not access_token:
             raise HTTPException(400, "Token exchange returned no access_token")
         info_resp = await client.get(
             GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}
         )
-        info_resp.raise_for_status()
+        if info_resp.status_code != 200:
+            raise HTTPException(
+                400,
+                f"Google userinfo fetch failed: {info_resp.status_code} {info_resp.text[:200]}",
+            )
         return info_resp.json()
 
 
