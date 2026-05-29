@@ -119,6 +119,10 @@ async def get_seed(user: dict = Depends(auth.current_user)):
     users that aren't in its hardcoded USERS array (admins added via DB)."""
     async with acquire() as conn:
         snapshot = await seed_snapshot.build(conn)
+    # Trim to the viewer's scope (Admin gets everything). Mirrors the frontend's
+    # own role filters so no view breaks, but stops a non-admin reading data
+    # outside their scope from the raw payload.
+    snapshot = seed_snapshot.scope_for_user(snapshot, user)
     snapshot["current_user_slug"] = user["slug"]
     snapshot["current_user"] = {
         "id": user["slug"],                   # frontend convention: id == slug

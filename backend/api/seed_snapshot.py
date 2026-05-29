@@ -27,6 +27,88 @@ def _intent_str(intent: dict | None, key: str) -> str:
     return str(intent.get(key, "") or "")
 
 
+def scope_for_user(snap: dict, user: dict) -> dict:
+    """Trim the full snapshot to what `user` is allowed to see, mirroring the
+    frontend's visitsForUser()/brokersForUser()/propertiesForUser() exactly so
+    no view breaks. Mutates and returns `snap` (a fresh dict per request).
+
+    Admin is returned untouched — admins see everything and the impersonation
+    switcher relies on the full dataset being present client-side.
+
+    Note: this builds the full snapshot first, then filters in Python. Fine at
+    current volume; push the predicates into SQL if /api/seed gets slow.
+    """
+    team = user.get("team")
+    if team == "Admin":
+        return snap
+
+    role = user.get("role")
+    slug = user["slug"]                       # frontend convention: broker owner id == slug
+    name = user.get("name") or ""
+    cities = set(user.get("cities") or [])
+
+    brokers = snap["brokers"]
+    visits = snap["visits"]
+    properties = snap["properties"]
+    cp_owner = snap["cp_owner"]
+
+    if team == "TL":
+        # Frontend city-scopes only single-city TLs / closers; multi-city heads see all.
+        if role == "tl_closer" or len(cities) == 1:
+            snap["brokers"] = [b for b in brokers if b["city"] in cities]
+            snap["visits"] = [v for v in visits if v["city"] in cities]
+            snap["properties"] = [p for p in properties if p["city_name"] in cities]
+            kept = {b["cp_code"] for b in snap["brokers"]}
+            snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in kept}
+        # TLs manage the team + queue, so team_tasks / notifications / to_assign stay full.
+        return snap
+
+    if team == "KAM":
+        owned = {b["cp_code"] for b in brokers if cp_owner.get(b["cp_code"]) == slug}
+        snap["brokers"] = [b for b in brokers if b["cp_code"] in owned]
+        snap["visits"] = [v for v in visits if cp_owner.get(v["cp_code"]) == slug]
+        # KAMs keep ALL properties (they suggest inventory to buyers).
+        snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in owned}
+        _scope_personal(snap, slug)
+        return snap
+
+    if team == "Ground":
+        my_socs = {p["society_name"] for p in properties if p["sales_manager"] == name}
+        codes = set()
+        for b in brokers:
+            if cp_owner.get(b["cp_code"]) == slug or b.get("added_by") == name:
+                codes.add(b["cp_code"])
+        for v in visits:
+            if v["society_name"] in my_socs and v["cp_code"]:
+                codes.add(v["cp_code"])
+        snap["brokers"] = [b for b in brokers if b["cp_code"] in codes]
+        snap["properties"] = [p for p in properties if p["society_name"] in my_socs]
+        snap["visits"] = [v for v in visits
+                          if v["society_name"] in my_socs or cp_owner.get(v["cp_code"]) == slug]
+        snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in codes}
+        _scope_personal(snap, slug)
+        return snap
+
+    # Unknown team → safest is empty data.
+    snap["brokers"], snap["visits"], snap["properties"] = [], [], []
+    snap["cp_owner"], snap["to_assign_cps"] = {}, []
+    _scope_personal(snap, slug)
+    return snap
+
+
+def _scope_personal(snap: dict, slug: str) -> None:
+    """For non-privileged users (KAM/Ground): hide the assignment queue and other
+    users' notifications / daily tasks / nudges."""
+    snap["to_assign_cps"] = []
+    visit_codes = {v["id"] for v in snap["visits"]}
+    snap["nudges_by_visit"] = {
+        vc: arr for vc, arr in snap["nudges_by_visit"].items() if vc in visit_codes
+    }
+    snap["notifications"] = [n for n in snap["notifications"] if n.get("to") == slug]
+    own_tasks = snap["team_tasks"].get(slug)
+    snap["team_tasks"] = {slug: own_tasks} if own_tasks else {}
+
+
 async def build(conn: asyncpg.Connection) -> dict:
     # --- brokers (with tier + assigned owner email/slug merged in) ----------
     broker_rows = await conn.fetch(
