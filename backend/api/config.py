@@ -50,6 +50,11 @@ SHEET_ID_TEAM = os.environ.get(
 # How many recent visits to ship to the frontend in /api/seed.
 SEED_VISITS_LIMIT = int(os.environ.get("SEED_VISITS_LIMIT", "1500"))
 
+# Tier sheet-sync. OFF by default: tiers + CP ownership are owned by the CRM
+# (one-time import from the CT-assignment sheet, then edited via the frontend
+# dropdowns). Re-enable only if you want the team sheet to drive T1/T2 again.
+ENABLE_TIER_SYNC = os.environ.get("ENABLE_TIER_SYNC") == "1"
+
 # Sync cadence (seconds). Internal APScheduler used only if RUN_SYNC_IN_PROCESS=1;
 # Render's cron is the production trigger.
 RUN_SYNC_IN_PROCESS = os.environ.get("RUN_SYNC_IN_PROCESS") == "1"

@@ -566,7 +566,13 @@ async def run_all() -> dict:
     out: dict = {}
     async with acquire() as conn:
         out["brokers"] = await sync_brokers(conn)
-        out["tiers"] = await sync_tiers(conn)
+        # Tier sync is OFF by default — tiers + ownership are CRM-owned (imported
+        # once from the CT-assignment sheet, then edited via the frontend). Running
+        # it would roll those changes back. Flip ENABLE_TIER_SYNC=1 to restore it.
+        if config.ENABLE_TIER_SYNC:
+            out["tiers"] = await sync_tiers(conn)
+        else:
+            out["tiers"] = {"skipped": "ENABLE_TIER_SYNC is off"}
         out["properties"] = await sync_properties(conn)
         out["visits"] = await sync_visits(conn, limit=config.SEED_VISITS_LIMIT)
     return out
