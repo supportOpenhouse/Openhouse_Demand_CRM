@@ -1618,8 +1618,21 @@ async function loadSeed(){
     };
   });
 
-  // Set current user from server session (overrides any local default).
-  if(seed.current_user_slug && USERS_BY_ID[seed.current_user_slug]){
+  // Graft the signed-in user from the server into the local roster if missing.
+  // Lets users added via DB (admins, new hires) log in without a frontend rebuild.
+  if(seed.current_user && seed.current_user.slug){
+    const cu = seed.current_user;
+    if(!USERS_BY_ID[cu.slug]){
+      const grafted = {
+        id: cu.slug, email: cu.email, name: cu.name,
+        role: cu.role, team: cu.team, cities: cu.cities || [],
+      };
+      USERS.push(grafted);
+      USERS_BY_ID[cu.slug] = grafted;
+      USER_BY_NAME[cu.name] = grafted;
+    }
+    state.currentUserId = cu.slug;
+  } else if(seed.current_user_slug && USERS_BY_ID[seed.current_user_slug]){
     state.currentUserId = seed.current_user_slug;
   }
 }

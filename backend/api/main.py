@@ -114,10 +114,21 @@ async def me(user: dict = Depends(auth.current_user_or_none)):
 
 @app.get("/api/seed")
 async def get_seed(user: dict = Depends(auth.current_user)):
-    """Same JSON shape as the legacy seed.json — drop-in replacement for loadSeed()."""
+    """Same JSON shape as the legacy seed.json — drop-in replacement for loadSeed().
+    Adds `current_user` with the full DB record so the frontend can graft
+    users that aren't in its hardcoded USERS array (admins added via DB)."""
     async with acquire() as conn:
         snapshot = await seed_snapshot.build(conn)
     snapshot["current_user_slug"] = user["slug"]
+    snapshot["current_user"] = {
+        "id": user["slug"],                   # frontend convention: id == slug
+        "slug": user["slug"],
+        "email": user["email"],
+        "name": user["name"],
+        "team": user["team"],
+        "role": user["role"],
+        "cities": list(user["cities"] or []),
+    }
     return snapshot
 
 
