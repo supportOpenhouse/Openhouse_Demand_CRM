@@ -1284,11 +1284,14 @@ table.prop-t tbody tr:hover{background:#FFFAF3}
 const TODAY = new Date();
 
 /* ---------- API base ----------
-   In production both prod + preview URLs are wired here. To run against a local
-   backend, override at runtime in DevTools: `window.__OH_API_BASE = 'http://localhost:8000'` */
+   In production API_BASE is '' (same-origin): Vercel proxies /api/* and /auth/*
+   to the Render backend (see vercel.json), so the session cookie is FIRST-PARTY
+   to the vercel.app origin and works on mobile Safari/Chrome (which block
+   third-party cookies). To run against a local backend, override in DevTools:
+   `window.__OH_API_BASE = 'http://localhost:8000'` */
 const API_BASE = (typeof window !== 'undefined' && window.__OH_API_BASE)
   || (location.hostname === 'localhost' ? 'http://localhost:8000'
-      : 'https://oh-demand-crm-api.onrender.com');
+      : '');
 
 async function apiFetch(path, opts){
   const res = await fetch(API_BASE + path, {
