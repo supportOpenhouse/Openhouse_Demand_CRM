@@ -21,7 +21,7 @@ services:
       - key: ALLOWED_EMAIL_DOMAIN
         value: openhouse.in
       - key: FRONTEND_ORIGIN
-        value: https://oh-demand-crm.vercel.app
+        value: https://openhouse-demand-crm.vercel.app
       - key: API_BASE_URL
         value: https://oh-demand-crm-api.onrender.com
       - key: SEED_VISITS_LIMIT
