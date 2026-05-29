@@ -339,10 +339,12 @@ async def build(conn: asyncpg.Connection) -> dict:
     notif_rows = await conn.fetch(
         """
         SELECT n.id, u.slug AS to_slug, fu.slug AS from_slug,
-               n.type, n.ref_type, n.ref_id, n.text, n.action, n.read_at, n.created_at
+               n.type, n.ref_type, n.ref_id, n.text, n.action, n.read_at, n.created_at,
+               vis.visit_code AS ref_visit_code
           FROM notifications n
           JOIN users u ON u.id = n.to_user_id
      LEFT JOIN users fu ON fu.id = n.from_user_id
+     LEFT JOIN visits vis ON vis.id = n.ref_id AND n.ref_type = 'visit'
          WHERE n.created_at > now() - interval '30 days'
          ORDER BY n.created_at DESC
          LIMIT 2000
@@ -355,7 +357,9 @@ async def build(conn: asyncpg.Connection) -> dict:
         "from": r["from_slug"],
         "type": r["type"],
         "refType": r["ref_type"],
-        "refId": str(r["ref_id"]) if r["ref_id"] else None,
+        # For visit refs, hand the frontend the visit_code it indexes by — NOT the
+        # raw visits.id UUID, or the notification click can't resolve the visit.
+        "refId": r["ref_visit_code"] or (str(r["ref_id"]) if r["ref_id"] else None),
         "text": r["text"],
         "action": r["action"],
         "read": r["read_at"] is not None,
