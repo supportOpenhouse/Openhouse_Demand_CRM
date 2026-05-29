@@ -240,7 +240,10 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_followups_visit ON followups(visit_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_followups_by_user ON followups(by_user_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_followups_lsq_uniq ON followups(lsq_activity_id) WHERE lsq_activity_id IS NOT NULL;
+-- Postgres won't allow a UNIQUE index on a partitioned table unless it includes the
+-- partition key (created_at). Regular index for fast lookup; LSQ writer dedups in
+-- app code via "WHERE NOT EXISTS" (see docs/LSQ_HANDOVER.md §4).
+CREATE INDEX IF NOT EXISTS idx_followups_lsq ON followups(lsq_activity_id) WHERE lsq_activity_id IS NOT NULL;
 
 -- Trigger: when a followup is inserted, project it onto visits.current_* (last-wins by created_at)
 CREATE OR REPLACE FUNCTION project_followup_onto_visit() RETURNS trigger AS $$

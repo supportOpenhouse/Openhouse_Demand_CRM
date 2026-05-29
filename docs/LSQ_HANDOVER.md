@@ -50,22 +50,28 @@ Order of your work:
 
 ## 4. The exact write contract
 
-Every LSQ activity in 213-221 maps to ONE `followups` row. Idempotency key is `lsq_activity_id` (UNIQUE index already on the table — second insert of the same activity is a no-op).
+Every LSQ activity in 213-221 maps to ONE `followups` row. Idempotency key is `lsq_activity_id`.
 
-Minimal insert:
+**Why no UNIQUE constraint?** `followups` is partitioned by `created_at`, and Postgres requires every UNIQUE index on a partitioned table to include the partition key. A `UNIQUE (lsq_activity_id, created_at)` would defeat the purpose (same activity at different times would be allowed). So the table has a plain (non-unique) index on `lsq_activity_id` — dedup happens in your writer code.
+
+Minimal insert (dedup via WHERE NOT EXISTS):
 
 ```sql
 INSERT INTO followups (
   visit_id, by_user_id, buyer_status, stage, note,
   next_followup_date, revisit_date,
   lsq_activity_id, lsq_activity_type, source
-) VALUES (
+)
+SELECT
   $1, $2, $3, $4, $5,
   $6, $7,
   $8, $9, 'lsq_migration'           -- 'lsq_sync' for forward-sync rows
-)
-ON CONFLICT (lsq_activity_id) WHERE lsq_activity_id IS NOT NULL DO NOTHING;
+WHERE NOT EXISTS (
+  SELECT 1 FROM followups WHERE lsq_activity_id = $8
+);
 ```
+
+This is one statement, no race window if you run the LSQ writer single-threaded per shard (which you should). For multi-writer parallelism, use a side table `followups_lsq_idempotency (lsq_activity_id text PRIMARY KEY, followup_id uuid)` — insert there first with `ON CONFLICT DO NOTHING`; only write the followup row if the side-table insert produced a row.
 
 A trigger projects the latest followup back onto `visits.current_stage` / `current_status` / `latest_followup_*` automatically — don't update those columns yourself.
 
@@ -116,7 +122,7 @@ LSQ activity carries `ModifiedByName` or `Owner`. Match to `users.email` (case-i
 
 1. Pull paginated. The existing extractor handles 14-day chunks + 1000-row pages — keep that pattern; LSQ rate-limits otherwise.
 2. Wrap every batch in a savepoint. If any row fails, log to `integration_log` and continue.
-3. **Always `ON CONFLICT (lsq_activity_id) DO NOTHING`.** Backfill must be re-runnable.
+3. **Always use the `WHERE NOT EXISTS` dedup pattern from §4.** Backfill must be re-runnable.
 4. Target throughput: ~500 rows/s into Neon is comfortable. The bottleneck will be LSQ pagination, not Postgres.
 5. After the run: produce a spot-check sample of 100 random `followups` for Akshit to validate. Share as a CSV.
 
@@ -160,7 +166,7 @@ I'll add the LSQ push-back webhook on the FastAPI side when you reach Phase D �
 |---|---|
 | LSQ activity references an unknown `RelatedProspectId` | Insert into `integration_log` (succeeded=false), skip the row. |
 | CRM save → LSQ push fails | Backoff retry up to 24h via your worker queue; finally page #demand-crm-ops. CRM data is never lost. |
-| Same LSQ activity arrives twice | `ON CONFLICT (lsq_activity_id) DO NOTHING` — automatic. |
+| Same LSQ activity arrives twice | `WHERE NOT EXISTS (SELECT 1 FROM followups WHERE lsq_activity_id = $1)` in your INSERT. Postgres can't UNIQUE-constrain a partitioned table on a non-partition-key column, so dedup is in app code. See §4. |
 | LSQ user doesn't map to CRM user | Use the `system@openhouse.in` ghost. Daily report lists unmapped emails. |
 | AVFU `pipeline_status` empty | `buyer_status = 'unc'`. Don't make up a status. |
 | Buyer phone differs LSQ vs visitors sheet | LSQ wins (operational). Diff logged. |

@@ -1,4 +1,6 @@
 """Neon Postgres pool. asyncpg with a small connection ceiling for Render's free tier."""
+from __future__ import annotations
+
 import asyncpg
 from contextlib import asynccontextmanager
 from . import config

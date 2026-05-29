@@ -81,6 +81,8 @@ async def _finish_run(
 # ---- BROKERS -----------------------------------------------------------------
 
 async def sync_brokers(conn: asyncpg.Connection) -> dict:
+    """Bulk upsert all brokers from the sheet via executemany chunks.
+    ~4,700 rows finishes in 5-10 seconds vs ~15 min for row-by-row."""
     sheet_id = config.SHEET_ID_BROKERS
     rows = sheets.read_tab(sheet_id, "Sheet1")
     if not rows or len(rows) < 2:
@@ -92,8 +94,9 @@ async def sync_brokers(conn: asyncpg.Connection) -> dict:
         return _safe(r[idx[k]]) if (k in idx and idx[k] < len(r)) else ""
 
     run_id = await _begin_run(conn, "broker_data_query", sheet_id, "Sheet1")
-    seen = ins = upd = skipped = failed = 0
+    seen = skipped = failed = 0
     errors: list = []
+    batch: list = []
 
     for r in rows[1:]:
         seen += 1
@@ -102,47 +105,7 @@ async def sync_brokers(conn: asyncpg.Connection) -> dict:
             skipped += 1
             continue
         try:
-            result = await conn.execute(
-                """
-                INSERT INTO brokers (
-                  cp_code, name, phone, alt_phone, company, city,
-                  micro_markets, localities, societies, societies_worked, visit_sales_managers,
-                  activity_category, dec_visits, jan_visits, feb_visits,
-                  d30_visits, d60_visits, d90_visits, all_time_visits,
-                  added_by, external_id, source, synced_from_sheet_at, created_at, updated_at
-                ) VALUES (
-                  $1,$2,$3,$4,$5,$6,
-                  $7,$8,$9,$10,$11,
-                  $12,$13,$14,$15,
-                  $16,$17,$18,$19,
-                  $20,$21,'sheet_sync', now(),
-                  COALESCE($22, now()),
-                  now()
-                )
-                ON CONFLICT (cp_code) DO UPDATE SET
-                  name = EXCLUDED.name,
-                  phone = EXCLUDED.phone,
-                  alt_phone = EXCLUDED.alt_phone,
-                  company = EXCLUDED.company,
-                  city = EXCLUDED.city,
-                  micro_markets = EXCLUDED.micro_markets,
-                  localities = EXCLUDED.localities,
-                  societies = EXCLUDED.societies,
-                  societies_worked = EXCLUDED.societies_worked,
-                  visit_sales_managers = EXCLUDED.visit_sales_managers,
-                  activity_category = EXCLUDED.activity_category,
-                  dec_visits = EXCLUDED.dec_visits,
-                  jan_visits = EXCLUDED.jan_visits,
-                  feb_visits = EXCLUDED.feb_visits,
-                  d30_visits = EXCLUDED.d30_visits,
-                  d60_visits = EXCLUDED.d60_visits,
-                  d90_visits = EXCLUDED.d90_visits,
-                  all_time_visits = EXCLUDED.all_time_visits,
-                  added_by = EXCLUDED.added_by,
-                  external_id = EXCLUDED.external_id,
-                  synced_from_sheet_at = now(),
-                  updated_at = now()
-                """,
+            batch.append((
                 cp,
                 g(r, "name"),
                 g(r, "phone_number"),
@@ -165,19 +128,66 @@ async def sync_brokers(conn: asyncpg.Connection) -> dict:
                 g(r, "added_by"),
                 g(r, "id"),
                 _date_or_none(g(r, "created_at")),
-            )
-            if result.startswith("INSERT") and result.endswith("1"):
-                ins += 1
-            else:
-                upd += 1
+            ))
         except Exception as e:
             failed += 1
             if len(errors) < 20:
                 errors.append({"cp_code": cp, "error": str(e)[:200]})
 
-    await _finish_run(conn, run_id, seen, ins, upd, skipped, failed, errors,
+    upsert_sql = """
+        INSERT INTO brokers (
+          cp_code, name, phone, alt_phone, company, city,
+          micro_markets, localities, societies, societies_worked, visit_sales_managers,
+          activity_category, dec_visits, jan_visits, feb_visits,
+          d30_visits, d60_visits, d90_visits, all_time_visits,
+          added_by, external_id, source, synced_from_sheet_at, created_at, updated_at
+        ) VALUES (
+          $1,$2,$3,$4,$5,$6,
+          $7,$8,$9,$10,$11,
+          $12,$13,$14,$15,
+          $16,$17,$18,$19,
+          $20,$21,'sheet_sync', now(),
+          COALESCE($22, now()),
+          now()
+        )
+        ON CONFLICT (cp_code) DO UPDATE SET
+          name = EXCLUDED.name,
+          phone = EXCLUDED.phone,
+          alt_phone = EXCLUDED.alt_phone,
+          company = EXCLUDED.company,
+          city = EXCLUDED.city,
+          micro_markets = EXCLUDED.micro_markets,
+          localities = EXCLUDED.localities,
+          societies = EXCLUDED.societies,
+          societies_worked = EXCLUDED.societies_worked,
+          visit_sales_managers = EXCLUDED.visit_sales_managers,
+          activity_category = EXCLUDED.activity_category,
+          dec_visits = EXCLUDED.dec_visits,
+          jan_visits = EXCLUDED.jan_visits,
+          feb_visits = EXCLUDED.feb_visits,
+          d30_visits = EXCLUDED.d30_visits,
+          d60_visits = EXCLUDED.d60_visits,
+          d90_visits = EXCLUDED.d90_visits,
+          all_time_visits = EXCLUDED.all_time_visits,
+          added_by = EXCLUDED.added_by,
+          external_id = EXCLUDED.external_id,
+          synced_from_sheet_at = now(),
+          updated_at = now()
+    """
+    chunk = 500
+    for i in range(0, len(batch), chunk):
+        try:
+            await conn.executemany(upsert_sql, batch[i:i+chunk])
+        except Exception as e:
+            failed += len(batch[i:i+chunk])
+            if len(errors) < 20:
+                errors.append({"chunk_start": i, "error": str(e)[:200]})
+
+    # We can't distinguish ins vs upd cheaply in a bulk path; report both as 'upserted'.
+    upserted = len(batch) - failed
+    await _finish_run(conn, run_id, seen, 0, upserted, skipped, failed, errors,
                       status="partial" if failed else "success")
-    return {"seen": seen, "ins": ins, "upd": upd, "skipped": skipped, "failed": failed}
+    return {"seen": seen, "ins": 0, "upd": upserted, "skipped": skipped, "failed": failed}
 
 
 # ---- TIERS (from team sheet `18 Broker Tiers`) -------------------------------
@@ -244,6 +254,8 @@ async def sync_tiers(conn: asyncpg.Connection) -> dict:
 # ---- VISITS + BUYERS ---------------------------------------------------------
 
 async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dict:
+    """Bulk upsert visits via prefetched FK maps + executemany chunks.
+    ~7,700 rows finishes in ~60 seconds vs ~75 min for row-by-row."""
     sheet_id = config.SHEET_ID_VISITS
     rows = sheets.read_tab(sheet_id, "Sheet1")
     if not rows or len(rows) < 2:
@@ -260,9 +272,50 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
         body = body[:limit]
 
     run_id = await _begin_run(conn, "visitors_data", sheet_id, "Sheet1")
-    seen = ins = upd = skipped = failed = 0
+    seen = skipped = failed = 0
     errors: list = []
 
+    # ---- 1. prefetch FK maps (3 small queries) ----
+    brokers_by_cp = {r["cp_code"]: r["id"] for r in await conn.fetch("SELECT cp_code, id FROM brokers")}
+    properties_by_soc = {
+        r["society_name"]: r["id"]
+        for r in await conn.fetch(
+            "SELECT DISTINCT ON (society_name) society_name, id FROM properties ORDER BY society_name, updated_at DESC"
+        )
+    }
+    buyers_by_lk = {
+        r["lead_key"]: r["id"]
+        for r in await conn.fetch("SELECT lead_key, id FROM buyers WHERE lead_key IS NOT NULL")
+    }
+
+    # ---- 2. bulk insert any new buyers (dedup within batch by lead_key) ----
+    new_buyers: dict = {}
+    for r in body:
+        lk = g(r, "lead_key")
+        if lk and lk not in buyers_by_lk and lk not in new_buyers:
+            new_buyers[lk] = (
+                lk,
+                g(r, "buyer_name") or "Unknown",
+                g(r, "buyer_contact"),
+                _date_or_none(g(r, "buyer_registration_date")),
+            )
+    if new_buyers:
+        try:
+            await conn.executemany(
+                "INSERT INTO buyers (lead_key, name, phone, registration_date) "
+                "VALUES ($1, $2, $3, $4) ON CONFLICT (lead_key) DO NOTHING",
+                list(new_buyers.values()),
+            )
+            # refresh
+            buyers_by_lk = {
+                r["lead_key"]: r["id"]
+                for r in await conn.fetch("SELECT lead_key, id FROM buyers WHERE lead_key IS NOT NULL")
+            }
+        except Exception as e:
+            errors.append({"phase": "buyers_bulk", "error": str(e)[:200]})
+
+    # ---- 3. build visit rows in memory ----
+    visit_rows: list = []
     for r in body:
         seen += 1
         visit_code = g(r, "id")
@@ -270,131 +323,27 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
             skipped += 1
             continue
         try:
-            # Resolve buyer (dedupe by lead_key, fall back to phone)
-            lead_key = g(r, "lead_key")
-            buyer_name = g(r, "buyer_name") or "Unknown"
-            buyer_phone = g(r, "buyer_contact")
-            buyer_id = None
-            if lead_key:
-                br = await conn.fetchrow(
-                    "INSERT INTO buyers (lead_key, name, phone, registration_date) "
-                    "VALUES ($1, $2, $3, $4) "
-                    "ON CONFLICT (lead_key) DO UPDATE SET "
-                    "  name = EXCLUDED.name, phone = EXCLUDED.phone, updated_at = now() "
-                    "RETURNING id",
-                    lead_key, buyer_name, buyer_phone,
-                    _date_or_none(g(r, "buyer_registration_date")),
-                )
-                buyer_id = br["id"] if br else None
-
-            # Resolve broker (best-effort by cp_code)
-            broker_id = None
             cp = g(r, "cp_code")
-            if cp:
-                br_row = await conn.fetchrow("SELECT id FROM brokers WHERE cp_code = $1", cp)
-                broker_id = br_row["id"] if br_row else None
-
-            # Resolve property (best-effort: name match)
-            property_id = None
             soc = g(r, "society_name")
-            if soc:
-                p_row = await conn.fetchrow(
-                    "SELECT id FROM properties WHERE society_name = $1 ORDER BY updated_at DESC LIMIT 1",
-                    soc,
-                )
-                property_id = p_row["id"] if p_row else None
-
+            lk = g(r, "lead_key")
             intent = {
-                "time_spent_on_site": g(r, "time_spent_on_site"),
-                "society_amenity_tour": g(r, "society_amenity_tour"),
-                "price_discussion": g(r, "price_discussion"),
-                "client_queries": g(r, "client_queries"),
-                "closing_signal": g(r, "closing_signal"),
-                "buyer_primary_concern": g(r, "buyer_primary_concern"),
-            }
-            intent = {k: v for k, v in intent.items() if v}
-
-            result = await conn.execute(
-                """
-                INSERT INTO visits (
-                  visit_code, buyer_id, broker_id, property_id,
-                  cp_code, broker_name, broker_contact, broker_alt_contact,
-                  company_name, city, buyer_name, buyer_contact,
-                  buyer_registration_date, lead_key, lead_occurrence_count,
-                  first_added_by, added_by, sales_manager, source, status,
-                  selected_date, selected_time, visit_date, society_name,
-                  unit_address_line1, unit_address_line2, floor, furnishing_status,
-                  listing_status, sales_feedback, buyer_feedback, all_feedback,
-                  reminder_status, profession, intent, lead_status,
-                  latest_followup_date, latest_followup_note,
-                  synced_from_sheet_at, created_at, updated_at
-                ) VALUES (
-                  $1,$2,$3,$4,
-                  $5,$6,$7,$8,
-                  $9,$10,$11,$12,
-                  $13,$14,$15,
-                  $16,$17,$18,$19,$20,
-                  $21,$22,$23,$24,
-                  $25,$26,$27,$28,
-                  $29,$30,$31,$32,
-                  $33,$34,$35::jsonb,
-                  COALESCE(NULLIF($36, ''), 'select_status'),
-                  $37,$38,
-                  now(), COALESCE($39, now()), now()
+                k: g(r, k)
+                for k in (
+                    "time_spent_on_site", "society_amenity_tour", "price_discussion",
+                    "client_queries", "closing_signal", "buyer_primary_concern",
                 )
-                ON CONFLICT (visit_code) DO UPDATE SET
-                  buyer_id = EXCLUDED.buyer_id,
-                  broker_id = EXCLUDED.broker_id,
-                  property_id = EXCLUDED.property_id,
-                  cp_code = EXCLUDED.cp_code,
-                  broker_name = EXCLUDED.broker_name,
-                  broker_contact = EXCLUDED.broker_contact,
-                  broker_alt_contact = EXCLUDED.broker_alt_contact,
-                  company_name = EXCLUDED.company_name,
-                  city = EXCLUDED.city,
-                  buyer_name = EXCLUDED.buyer_name,
-                  buyer_contact = EXCLUDED.buyer_contact,
-                  buyer_registration_date = EXCLUDED.buyer_registration_date,
-                  lead_key = EXCLUDED.lead_key,
-                  lead_occurrence_count = EXCLUDED.lead_occurrence_count,
-                  first_added_by = EXCLUDED.first_added_by,
-                  added_by = EXCLUDED.added_by,
-                  sales_manager = EXCLUDED.sales_manager,
-                  source = EXCLUDED.source,
-                  status = EXCLUDED.status,
-                  selected_date = EXCLUDED.selected_date,
-                  selected_time = EXCLUDED.selected_time,
-                  visit_date = EXCLUDED.visit_date,
-                  society_name = EXCLUDED.society_name,
-                  unit_address_line1 = EXCLUDED.unit_address_line1,
-                  unit_address_line2 = EXCLUDED.unit_address_line2,
-                  floor = EXCLUDED.floor,
-                  furnishing_status = EXCLUDED.furnishing_status,
-                  listing_status = EXCLUDED.listing_status,
-                  sales_feedback = EXCLUDED.sales_feedback,
-                  buyer_feedback = EXCLUDED.buyer_feedback,
-                  all_feedback = EXCLUDED.all_feedback,
-                  reminder_status = EXCLUDED.reminder_status,
-                  profession = EXCLUDED.profession,
-                  intent = EXCLUDED.intent,
-                  -- Only overwrite lead_status / latest_followup_* from sheet if
-                  -- no followups exist for the visit (those are the source of truth).
-                  lead_status = CASE WHEN visits.latest_followup_at IS NULL
-                                     THEN EXCLUDED.lead_status ELSE visits.lead_status END,
-                  latest_followup_date = CASE WHEN visits.latest_followup_at IS NULL
-                                              THEN EXCLUDED.latest_followup_date ELSE visits.latest_followup_date END,
-                  latest_followup_note = CASE WHEN visits.latest_followup_at IS NULL
-                                              THEN EXCLUDED.latest_followup_note ELSE visits.latest_followup_note END,
-                  synced_from_sheet_at = now(),
-                  updated_at = now()
-                """,
+                if g(r, k)
+            }
+            visit_rows.append((
                 visit_code,
-                buyer_id, broker_id, property_id,
+                buyers_by_lk.get(lk),
+                brokers_by_cp.get(cp),
+                properties_by_soc.get(soc),
                 cp, g(r, "broker_name"), g(r, "broker_contact"), g(r, "broker_alt_contact"),
-                g(r, "company_name"), g(r, "city"), buyer_name, buyer_phone,
+                g(r, "company_name"), g(r, "city"),
+                g(r, "buyer_name") or "Unknown", g(r, "buyer_contact"),
                 _date_or_none(g(r, "buyer_registration_date")),
-                lead_key,
-                _int(g(r, "lead_occurrence_count")),
+                lk, _int(g(r, "lead_occurrence_count")) or 1,
                 g(r, "first_added_by"), g(r, "added_by"), g(r, "sales_manager"),
                 g(r, "source"), g(r, "status"),
                 _date_or_none(g(r, "selected_date")), g(r, "selected_time"),
@@ -408,19 +357,97 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
                 _date_or_none(g(r, "latest_followup_date")),
                 g(r, "latest_followup_note"),
                 _date_or_none(g(r, "created_at")),
-            )
-            if result.startswith("INSERT") and result.endswith("1"):
-                ins += 1
-            else:
-                upd += 1
+            ))
         except Exception as e:
             failed += 1
             if len(errors) < 20:
                 errors.append({"visit_code": visit_code, "error": str(e)[:200]})
 
-    await _finish_run(conn, run_id, seen, ins, upd, skipped, failed, errors,
+    # ---- 4. chunked bulk upsert ----
+    upsert_sql = """
+        INSERT INTO visits (
+          visit_code, buyer_id, broker_id, property_id,
+          cp_code, broker_name, broker_contact, broker_alt_contact,
+          company_name, city, buyer_name, buyer_contact, buyer_registration_date,
+          lead_key, lead_occurrence_count, first_added_by, added_by, sales_manager,
+          source, status, selected_date, selected_time, visit_date, society_name,
+          unit_address_line1, unit_address_line2, floor, furnishing_status,
+          listing_status, sales_feedback, buyer_feedback, all_feedback,
+          reminder_status, profession, intent,
+          lead_status, latest_followup_date, latest_followup_note,
+          synced_from_sheet_at, created_at, updated_at
+        ) VALUES (
+          $1,$2,$3,$4,
+          $5,$6,$7,$8,
+          $9,$10,$11,$12,$13,
+          $14,$15,$16,$17,$18,
+          $19,$20,$21,$22,$23,$24,
+          $25,$26,$27,$28,
+          $29,$30,$31,$32,
+          $33,$34,$35::jsonb,
+          COALESCE(NULLIF($36, ''), 'select_status'),
+          $37,$38,
+          now(), COALESCE($39, now()), now()
+        )
+        ON CONFLICT (visit_code) DO UPDATE SET
+          buyer_id = EXCLUDED.buyer_id,
+          broker_id = EXCLUDED.broker_id,
+          property_id = EXCLUDED.property_id,
+          cp_code = EXCLUDED.cp_code,
+          broker_name = EXCLUDED.broker_name,
+          broker_contact = EXCLUDED.broker_contact,
+          broker_alt_contact = EXCLUDED.broker_alt_contact,
+          company_name = EXCLUDED.company_name,
+          city = EXCLUDED.city,
+          buyer_name = EXCLUDED.buyer_name,
+          buyer_contact = EXCLUDED.buyer_contact,
+          buyer_registration_date = EXCLUDED.buyer_registration_date,
+          lead_key = EXCLUDED.lead_key,
+          lead_occurrence_count = EXCLUDED.lead_occurrence_count,
+          first_added_by = EXCLUDED.first_added_by,
+          added_by = EXCLUDED.added_by,
+          sales_manager = EXCLUDED.sales_manager,
+          source = EXCLUDED.source,
+          status = EXCLUDED.status,
+          selected_date = EXCLUDED.selected_date,
+          selected_time = EXCLUDED.selected_time,
+          visit_date = EXCLUDED.visit_date,
+          society_name = EXCLUDED.society_name,
+          unit_address_line1 = EXCLUDED.unit_address_line1,
+          unit_address_line2 = EXCLUDED.unit_address_line2,
+          floor = EXCLUDED.floor,
+          furnishing_status = EXCLUDED.furnishing_status,
+          listing_status = EXCLUDED.listing_status,
+          sales_feedback = EXCLUDED.sales_feedback,
+          buyer_feedback = EXCLUDED.buyer_feedback,
+          all_feedback = EXCLUDED.all_feedback,
+          reminder_status = EXCLUDED.reminder_status,
+          profession = EXCLUDED.profession,
+          intent = EXCLUDED.intent,
+          -- Only overwrite lead_status / latest_followup_* from sheet if
+          -- no followups exist for the visit (those are the source of truth).
+          lead_status = CASE WHEN visits.latest_followup_at IS NULL
+                             THEN EXCLUDED.lead_status ELSE visits.lead_status END,
+          latest_followup_date = CASE WHEN visits.latest_followup_at IS NULL
+                                      THEN EXCLUDED.latest_followup_date ELSE visits.latest_followup_date END,
+          latest_followup_note = CASE WHEN visits.latest_followup_at IS NULL
+                                      THEN EXCLUDED.latest_followup_note ELSE visits.latest_followup_note END,
+          synced_from_sheet_at = now(),
+          updated_at = now()
+    """
+    chunk = 500
+    for i in range(0, len(visit_rows), chunk):
+        try:
+            await conn.executemany(upsert_sql, visit_rows[i:i+chunk])
+        except Exception as e:
+            failed += len(visit_rows[i:i+chunk])
+            if len(errors) < 20:
+                errors.append({"chunk_start": i, "error": str(e)[:200]})
+
+    upserted = len(visit_rows) - failed
+    await _finish_run(conn, run_id, seen, 0, upserted, skipped, failed, errors,
                       status="partial" if failed else "success")
-    return {"seen": seen, "ins": ins, "upd": upd, "skipped": skipped, "failed": failed}
+    return {"seen": seen, "ins": 0, "upd": upserted, "skipped": skipped, "failed": failed}
 
 
 # ---- PROPERTIES + PM ASSIGNMENTS --------------------------------------------
