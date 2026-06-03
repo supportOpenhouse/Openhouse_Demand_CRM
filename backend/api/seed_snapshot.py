@@ -52,8 +52,9 @@ def scope_for_user(snap: dict, user: dict) -> dict:
     properties = snap["properties"]
     cp_owner = snap["cp_owner"]
 
-    if team == "TL":
-        # Frontend city-scopes only single-city TLs / closers; multi-city heads see all.
+    if team == "TL" or role in ("kam_tl", "caller_tl"):
+        # TLs and the calling-team lead (kam_tl) see the team, not a personal book.
+        # City-scope only single-city TLs / closers; multi-city leads see all.
         if role == "tl_closer" or len(cities) == 1:
             snap["brokers"] = [b for b in brokers if b["city"] in cities]
             snap["visits"] = [v for v in visits if v["city"] in cities]

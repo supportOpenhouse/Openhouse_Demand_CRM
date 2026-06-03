@@ -1768,7 +1768,7 @@ function visibleCity(item){
   if(state.cityFilter==='all') return true;
   return (item.city || item.city_name || '') === state.cityFilter;
 }
-function userIsAdminOrTL(u){ return u.team==='Admin' || u.team==='TL' || u.role==='caller_tl'; }
+function userIsAdminOrTL(u){ return u.team==='Admin' || u.team==='TL' || u.role==='kam_tl' || u.role==='caller_tl'; }
 function visitsForUser(){
   const u = USERS_BY_ID[state.currentUserId];
   let v = store.visits;
