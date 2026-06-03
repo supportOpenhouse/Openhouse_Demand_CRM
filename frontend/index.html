@@ -1002,6 +1002,10 @@ table.prop-t tbody tr:hover{background:#FFFAF3}
         <div class="list-head">
           <span id="cpCountLabel">0 CPs</span>
           <div class="pager">
+            <span style="color:var(--mut)">Owner:</span>
+            <select id="cpOwnerFilter" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:var(--panel)">
+              <option value="all">All owners</option>
+            </select>
             <span style="color:var(--mut)">Sort within tier:</span>
             <select id="cpSort" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:var(--panel)">
               <option value="rank">Rank (tier)</option>
@@ -1739,6 +1743,7 @@ const state = {
   popupStage: 'all',          // active stage tab in broker popup (default: All)
   lastFuFilter: 'not_taken',  // visits view default: focus on visits with no recent FU
   cpLastFuFilter: 'all',      // CP view
+  cpOwnerFilter: 'all',       // CP view — 'all' | <user slug> | '__none__' (unassigned)
   priorityFilter: 'all',      // 'all' | 'nudged' | 'tl_ask' — for visits + CPs
   cpPriorityFilter: 'all',
   tierTab: 'T1',              // active tier tab in CP view
@@ -2785,9 +2790,16 @@ function renderVisitView(){
 /* ===============================================================
    CP / BROKERS VIEW
    =============================================================== */
+function cpOwnerMatch(b){
+  // CP-view owner filter: 'all' = everyone, '__none__' = unassigned, else a user slug.
+  if(!state.cpOwnerFilter || state.cpOwnerFilter==='all') return true;
+  if(state.cpOwnerFilter==='__none__') return !store.cpOwner[b.cp_code];
+  return store.cpOwner[b.cp_code] === state.cpOwnerFilter;
+}
 function filterBrokers(){
   let out = brokersForUser();
   if(state.cityFilter!=='all') out = out.filter(b=> b.city===state.cityFilter);
+  out = out.filter(cpOwnerMatch);
   if(state.search){
     const q = state.search;
     out = out.filter(b=>
@@ -2817,7 +2829,7 @@ function sortBrokersInTier(list){
 }
 
 function renderCpLastFuChips(){
-  const baseList = brokersForUser().filter(b=> state.cityFilter==='all' || b.city===state.cityFilter);
+  const baseList = brokersForUser().filter(b=> (state.cityFilter==='all' || b.city===state.cityFilter) && cpOwnerMatch(b));
   const el = document.getElementById('cpLastFuChips');
   if(!el) return;
   const counts = {};
@@ -2826,7 +2838,7 @@ function renderCpLastFuChips(){
   el.querySelectorAll('.chip').forEach(c=> c.onclick = ()=>{ state.cpLastFuFilter = c.dataset.cplf; renderCpView(); });
 }
 function renderCpPriorityChips(){
-  const baseList = brokersForUser().filter(b=> state.cityFilter==='all' || b.city===state.cityFilter);
+  const baseList = brokersForUser().filter(b=> (state.cityFilter==='all' || b.city===state.cityFilter) && cpOwnerMatch(b));
   const el = document.getElementById('cpPriorityChips');
   if(!el) return;
   const nudged = baseList.filter(b=> isCpNudged(b.cp_code)).length;
@@ -2840,7 +2852,31 @@ function renderCpPriorityChips(){
   el.querySelectorAll('.chip').forEach(c=> c.onclick = ()=>{ state.cpPriorityFilter = c.dataset.cppr; renderCpView(); });
 }
 
+function renderCpOwnerFilter(){
+  const sel = document.getElementById('cpOwnerFilter');
+  if(!sel) return;
+  const meId = state.currentUserId;
+  const base = brokersForUser().filter(b=> state.cityFilter==='all' || b.city===state.cityFilter);
+  const counts = {}; let none = 0;
+  base.forEach(b=>{ const o = store.cpOwner[b.cp_code]; if(o) counts[o]=(counts[o]||0)+1; else none++; });
+  const owners = Object.keys(counts).filter(id=> USERS_BY_ID[id]).sort((a,b)=>{
+    if(a===meId) return -1; if(b===meId) return 1;
+    return (USERS_BY_ID[a].name||'').localeCompare(USERS_BY_ID[b].name||'');
+  });
+  // keep the current selection valid, else fall back to all
+  if(!(state.cpOwnerFilter==='all' || (state.cpOwnerFilter==='__none__' && none) || owners.includes(state.cpOwnerFilter)))
+    state.cpOwnerFilter = 'all';
+  let html = `<option value="all">All owners (${base.length})</option>`;
+  html += owners.map(id=>{
+    const u = USERS_BY_ID[id];
+    return `<option value="${id}">${u.name}${id===meId?' (me)':''} · ${u.team} (${counts[id]})</option>`;
+  }).join('');
+  if(none) html += `<option value="__none__">Unassigned (${none})</option>`;
+  sel.innerHTML = html;
+  sel.value = state.cpOwnerFilter;
+}
 function renderCpView(){
+  renderCpOwnerFilter();
   renderCpLastFuChips();
   renderCpPriorityChips();
   if(state.isMobile) return renderCpViewMobile();
@@ -5384,6 +5420,8 @@ async function init(){
   };
   document.getElementById('propFilter').onchange = (e)=>{ state.propFilter = e.target.value; renderPropertiesView(); };
   document.getElementById('cpSort').onchange = (e)=>{ state.cpSort = e.target.value; renderCpView(); };
+  const cpOwnerSel = document.getElementById('cpOwnerFilter');
+  if(cpOwnerSel) cpOwnerSel.onchange = (e)=>{ state.cpOwnerFilter = e.target.value; state.selectedCps.clear(); renderCpView(); };
   renderUserBox();
   setView('visits');
 }
