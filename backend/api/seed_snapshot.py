@@ -52,24 +52,30 @@ def scope_for_user(snap: dict, user: dict) -> dict:
     properties = snap["properties"]
     cp_owner = snap["cp_owner"]
 
+    # T3/T4 CPs are visible to EVERYONE (the frontend sorts the viewer's own first).
+    # Every scoped role keeps its own set PLUS all T3/T4.
+    t34 = {b["cp_code"] for b in brokers if b.get("tier") in ("T3", "T4")}
+
+    def keep_brokers(codes):
+        codes = codes | t34
+        snap["brokers"] = [b for b in brokers if b["cp_code"] in codes]
+        snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in codes}
+
     if team == "TL" or role in ("kam_tl", "caller_tl"):
         # TLs and the calling-team lead (kam_tl) see the team, not a personal book.
-        # City-scope only single-city TLs / closers; multi-city leads see all.
+        # City-scope only single-city TLs / closers; multi-city leads see everything.
         if role == "tl_closer" or len(cities) == 1:
-            snap["brokers"] = [b for b in brokers if b["city"] in cities]
+            keep_brokers({b["cp_code"] for b in brokers if b["city"] in cities})
             snap["visits"] = [v for v in visits if v["city"] in cities]
             snap["properties"] = [p for p in properties if p["city_name"] in cities]
-            kept = {b["cp_code"] for b in snap["brokers"]}
-            snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in kept}
         # TLs manage the team + queue, so team_tasks / notifications / to_assign stay full.
         return snap
 
     if team == "KAM":
         owned = {b["cp_code"] for b in brokers if cp_owner.get(b["cp_code"]) == slug}
-        snap["brokers"] = [b for b in brokers if b["cp_code"] in owned]
+        keep_brokers(owned)
         snap["visits"] = [v for v in visits if cp_owner.get(v["cp_code"]) == slug]
         # KAMs keep ALL properties (they suggest inventory to buyers).
-        snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in owned}
         _scope_personal(snap, slug)
         return snap
 
@@ -82,17 +88,16 @@ def scope_for_user(snap: dict, user: dict) -> dict:
         for v in visits:
             if v["society_name"] in my_socs and v["cp_code"]:
                 codes.add(v["cp_code"])
-        snap["brokers"] = [b for b in brokers if b["cp_code"] in codes]
+        keep_brokers(codes)
         snap["properties"] = [p for p in properties if p["society_name"] in my_socs]
         snap["visits"] = [v for v in visits
                           if v["society_name"] in my_socs or cp_owner.get(v["cp_code"]) == slug]
-        snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in codes}
         _scope_personal(snap, slug)
         return snap
 
-    # Unknown team → safest is empty data.
-    snap["brokers"], snap["visits"], snap["properties"] = [], [], []
-    snap["cp_owner"], snap["to_assign_cps"] = {}, []
+    # Unknown team → only the universally-visible T3/T4, no visits/properties.
+    keep_brokers(set())
+    snap["visits"], snap["properties"] = [], []
     _scope_personal(snap, slug)
     return snap
 
@@ -187,6 +192,21 @@ async def build(conn: asyncpg.Connection) -> dict:
         """,
         config.SEED_VISITS_LIMIT,
     )
+    # Author of the latest DB followup per visit (app/LSQ saves). Sheet-sourced
+    # followups have no author here — the frontend falls back to the visit RM.
+    fu_author = {
+        r["visit_code"]: r["slug"]
+        for r in await conn.fetch(
+            """
+            SELECT DISTINCT ON (f.visit_id) vis.visit_code, u.slug
+              FROM followups f
+              JOIN visits vis ON vis.id = f.visit_id
+              JOIN users u ON u.id = f.by_user_id
+             ORDER BY f.visit_id, f.created_at DESC
+            """
+        )
+        if r["visit_code"]
+    }
     visits = []
     for r in visit_rows:
         intent = r["intent"] or {}
@@ -256,6 +276,9 @@ async def build(conn: asyncpg.Connection) -> dict:
             visit["_next_followup_date"] = _date_str(r["next_followup_date"])
         if r["revisit_date"]:
             visit["_revisit_date"] = r["revisit_date"].isoformat() if isinstance(r["revisit_date"], (dt.date, dt.datetime)) else str(r["revisit_date"])
+        by = fu_author.get(r["visit_code"])
+        if by:
+            visit["latest_followup_by"] = by   # owner slug; frontend resolves to name
         visits.append(visit)
 
     # --- properties + pm_by_property ----------------------------------------

@@ -50,6 +50,10 @@ SHEET_ID_TEAM = os.environ.get(
 # How many recent visits to ship to the frontend in /api/seed.
 SEED_VISITS_LIMIT = int(os.environ.get("SEED_VISITS_LIMIT", "1500"))
 
+# Local review only. When DEV_MODE=1 the app exposes /auth/dev_login?slug=…
+# (no Google round-trip) and serves the frontend at /. NEVER set on Render.
+DEV_MODE = os.environ.get("DEV_MODE") == "1"
+
 # Tier sheet-sync. OFF by default: tiers + CP ownership are owned by the CRM
 # (one-time import from the CT-assignment sheet, then edited via the frontend
 # dropdowns). Re-enable only if you want the team sheet to drive T1/T2 again.

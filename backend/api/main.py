@@ -92,6 +92,38 @@ async def logout():
     return resp
 
 
+# Local review only (DEV_MODE=1) — log in as any roster user without Google,
+# then land on the app. Disabled in production (DEV_MODE unset on Render).
+if config.DEV_MODE:
+    @app.get("/auth/dev_login")
+    async def dev_login(slug: str):
+        async with acquire() as conn:
+            u = await conn.fetchrow(
+                "SELECT id, slug, email FROM users WHERE slug = $1 AND active", slug
+            )
+        if not u:
+            raise HTTPException(404, f"No active user with slug={slug}")
+        resp = RedirectResponse("/", status_code=302)
+        auth.set_session_cookie(resp, str(u["id"]), u["email"], u["slug"])
+        return resp
+
+    # Serve the frontend from the same origin so cookies + API just work locally.
+    import os as _os
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+    _FE = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "frontend"))
+
+    @app.get("/")
+    async def _dev_index():
+        return FileResponse(_os.path.join(_FE, "index.html"))
+
+    @app.get("/openhouse_logo.png")
+    async def _dev_logo():
+        return FileResponse(_os.path.join(_FE, "openhouse_logo.png"))
+
+    app.mount("/brand", StaticFiles(directory=_os.path.join(_FE, "brand")), name="brand")
+
+
 @app.get("/api/me")
 async def me(user: dict = Depends(auth.current_user_or_none)):
     if not user:
@@ -134,6 +166,68 @@ async def get_seed(user: dict = Depends(auth.current_user)):
         "cities": list(user["cities"] or []),
     }
     return snapshot
+
+
+# ============================================================================
+# Read · Top Brokers · 99acres (market intel from the imported CSV)
+# ============================================================================
+
+@app.get("/api/top-brokers")
+async def get_top_brokers(user: dict = Depends(auth.current_user)):
+    """All rows from top_brokers_99acres, ordered city → society → rank.
+    Every CSV field is returned; the frontend renders them in full."""
+    async with acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, society, city, micro_market, rank, broker_name, agency,
+                   listings_30d, listings_90d, listings_180d, listings_all,
+                   latest_listing_date, latest_listing_link, agency_address,
+                   other_ncr_societies, oh_match_type, oh_match_details, phone
+              FROM top_brokers_99acres
+             ORDER BY city NULLS LAST, society, rank NULLS LAST
+            """
+        )
+    items = [{
+        "id": r["id"],
+        "society": r["society"],
+        "city": r["city"] or "",
+        "micro_market": r["micro_market"] or "",
+        "rank": r["rank"],
+        "broker_name": r["broker_name"] or "",
+        "agency": r["agency"] or "",
+        "listings_30d": r["listings_30d"] or 0,
+        "listings_90d": r["listings_90d"] or 0,
+        "listings_180d": r["listings_180d"] or 0,
+        "listings_all": r["listings_all"] or 0,
+        "latest_listing_date": r["latest_listing_date"].isoformat() if r["latest_listing_date"] else "",
+        "latest_listing_link": r["latest_listing_link"] or "",
+        "agency_address": r["agency_address"] or "",
+        "other_ncr_societies": r["other_ncr_societies"] or "",
+        "oh_match_type": r["oh_match_type"] or "",
+        "oh_match_details": r["oh_match_details"] or "",
+        "phone": r["phone"] or "",
+    } for r in rows]
+    return {"items": items, "count": len(items)}
+
+
+class TopBrokerPhoneBody(BaseModel):
+    phone: Optional[str] = None
+
+
+@app.post("/api/top-brokers/{row_id}/phone")
+async def set_top_broker_phone(row_id: int, body: TopBrokerPhoneBody,
+                               user: dict = Depends(auth.current_user)):
+    """Add / edit / clear the CRM-entered phone for a 99acres top-broker row.
+    Any authenticated user may set it; an empty string clears it."""
+    phone = (body.phone or "").strip() or None
+    async with acquire() as conn:
+        row = await conn.fetchrow(
+            "UPDATE top_brokers_99acres SET phone = $1 WHERE id = $2 RETURNING id, phone",
+            phone, row_id,
+        )
+    if not row:
+        raise HTTPException(404, "Top-broker row not found")
+    return {"ok": True, "id": row["id"], "phone": row["phone"] or ""}
 
 
 # ============================================================================

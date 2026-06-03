@@ -98,14 +98,14 @@ def set_session_cookie(response: Response, user_id: str, email: str, slug: str) 
         value=token,
         max_age=config.SESSION_MAX_AGE_SECONDS,
         httponly=True,
-        secure=True,
+        secure=not config.DEV_MODE,  # http://localhost can't store Secure cookies
         samesite="lax",  # first-party: API is proxied under the vercel.app origin (see vercel.json)
         path="/",
     )
 
 
 def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(config.SESSION_COOKIE_NAME, path="/", samesite="lax", secure=True)
+    response.delete_cookie(config.SESSION_COOKIE_NAME, path="/", samesite="lax", secure=not config.DEV_MODE)
 
 
 def _read_state(state: str) -> dict:

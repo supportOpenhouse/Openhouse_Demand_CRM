@@ -631,6 +631,19 @@ table.prop-t tbody tr:hover{background:#FFFAF3}
 .bell-btn:hover{background:var(--accBg);color:var(--acc)}
 .bell-btn .badge{position:absolute;top:-3px;right:-3px;background:var(--bad);color:#fff;font-size:9px;font-weight:700;padding:0 4px;border-radius:7px;min-width:14px;height:14px;display:flex;align-items:center;justify-content:center;line-height:1}
 
+/* ===== Top Brokers · 99acres ===== */
+.tb-pill{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:11px;white-space:nowrap;line-height:1.5}
+.tb-m-agency{background:var(--goodBg,#DCFCE7);color:#166534;border:1px solid #86EFAC}
+.tb-m-broker{background:var(--coldBg,#DBEAFE);color:#1E40AF;border:1px solid #93C5FD}
+.tb-m-other{background:var(--warmBg,#FEF3C7);color:#92400E;border:1px solid #FCD34D}
+.tb-m-none{background:var(--panel2);color:var(--mut);border:1px solid var(--line)}
+.tb-details{font-size:10.5px;color:var(--mut);white-space:normal;line-height:1.45;margin-top:3px;max-width:340px}
+.tb-multi{white-space:normal;line-height:1.5;font-size:11px;color:var(--txt)}
+.tb-rank{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;border-radius:6px;font-weight:700;font-size:12px;background:var(--panel2);color:var(--mut)}
+.tb-rank.top{background:var(--accBg);color:var(--accDark,var(--acc))}
+.tb-soc-hd td{background:var(--panel2);font-weight:700;font-size:12px;color:var(--txt);border-top:2px solid var(--line);white-space:normal}
+.tb-soc-hd:hover{background:var(--panel2)!important}
+
 /* ===== Team view ===== */
 .team-layout{display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start}
 .team-sidebar{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px;max-height:calc(100vh - 200px);overflow-y:auto}
@@ -1230,6 +1243,27 @@ table.prop-t tbody tr:hover{background:#FFFAF3}
   </div>
 </div>
 
+<!-- 99acres top-broker phone -->
+<div id="modal-tb-phone" class="modal-bg hidden" style="z-index:120">
+  <div class="modal" style="width:380px;max-width:94vw">
+    <div class="modal-head"><h2 id="tbPhoneTitle">Phone number</h2><button class="x-btn" data-close="modal-tb-phone">✕</button></div>
+    <div class="modal-body">
+      <div id="tbPhoneSub" style="font-size:12.5px;color:var(--mut);margin-bottom:12px"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:14px;color:var(--mut);font-family:'SF Mono',Menlo,monospace">+91</span>
+        <input id="tbPhoneInput" type="tel" inputmode="numeric" maxlength="10" autocomplete="off" placeholder="10-digit mobile"
+          style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:15px;font-family:'SF Mono',Menlo,monospace;letter-spacing:2px;background:var(--panel);color:var(--txt)">
+      </div>
+      <div id="tbPhoneErr" style="font-size:11.5px;color:var(--bad);margin-top:8px;min-height:15px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="tbPhoneClear" style="color:var(--bad);margin-right:auto">Clear</button>
+      <button class="btn" data-close="modal-tb-phone">Cancel</button>
+      <button class="btn primary" id="tbPhoneSave">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add / edit team member -->
 <div id="modal-member" class="modal-bg hidden">
   <div class="modal">
@@ -1401,6 +1435,25 @@ function lastFollowupTakenForCp(cp_code){
     if(lf && (!d || lf>d)) d = lf;
   });
   return d;
+}
+// Latest followup date for a CP + who took it. "By" is the actual author for an
+// in-session save; otherwise the RM (sales_manager) on the latest-followup visit.
+function lastFuTakenInfoForCp(cp_code){
+  let best = null;  // { date, by }
+  store.visits.filter(v=> v.cp_code===cp_code).forEach(v=>{
+    if(v.latest_followup_date && (!best || v.latest_followup_date > best.date)){
+      // real DB followup author if we have one, else the visit RM (sales_manager)
+      const by = (v.latest_followup_by && USERS_BY_ID[v.latest_followup_by]?.name) || v.sales_manager || '';
+      best = { date: v.latest_followup_date, by };
+    }
+    store.followupLog.forEach(f=>{
+      if(String(f.visit_id)===String(v.id)){
+        const ts = (f.ts||'').slice(0,10);
+        if(ts && (!best || ts >= best.date)) best = { date: ts, by: (USERS_BY_ID[f.by]?.name || v.sales_manager || '') };
+      }
+    });
+  });
+  return best;
 }
 
 const LAST_FU_PRESETS = [
@@ -2798,6 +2851,30 @@ function renderVisitView(){
 /* ===============================================================
    CP / BROKERS VIEW
    =============================================================== */
+// CP -> set of societies that CP has brought visits to (cached; rebuilt if visits change).
+let _cpVisitedSocsCache = null, _cpVisitedSocsLen = -1;
+function cpVisitedSocieties(){
+  if(_cpVisitedSocsCache && _cpVisitedSocsLen===store.visits.length) return _cpVisitedSocsCache;
+  const m = {};
+  store.visits.forEach(v=>{ if(v.cp_code && v.society_name){ (m[v.cp_code] = m[v.cp_code] || new Set()).add(v.society_name); } });
+  _cpVisitedSocsCache = m; _cpVisitedSocsLen = store.visits.length;
+  return m;
+}
+// Societies of the properties the current user manages (sales_manager == their name).
+let _myPropSocsCache = null, _myPropSocsUid = null;
+function myPropertySocieties(){
+  if(_myPropSocsCache && _myPropSocsUid===state.currentUserId) return _myPropSocsCache;
+  const me = USERS_BY_ID[state.currentUserId];
+  _myPropSocsCache = new Set(me ? store.properties.filter(p=> p.sales_manager===me.name).map(p=>p.society_name) : []);
+  _myPropSocsUid = state.currentUserId;
+  return _myPropSocsCache;
+}
+function cpMyPropsVisited(cp){
+  const mine = myPropertySocieties();
+  if(!mine.size) return [];
+  const v = cpVisitedSocieties()[cp];
+  return v ? [...v].filter(s=> mine.has(s)) : [];
+}
 function cpOwnerMatch(b){
   // CP-view owner filter: 'all' = everyone, '__none__' = unassigned, else a user slug.
   if(!state.cpOwnerFilter || state.cpOwnerFilter==='all') return true;
@@ -2805,7 +2882,11 @@ function cpOwnerMatch(b){
   return store.cpOwner[b.cp_code] === state.cpOwnerFilter;
 }
 function filterBrokers(){
-  let out = brokersForUser();
+  // T3/T4 CPs are visible to everyone; the viewer's own-scope CPs are flagged
+  // _mine so they sort to the top (priority order). T1/T2 stay scoped to the viewer.
+  const mineSet = new Set(brokersForUser().map(b=> b.cp_code));
+  let out = store.brokers.filter(b=> mineSet.has(b.cp_code) || b.tier==='T3' || b.tier==='T4');
+  out.forEach(b=> { b._mine = mineSet.has(b.cp_code); });
   if(state.cityFilter!=='all') out = out.filter(b=> b.city===state.cityFilter);
   out = out.filter(cpOwnerMatch);
   if(state.search){
@@ -2827,6 +2908,8 @@ function filterBrokers(){
 function sortBrokersInTier(list){
   const k = state.cpSort;
   return list.sort((a,b)=>{
+    // Priority order: the viewer's own CPs first, then the rest.
+    if(!!a._mine !== !!b._mine) return (b._mine?1:0) - (a._mine?1:0);
     if(k==='rank') return (a.tier_rank||9999) - (b.tier_rank||9999);
     if(k==='d30') return (b.d30_visits||0) - (a.d30_visits||0);
     if(k==='all_time') return (b.all_time_visits||0) - (a.all_time_visits||0);
@@ -2923,10 +3006,10 @@ function renderCpView(){
           ${state.selectMode?`<th class="col-check"></th>`:`<th></th>`}
           <th>Rank</th><th>Channel Partner</th><th>City · MM</th><th>CP Code</th>
           <th>Activity</th><th style="text-align:center">D30</th><th style="text-align:center">D60</th><th style="text-align:center">D90</th><th style="text-align:center">All time</th>
-          <th>Onboarded by</th><th>CP Owner</th><th>Last visit</th><th>Last FU taken</th><th>⚑</th>
+          <th>Onboarded by</th><th>CP Owner</th><th>My props visited</th><th>Last visit</th><th>Last FU taken</th><th>⚑</th>
         </tr></thead>
         <tbody>
-          ${sorted.length ? sorted.map(b=> renderCpRow(b)).join('') : `<tr><td colspan="15"><div class="empty"><div class="emoji">👥</div><div class="t">No CPs in this tier for your scope</div></div></td></tr>`}
+          ${sorted.length ? sorted.map(b=> renderCpRow(b)).join('') : `<tr><td colspan="16"><div class="empty"><div class="emoji">👥</div><div class="t">No CPs in this tier for your scope</div></div></td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2964,10 +3047,121 @@ function renderCpRow(b){
     <td style="text-align:center;font-weight:600">${b.all_time_visits||0}</td>
     <td style="font-size:11.5px">${b.added_by||'—'}</td>
     <td>${owner?`<div style="font-size:11.5px;font-weight:600">${owner.name}</div><span class="role-pill ${TEAM_PILL[owner.team]}">${owner.team}</span>`:'<span class="muted">—</span>'}</td>
+    <td style="font-size:11px;white-space:normal;max-width:200px">${(()=>{ const mv = cpMyPropsVisited(b.cp_code); return mv.length ? mv.map(s=>`<span style="display:inline-block;font-size:10.5px;background:var(--panel2);color:var(--txt);padding:1px 7px;border-radius:5px;margin:1px 2px 1px 0">${s}</span>`).join('') : '<span class="muted">—</span>'; })()}</td>
     <td style="font-size:11.5px">${lastV?fmtDay(lastV.visit_date):'—'}</td>
-    <td class="last-fu-cell ${lastFollowupTakenForCp(b.cp_code)?'':'none'}">${(()=>{ const d = lastFollowupTakenForCp(b.cp_code); return d ? `<div class="lf-date">${fmtDate(d)}</div><div class="lf-ago">${fmtDay(d)}</div>` : 'Not taken'; })()}</td>
+    <td class="last-fu-cell ${lastFollowupTakenForCp(b.cp_code)?'':'none'}">${(()=>{ const info = lastFuTakenInfoForCp(b.cp_code); return info ? `<div class="lf-date">${fmtDate(info.date)}</div><div class="lf-ago">${fmtDay(info.date)}</div>${info.by?`<div style="font-size:10px;color:var(--mut)">by ${info.by.replace(/</g,'&lt;')}</div>`:''}` : 'Not taken'; })()}</td>
     <td>${isCpNudged(b.cp_code)?'<span class="prio-tag nudge" title="Has active nudge">🔔</span>':''}${isCpTlAsk(b.cp_code)?' <span class="prio-tag tl" title="On TL daily call list">📌</span>':''}</td>
   </tr>`;
+}
+
+/* ===============================================================
+   TOP BROKERS · 99acres   (market intel from imported CSV)
+   =============================================================== */
+function tbEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Bucket the free-text "OH Match Type" into a colour category.
+function tbMatchCat(t){
+  const s = (t||'').toLowerCase().trim();
+  if(!s || s.startsWith('no match')) return 'none';
+  if(s.includes('agency')) return 'agency';
+  if(s.includes('broker name') || s.startsWith('broker =') || s.startsWith('broker name')) return 'broker';
+  return 'other';
+}
+
+async function ensureTopBrokers(){
+  if(store.topBrokers || store.topBrokersLoading) return;
+  store.topBrokersLoading = true;
+  try{
+    const res = await apiFetch('/api/top-brokers');
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    store.topBrokers = data.items || [];
+    store.topBrokersErr = null;
+  }catch(e){
+    store.topBrokersErr = e.message || String(e);
+    store.topBrokers = [];
+  }finally{
+    store.topBrokersLoading = false;
+  }
+}
+
+function renderTopBrokerRow(r){
+  const cat = tbMatchCat(r.oh_match_type);
+  const pillCls = { agency:'tb-m-agency', broker:'tb-m-broker', other:'tb-m-other', none:'tb-m-none' }[cat];
+  const link = r.latest_listing_link
+    ? `<a href="${tbEsc(r.latest_listing_link)}" target="_blank" rel="noopener" title="Open the 99acres listing" style="color:var(--acc);text-decoration:none;font-size:11px">🔗 listing</a>`
+    : '';
+  const otherSoc = (r.other_ncr_societies||'').trim();
+  const otherChips = otherSoc
+    ? otherSoc.split(';').map(x=>x.trim()).filter(Boolean).map(x=>
+        `<span style="display:inline-block;font-size:10px;background:var(--panel2);color:var(--txt);padding:1px 7px;border-radius:5px;margin:1px 3px 1px 0;white-space:nowrap">${tbEsc(x)}</span>`).join('')
+    : '<span class="muted">—</span>';
+  const details = (r.oh_match_details||'').trim();
+  return `<tr>
+    <td style="text-align:center"><span class="tb-rank ${(r.rank||99)<=3?'top':''}">${r.rank!=null?r.rank:'—'}</span></td>
+    <td style="white-space:normal;max-width:170px"><b>${tbEsc(r.broker_name)||'—'}</b>
+      <div style="margin-top:3px">${r.phone
+        ? `<button data-tb-phone="${r.id}" title="Click to edit / clear" style="font-size:11px;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:1px 8px;cursor:pointer;font-family:'SF Mono',Menlo,monospace">📞 ${tbEsc(r.phone)}</button>`
+        : `<button data-tb-phone="${r.id}" title="Add a phone number" style="font-size:10.5px;color:var(--acc);background:none;border:1px dashed var(--acc);border-radius:6px;padding:1px 8px;cursor:pointer">+ phone</button>`}</div></td>
+    <td style="max-width:220px"><div style="font-weight:600;font-size:12px;white-space:normal">${tbEsc(r.agency)||'—'}</div>${r.agency_address?`<div class="tb-details" style="max-width:220px">${tbEsc(r.agency_address)}</div>`:''}</td>
+    <td style="max-width:230px"><div style="font-weight:500;white-space:normal">${tbEsc(r.society)}</div>${r.micro_market?`<div style="font-size:10.5px;color:var(--mut);margin-top:1px">${tbEsc(r.micro_market)}</div>`:''}</td>
+    <td><span class="city-pill">${tbEsc(r.city)||'—'}</span></td>
+    <td style="text-align:center;font-weight:${r.listings_30d>0?'700':'500'};color:${r.listings_30d>0?'var(--good)':'var(--mut2)'}">${r.listings_30d||0}</td>
+    <td style="text-align:center;color:${r.listings_90d>0?'var(--txt)':'var(--mut2)'}">${r.listings_90d||0}</td>
+    <td style="text-align:center;color:${r.listings_180d>0?'var(--txt)':'var(--mut2)'}">${r.listings_180d||0}</td>
+    <td style="text-align:center;font-weight:700">${r.listings_all||0}</td>
+    <td style="font-size:11.5px;white-space:nowrap">${r.latest_listing_date?fmtDate(r.latest_listing_date):'—'}${link?`<div style="margin-top:2px">${link}</div>`:''}</td>
+    <td class="tb-multi" style="max-width:300px;white-space:normal">${otherChips}</td>
+    <td style="max-width:360px;white-space:normal"><span class="tb-pill ${pillCls}">${tbEsc(r.oh_match_type)||'No match'}</span>${details?`<div class="tb-details">${tbEsc(details)}</div>`:''}</td>
+  </tr>`;
+}
+
+// ---- 99acres top-broker phone editor (themed modal, 10-digit validation) ----
+let _tbPhoneRowId = null;
+function openTbPhoneModal(rowId){
+  const row = (store.topBrokers||[]).find(r=> r.id===rowId);
+  if(!row) return;
+  _tbPhoneRowId = rowId;
+  document.getElementById('tbPhoneTitle').textContent = row.phone ? 'Edit phone number' : 'Add phone number';
+  document.getElementById('tbPhoneSub').innerHTML = `<b style="color:var(--txt)">${tbEsc(row.broker_name||'—')}</b>${row.agency?` · ${tbEsc(row.agency)}`:''}`;
+  const inp = document.getElementById('tbPhoneInput');
+  inp.value = (row.phone||'').replace(/\D/g,'').slice(-10);   // show last 10 digits of whatever's stored
+  document.getElementById('tbPhoneErr').textContent = '';
+  document.getElementById('tbPhoneClear').style.display = row.phone ? 'inline-flex' : 'none';
+  document.getElementById('tbPhoneSave').disabled = false;
+  document.getElementById('modal-tb-phone').classList.remove('hidden');
+  setTimeout(()=>{ inp.focus(); inp.select(); }, 30);
+}
+async function _tbPhoneCommit(phone){            // phone: 10-digit string, or '' to clear
+  const id = _tbPhoneRowId;
+  const row = (store.topBrokers||[]).find(r=> r.id===id);
+  const save = document.getElementById('tbPhoneSave');
+  const clr  = document.getElementById('tbPhoneClear');
+  const err  = document.getElementById('tbPhoneErr');
+  save.disabled = true; clr.disabled = true;
+  try {
+    const res = await apiFetch(`/api/top-brokers/${id}/phone`, { method:'POST', body: JSON.stringify({ phone }) });
+    if(!res.ok){ const t = await res.text(); err.textContent = `Save failed: ${t.slice(0,100)}`; save.disabled=false; clr.disabled=false; return; }
+    const data = await res.json();
+    if(row) row.phone = data.phone || '';
+    document.getElementById('modal-tb-phone').classList.add('hidden');
+    toast(phone ? 'Phone saved' : 'Phone cleared','good');
+    if(state.openProperty) renderProperty();
+  } catch(e){ err.textContent = `Network error: ${e.message}`; save.disabled=false; clr.disabled=false; }
+}
+
+// ---- 99acres "Top Brokers by Society" lookup for the property modal ----
+function tbNormSoc(x){ return (x||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+function topBrokers99ForSociety(p){
+  const all = store.topBrokers || [];
+  const want = tbNormSoc(p.society_name);
+  if(!want) return [];
+  // exact normalized society match, else loose contains either-way
+  let rows = all.filter(r=> tbNormSoc(r.society)===want);
+  if(!rows.length) rows = all.filter(r=>{ const sN=tbNormSoc(r.society); return sN && (sN.includes(want) || want.includes(sN)); });
+  // if the matched society spans multiple cities, prefer this property's city
+  if(p.city_name && rows.some(r=> r.city===p.city_name)) rows = rows.filter(r=> r.city===p.city_name);
+  return rows.slice().sort((a,b)=> (a.rank||999)-(b.rank||999));
 }
 
 /* ===============================================================
@@ -3031,6 +3225,7 @@ function openProperty(propName){
   state.openProperty = propName;
   // default tab = AVFU (most actionable for PM)
   state.propStageTab = state.propStageTab || 'avfu';
+  state.propTab = 'visits';   // section: 'visits' | 'top_oh' | 'top_99'
   renderProperty();
   document.getElementById('modal-property').classList.remove('hidden');
 }
@@ -3067,7 +3262,9 @@ function renderProperty(){
     cpStats[c].visits++; const st = visitStatus(v); if(st in cpStats[c]) cpStats[c][st]++;
     if(visitStage(v)==='booking') cpStats[c].booking++;
   });
-  const topCPs = Object.values(cpStats).sort((a,b)=> b.visits-a.visits).slice(0,15);
+  const topBrokers = Object.values(cpStats).sort((a,b)=> b.visits-a.visits);
+  // 99acres top brokers for THIS property's society (market intel; null until lazy-loaded)
+  const tb99 = store.topBrokers ? topBrokers99ForSociety(p) : null;
   // Timeline data: all followups across these visits, plus visit events
   const timeline = [];
   visits.forEach(v=>{
@@ -3097,16 +3294,70 @@ function renderProperty(){
           <div class="prop-card" style="cursor:default;padding:10px"><div class="pc-stat"><div class="v" style="font-size:20px;color:var(--blue)">${byStage.upcoming.length}</div><div class="l">Upcoming</div></div></div>
           <div class="prop-card" style="cursor:default;padding:10px"><div class="pc-stat"><div class="v" style="font-size:20px;color:var(--good)">${byStage.booking.length}</div><div class="l">Booking</div></div></div>
         </div>
-        <h4 style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:8px">Buyer visits at this property</h4>
-        ${tabsAvail.length ? `<div class="stg-tabs">
-          ${tabsAvail.map(sk=>{
-            const def = STAGE_BY_KEY[sk];
-            return `<button class="${def.cls} ${state.propStageTab===sk?'on':''}" data-ptab="${sk}"><span style="width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.6"></span>${def.label}<span class="ct">${byStage[sk].length}</span></button>`;
-          }).join('')}
-        </div>`:''}
-        <div id="propVisitsBody">
-          ${activeVisits.length ? activeVisits.map(v=> renderPropVisitRow(v, p, me)).join('') : '<div class="empty"><div class="emoji">📭</div><div class="t">No visits in this stage</div></div>'}
-        </div>
+        ${(()=>{
+          const secTabs = [
+            { k:'visits', label:'Visits', ct: visits.length },
+            { k:'top_oh', label:'Top Brokers · OpenHouse', ct: topBrokers.length },
+            { k:'top_99', label:'Top Brokers · 99acres', ct: tb99 ? tb99.length : null },
+          ];
+          if(!['visits','top_oh','top_99'].includes(state.propTab)) state.propTab='visits';
+          const tabBar = `<div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line);flex-wrap:wrap">
+            ${secTabs.map(t=>`<button data-sectab="${t.k}" style="padding:8px 13px;font-size:12.5px;font-weight:600;background:none;border:none;border-bottom:2px solid ${state.propTab===t.k?'var(--acc)':'transparent'};color:${state.propTab===t.k?'var(--accDark)':'var(--mut)'};cursor:pointer;margin-bottom:-1px">${t.label}${t.ct!=null?` <span style="font-size:10.5px;background:var(--panel2);padding:1px 6px;border-radius:8px">${t.ct}</span>`:''}</button>`).join('')}
+          </div>`;
+          if(state.propTab==='top_oh'){
+            return tabBar + (topBrokers.length ? `<div>${topBrokers.map((c,i)=>{
+              const b = store.brokersByCode[c.cp_code] || {};
+              const phone = b.phone_number || '';
+              const company = c.company || b.company_name || '';
+              const activity = b.activity_category || '';
+              return `<div style="display:flex;align-items:center;gap:12px;padding:11px 8px;border-bottom:1px solid var(--line);cursor:pointer" data-cp-open="${c.cp_code}">
+                <div style="width:26px;font-weight:700;color:var(--mut);text-align:center;font-size:12px">#${i+1}</div>
+                <div class="avatar sm">${initials(c.name)}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:600;font-size:13px">${c.name}</div>
+                  <div style="font-size:11px;color:var(--mut);margin-top:1px">${company || '—'}</div>
+                </div>
+                <div style="font-family:'SF Mono',Menlo,monospace;font-size:11.5px;color:var(--txt);min-width:96px;text-align:right">${phone||'—'}</div>
+                <div style="min-width:96px;text-align:right">${activity?`<span style="font-size:10.5px;color:var(--mut);background:var(--panel2);padding:2px 8px;border-radius:5px">${activity}</span>`:'<span class="muted">—</span>'}</div>
+              </div>`;
+            }).join('')}</div>` : '<div class="empty"><div class="emoji">👥</div><div class="t">No brokers have brought visits here yet</div></div>');
+          }
+          if(state.propTab==='top_99'){
+            if(!store.topBrokers && !store.topBrokersLoading){
+              ensureTopBrokers().then(()=>{ if(state.openProperty===propName && state.propTab==='top_99') renderProperty(); });
+              return tabBar + `<div class="empty"><div class="emoji">⏳</div><div class="t">Loading 99acres brokers…</div></div>`;
+            }
+            if(store.topBrokersLoading) return tabBar + `<div class="empty"><div class="emoji">⏳</div><div class="t">Loading 99acres brokers…</div></div>`;
+            if(store.topBrokersErr)     return tabBar + `<div class="empty"><div class="emoji">⚠️</div><div class="t">Couldn't load 99acres brokers</div><div class="s">${tbEsc(store.topBrokersErr)}</div></div>`;
+            const rows99 = tb99 || topBrokers99ForSociety(p);
+            if(!rows99.length) return tabBar + `<div class="empty"><div class="emoji">🔗</div><div class="t">No 99acres top-broker data for ${tbEsc(p.society_name)}</div><div class="s">This society isn't in the 99acres "Top Brokers by Society" dataset (${(store.topBrokers||[]).length} brokers across all societies loaded).</div></div>`;
+            const r0 = rows99[0];
+            return tabBar + `
+              <div style="font-size:11.5px;color:var(--mut);margin-bottom:10px">Top ${rows99.length} broker${rows99.length>1?'s':''} listing in <b style="color:var(--txt)">${tbEsc(r0.society)}</b>${r0.micro_market?` · ${tbEsc(r0.micro_market)}`:''}${r0.city?` · ${tbEsc(r0.city)}`:''} — sourced from 99acres.</div>
+              <div class="cp-tbl-wrap" style="border-radius:10px;overflow:auto">
+                <table class="t" style="min-width:1320px">
+                  <thead><tr>
+                    <th style="text-align:center">Rank</th><th>Broker</th><th>Agency</th>
+                    <th>Society / Micro-market</th><th>City</th>
+                    <th style="text-align:center">30d</th><th style="text-align:center">90d</th><th style="text-align:center">180d</th><th style="text-align:center">All</th>
+                    <th>Latest listing</th><th>Other NCR societies (top 8)</th><th>OH match</th>
+                  </tr></thead>
+                  <tbody>${rows99.map(renderTopBrokerRow).join('')}</tbody>
+                </table>
+              </div>`;
+          }
+          // default: Visits pipeline
+          return tabBar + `
+            ${tabsAvail.length ? `<div class="stg-tabs">
+              ${tabsAvail.map(sk=>{
+                const def = STAGE_BY_KEY[sk];
+                return `<button class="${def.cls} ${state.propStageTab===sk?'on':''}" data-ptab="${sk}"><span style="width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.6"></span>${def.label}<span class="ct">${byStage[sk].length}</span></button>`;
+              }).join('')}
+            </div>`:''}
+            <div id="propVisitsBody">
+              ${activeVisits.length ? activeVisits.map(v=> renderPropVisitRow(v, p, me)).join('') : '<div class="empty"><div class="emoji">📭</div><div class="t">No visits in this stage</div></div>'}
+            </div>`;
+        })()}
       </div>
       <div style="overflow-y:auto;padding:14px 16px;border-left:1px solid var(--line);background:var(--panel)">
         <h4 style="font-size:10px;color:var(--mut);text-transform:uppercase;font-weight:700;letter-spacing:.5px;margin-bottom:8px">Property details</h4>
@@ -3120,25 +3371,6 @@ function renderProperty(){
           <div class="k">View</div><div class="v" style="font-size:11px;text-align:right">${p.balcony_view||'—'}</div>
           <div class="k">Photos</div><div class="v">${p.photo_count||0}${p.video_added==='Yes'?' · video':''}</div>
         </div>
-        <h4 style="margin-top:14px">Top CPs bringing buyers</h4>
-        ${topCPs.length ? topCPs.map(c=>{
-          const b = store.brokersByCode[c.cp_code];
-          const ownerId = store.cpOwner[c.cp_code];
-          const owner = ownerId ? USERS_BY_ID[ownerId] : null;
-          return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);cursor:pointer" data-cp-open="${c.cp_code}">
-            <div class="avatar sm">${initials(c.name)}</div>
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:12px">${c.name}</div>
-              <div style="font-size:10.5px;color:var(--mut)">${c.company||''}</div>
-              ${owner?`<span class="role-pill ${TEAM_PILL[owner.team]}" style="margin-top:2px">${owner.team} · ${owner.name.split(' ')[0]}</span>`:''}
-            </div>
-            <div style="text-align:right">
-              <div style="font-weight:700;font-size:13px">${c.visits}</div>
-              <div style="font-size:9.5px;color:var(--mut)">visits</div>
-            </div>
-            ${b?`<span class="tier-badge ${b.tier||'T4'}">${b.tier||'T4'}</span>`:''}
-          </div>`;
-        }).join('') : '<div class="muted">No CPs yet.</div>'}
         <h4 style="margin-top:14px">Timeline · all CP conversations</h4>
         <div class="tl">
           ${timeline.slice(0,40).map(t=>`
@@ -3153,11 +3385,18 @@ function renderProperty(){
     </div>
   `;
   // wire
+  document.getElementById('propBodyM').querySelectorAll('[data-sectab]').forEach(b=>{
+    b.onclick = ()=>{ state.propTab = b.dataset.sectab; renderProperty(); };
+  });
   document.getElementById('propBodyM').querySelectorAll('.stg-tabs button').forEach(b=>{
     b.onclick = ()=>{ state.propStageTab = b.dataset.ptab; renderProperty(); };
   });
   document.getElementById('propBodyM').querySelectorAll('[data-cp-open]').forEach(el=>{
-    el.onclick = ()=>{ document.getElementById('modal-property').classList.add('hidden'); openBroker(el.dataset.cpOpen); };
+    el.onclick = ()=>{ document.getElementById('modal-property').classList.add('hidden'); openBroker(el.dataset.cpOpen, null, { prop: state.openProperty, tab: state.propTab }); };
+  });
+  // 99acres top-broker phone: add / edit / clear (persists to top_brokers_99acres.phone)
+  document.getElementById('propBodyM').querySelectorAll('[data-tb-phone]').forEach(btn=>{
+    btn.onclick = ()=> openTbPhoneModal(parseInt(btn.dataset.tbPhone, 10));
   });
   wirePropVisitRows();
 }
@@ -3320,9 +3559,11 @@ function renderVisitRowInline(v){
 /* ===============================================================
    BROKER POPUP — wider, visits collapsed by default, grouped by stage
    =============================================================== */
-function openBroker(cp_code, focusVisitId){
+function openBroker(cp_code, focusVisitId, returnTo){
   state.openBrokerCp = cp_code;
   state.focusVisitId = focusVisitId || null;
+  // When opened from the property popup, remember where to go back to.
+  state.returnToProperty = returnTo || null;
   state.expandedVisits.clear();
   if(focusVisitId) state.expandedVisits.add(String(focusVisitId));
   state.popupTab = 'visits';
@@ -3418,7 +3659,7 @@ function buildCpTimeline(cp_code){
 function timelineIcon(kind){
   return ({ visit_booked:'📅', visit_completed:'🏠', visit_cancelled:'❌', feedback:'💬', followup:'📝', nudge:'🔔', nudge_resolved:'✅', onboarded:'🎉', assign:'📥', engagement:'📞' })[kind] || '·';
 }
-function closeBroker(){ document.getElementById('modal-broker').classList.add('hidden'); state.openBrokerCp=null; state.focusVisitId=null; }
+function closeBroker(){ document.getElementById('modal-broker').classList.add('hidden'); state.openBrokerCp=null; state.focusVisitId=null; state.returnToProperty=null; }
 
 function renderBrokerPopup(){
   const b = store.brokersByCode[state.openBrokerCp];
@@ -3480,6 +3721,7 @@ function renderBrokerPopup(){
       <div class="bp-stat"><div class="v">${b.has_sold==='Yes'?'✓':'—'}</div><div class="l">Has sold</div></div>
     </div>
     <div class="bp-act">
+      ${state.returnToProperty ? `<button class="btn" id="bpBackBtn" title="Back to property"><span>←</span> Back to property</button>` : ''}
       ${(isAdmin(USERS_BY_ID[state.currentUserId]) || USERS_BY_ID[state.currentUserId].team==='TL' || USERS_BY_ID[state.currentUserId].role==='kam_tl') ? `<button class="btn" id="bpPinBtn" title="Pin this CP to someone's day"><span>📌</span> Pin to day</button>` : ''}
       <a class="btn" href="tel:${b.phone_number}"><span>📞</span> Call</a>
       <button class="btn" id="bpWaBtn"><span>💬</span> WhatsApp</button>
@@ -3487,6 +3729,12 @@ function renderBrokerPopup(){
     </div>
   `;
   document.querySelectorAll('[data-close="modal-broker"]').forEach(el=> el.onclick = closeBroker);
+  const bpBack = document.getElementById('bpBackBtn');
+  if(bpBack) bpBack.onclick = ()=>{
+    const rt = state.returnToProperty;
+    closeBroker();
+    if(rt && rt.prop){ openProperty(rt.prop); state.propTab = rt.tab || 'visits'; renderProperty(); }
+  };
   const waBtn = document.getElementById('bpWaBtn');
   if(waBtn) waBtn.onclick = ()=> openWaPicker(b.cp_code);
   const pinBtn = document.getElementById('bpPinBtn');
@@ -5098,6 +5346,21 @@ function setupGlobal(){
     document.getElementById(id).classList.add('hidden');
     if(id==='modal-broker') closeBroker();
   });
+  // 99acres top-broker phone modal (digits-only input, 10-digit validation)
+  (function(){
+    const inp = document.getElementById('tbPhoneInput');
+    const err = document.getElementById('tbPhoneErr');
+    const save = document.getElementById('tbPhoneSave');
+    if(!inp || !save) return;
+    inp.oninput = ()=>{ inp.value = inp.value.replace(/\D/g,'').slice(0,10); err.textContent=''; };
+    inp.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); save.click(); } };
+    save.onclick = ()=>{
+      const digits = (inp.value||'').replace(/\D/g,'');
+      if(digits.length !== 10){ err.textContent = 'Enter a valid 10-digit mobile number.'; inp.focus(); return; }
+      err.textContent=''; _tbPhoneCommit(digits);
+    };
+    document.getElementById('tbPhoneClear').onclick = ()=> _tbPhoneCommit('');
+  })();
   document.querySelectorAll('.modal-bg').forEach(m=> m.onclick = (e)=>{ if(e.target===m){ m.classList.add('hidden'); if(m.id==='modal-broker') closeBroker(); } });
   document.addEventListener('keydown',(e)=>{
     if(e.key==='Escape'){ document.querySelectorAll('.modal-bg:not(.hidden)').forEach(m=>{ m.classList.add('hidden'); if(m.id==='modal-broker') closeBroker(); }); }
