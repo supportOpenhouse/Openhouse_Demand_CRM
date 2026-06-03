@@ -400,7 +400,23 @@ async def build(conn: asyncpg.Connection) -> dict:
     )
     counts_map = {r["tier"]: r["c"] for r in tier_counts}
 
+    # --- full roster (DB is the source of truth; frontend merges over its
+    # hardcoded USERS array so team/city/role edits show up without a code change) ---
+    user_rows = await conn.fetch(
+        "SELECT slug, email, name, team, role, cities, active FROM users WHERE active ORDER BY name"
+    )
+    users = [{
+        "id": r["slug"],                 # frontend convention: id == slug
+        "slug": r["slug"],
+        "email": r["email"],
+        "name": r["name"],
+        "team": r["team"],
+        "role": r["role"],
+        "cities": list(r["cities"] or []),
+    } for r in user_rows]
+
     return {
+        "users": users,
         "tiers_meta": {
             "T1": {"label": "Gold",   "count": counts_map.get("T1", 0)},
             "T2": {"label": "Silver", "count": counts_map.get("T2", 0)},
