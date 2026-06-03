@@ -2966,6 +2966,30 @@ function renderCpOwnerFilter(){
   sel.innerHTML = html;
   sel.value = state.cpOwnerFilter;
 }
+let _cpRenderSeq = 0;
+// Render CP rows progressively: paint the first chunk instantly so the tab opens
+// without freezing, then stream the rest across animation frames. The token guards
+// against a stale loop appending into a tier the user already switched away from.
+function renderCpRowsChunked(tbody, rows, token){
+  if(!rows.length){
+    tbody.innerHTML = `<tr><td colspan="16"><div class="empty"><div class="emoji">👥</div><div class="t">No CPs in this tier for your scope</div></div></td></tr>`;
+    return;
+  }
+  const FIRST = 60, CHUNK = 120;
+  let i = 0, html = '';
+  const firstEnd = Math.min(rows.length, FIRST);
+  for(; i < firstEnd; i++) html += renderCpRow(rows[i]);
+  tbody.innerHTML = html;
+  if(i >= rows.length) return;
+  (function step(){
+    if(token !== _cpRenderSeq) return;            // a newer render started — abort this loop
+    const end = Math.min(rows.length, i + CHUNK);
+    let h = '';
+    for(; i < end; i++) h += renderCpRow(rows[i]);
+    tbody.insertAdjacentHTML('beforeend', h);
+    if(i < rows.length) requestAnimationFrame(step);
+  })();
+}
 function renderCpView(){
   renderCpOwnerFilter();
   renderCpLastFuChips();
@@ -2988,6 +3012,7 @@ function renderCpView(){
   }
   const sorted = sortBrokersInTier(groups[state.tierTab] || []);
   const body = document.getElementById('cpBody');
+  const token = ++_cpRenderSeq;
   body.innerHTML = `
     <div class="tier-tabs">
       ${order.map(t=>{
@@ -3008,23 +3033,28 @@ function renderCpView(){
           <th>Activity</th><th style="text-align:center">D30</th><th style="text-align:center">D60</th><th style="text-align:center">D90</th><th style="text-align:center">All time</th>
           <th>Onboarded by</th><th>CP Owner</th><th>My props visited</th><th>Last visit</th><th>Last FU taken</th><th>⚑</th>
         </tr></thead>
-        <tbody>
-          ${sorted.length ? sorted.map(b=> renderCpRow(b)).join('') : `<tr><td colspan="16"><div class="empty"><div class="emoji">👥</div><div class="t">No CPs in this tier for your scope</div></div></td></tr>`}
-        </tbody>
+        <tbody id="cpRowsBody"></tbody>
       </table>
     </div>
   `;
   body.querySelectorAll('.tier-tabs button').forEach(b=>{
     b.onclick = ()=>{ state.tierTab = b.dataset.tier; state.selectedCps.clear(); renderCpView(); };
   });
-  body.querySelectorAll('tr[data-cp]').forEach(tr=>{
-    tr.onclick = (e)=>{
-      if(e.target.matches('input,select,button')) return;
-      openBroker(tr.dataset.cp);
-    };
-    const cb = tr.querySelector('input[data-cb]');
-    if(cb) cb.onchange = ()=>{ const cp = cb.dataset.cb; if(cb.checked) state.selectedCps.add(cp); else state.selectedCps.delete(cp); renderSelectionBar(); };
-  });
+  // Event delegation: one click + one change listener on the tbody (instead of one
+  // per row), and it also covers rows appended later by the chunked renderer.
+  const tb = body.querySelector('#cpRowsBody');
+  tb.onclick = (e)=>{
+    if(e.target.closest('input,select,button,a,label')) return;
+    const tr = e.target.closest('tr[data-cp]');
+    if(tr) openBroker(tr.dataset.cp);
+  };
+  tb.onchange = (e)=>{
+    const cb = e.target.closest('input[data-cb]');
+    if(!cb) return;
+    if(cb.checked) state.selectedCps.add(cb.dataset.cb); else state.selectedCps.delete(cb.dataset.cb);
+    renderSelectionBar();
+  };
+  renderCpRowsChunked(tb, sorted, token);
   renderSelectionBar();
 }
 
@@ -3101,7 +3131,7 @@ function renderTopBrokerRow(r){
     <td style="text-align:center"><span class="tb-rank ${(r.rank||99)<=3?'top':''}">${r.rank!=null?r.rank:'—'}</span></td>
     <td style="white-space:normal;max-width:170px"><b>${tbEsc(r.broker_name)||'—'}</b>
       <div style="margin-top:3px">${r.phone
-        ? `<button data-tb-phone="${r.id}" title="Click to edit / clear" style="font-size:11px;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:1px 8px;cursor:pointer;font-family:'SF Mono',Menlo,monospace">📞 ${tbEsc(r.phone)}</button>`
+        ? `<button data-tb-phone="${r.id}" title="Click to edit / clear" style="font-size:9.5px;white-space:nowrap;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:1px 7px;cursor:pointer;font-family:'SF Mono',Menlo,monospace">📞 ${tbEsc(r.phone)}</button>`
         : `<button data-tb-phone="${r.id}" title="Add a phone number" style="font-size:10.5px;color:var(--acc);background:none;border:1px dashed var(--acc);border-radius:6px;padding:1px 8px;cursor:pointer">+ phone</button>`}</div></td>
     <td style="max-width:220px"><div style="font-weight:600;font-size:12px;white-space:normal">${tbEsc(r.agency)||'—'}</div>${r.agency_address?`<div class="tb-details" style="max-width:220px">${tbEsc(r.agency_address)}</div>`:''}</td>
     <td style="max-width:230px"><div style="font-weight:500;white-space:normal">${tbEsc(r.society)}</div>${r.micro_market?`<div style="font-size:10.5px;color:var(--mut);margin-top:1px">${tbEsc(r.micro_market)}</div>`:''}</td>
