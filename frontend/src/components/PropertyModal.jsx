@@ -55,6 +55,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
 
   const [tab, setTab] = useState('visits');
   const [stageTab, setStageTab] = useState('avfu');
+  const [statusFilter, setStatusFilter] = useState('all');   // clickable Hot/Warm stat cards (#8)
   const [expanded, setExpanded] = useState(() => new Set());
   const [drafts, setDrafts] = useState({});                  // { vid:{status,stage,note,next_date,revisit_date} }
   const [sentNudges, setSentNudges] = useState(() => new Set()); // local "✓ Nudged" tracking
@@ -78,11 +79,13 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
   }, [visits]);
 
   const tabsAvail = useMemo(() => STAGE_ORDER.filter((k) => (byStage[k] || []).length > 0), [byStage]);
-  const activeStage = tabsAvail.includes(stageTab) ? stageTab : (tabsAvail[0] || 'avfu');
-  const activeVisits = useMemo(
-    () => (byStage[activeStage] || []).slice().sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '')),
-    [byStage, activeStage],
-  );
+  const activeStage = stageTab === 'all' ? 'all' : (tabsAvail.includes(stageTab) ? stageTab : (tabsAvail[0] || 'avfu'));
+  // visit list = (active stage OR all) then the Hot/Warm status filter from the stat cards
+  const shownVisits = useMemo(() => {
+    const base = activeStage === 'all' ? visits : (byStage[activeStage] || []);
+    const list = statusFilter === 'all' ? base : base.filter((v) => visitStatus(v) === statusFilter);
+    return list.slice().sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || ''));
+  }, [visits, byStage, activeStage, statusFilter]);
 
   // ---- stat cards ----
   const stats = useMemo(() => {
@@ -220,19 +223,34 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
   const visitsBody = (
     <div style={{ display: isMobile ? 'block' : 'grid', gridTemplateColumns: isMobile ? 'none' : '1fr 320px', gap: 0 }}>
       <div style={{ overflowY: 'auto', padding: isMobile ? '14px 14px 4px' : '4px 4px', background: 'transparent' }}>
-        {/* 5 stat cards */}
+        {/* 5 stat cards — clickable filters (#8) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8, marginBottom: 14 }}>
-          <div className="prop-card" style={{ cursor: 'default', padding: 10 }}><div className="pc-stat"><div className="v" style={{ fontSize: 20 }}>{stats.total}</div><div className="l">Total</div></div></div>
-          <div className="prop-card" style={{ cursor: 'default', padding: 10 }}><div className="pc-stat"><div className="v" style={{ fontSize: 20, color: 'var(--bad)' }}>{stats.hot}</div><div className="l">Hot</div></div></div>
-          <div className="prop-card" style={{ cursor: 'default', padding: 10 }}><div className="pc-stat"><div className="v" style={{ fontSize: 20, color: 'var(--warn)' }}>{stats.warm}</div><div className="l">Warm</div></div></div>
-          <div className="prop-card" style={{ cursor: 'default', padding: 10 }}><div className="pc-stat"><div className="v" style={{ fontSize: 20, color: 'var(--blue)' }}>{stats.upcoming}</div><div className="l">Upcoming</div></div></div>
-          <div className="prop-card" style={{ cursor: 'default', padding: 10 }}><div className="pc-stat"><div className="v" style={{ fontSize: 20, color: 'var(--good)' }}>{stats.booking}</div><div className="l">Booking</div></div></div>
+          {[
+            { k: 'total', label: 'Total', val: stats.total, color: undefined, stage: 'all', status: 'all' },
+            { k: 'hot', label: 'Hot', val: stats.hot, color: 'var(--bad)', stage: 'all', status: 'hot' },
+            { k: 'warm', label: 'Warm', val: stats.warm, color: 'var(--warn)', stage: 'all', status: 'warm' },
+            { k: 'upcoming', label: 'Upcoming', val: stats.upcoming, color: 'var(--blue)', stage: 'upcoming', status: 'all' },
+            { k: 'booking', label: 'Booking', val: stats.booking, color: 'var(--good)', stage: 'booking', status: 'all' },
+          ].map((c) => {
+            const on = stageTab === c.stage && statusFilter === c.status;
+            return (
+              <button key={c.k} type="button" className={'prop-card' + (on ? ' on' : '')}
+                      style={{ padding: 10, cursor: 'pointer', border: on ? '2px solid var(--acc)' : undefined, textAlign: 'left' }}
+                      onClick={() => { if (on) { setStageTab('all'); setStatusFilter('all'); } else { setStageTab(c.stage); setStatusFilter(c.status); } }}>
+                <div className="pc-stat"><div className="v" style={{ fontSize: 20, color: c.color }}>{c.val}</div><div className="l">{c.label}</div></div>
+              </button>
+            );
+          })}
         </div>
 
         <h4 style={{ fontSize: 11, color: 'var(--mut)', textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 700, marginBottom: 8 }}>Buyer visits at this property</h4>
 
-        {tabsAvail.length ? (
+        {visits.length ? (
           <div className="stg-tabs">
+            <button className={'sg-avfu' + (activeStage === 'all' ? ' on' : '')} onClick={() => { setStageTab('all'); setStatusFilter('all'); }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', opacity: .6 }} />
+              All<span className="ct">{visits.length}</span>
+            </button>
             {tabsAvail.map((sk) => {
               const def = STAGE_BY_KEY[sk];
               return (
@@ -247,7 +265,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
         ) : null}
 
         <div id="propVisitsBody">
-          {activeVisits.length ? activeVisits.map((v) => (
+          {shownVisits.length ? shownVisits.map((v) => (
             <PropVisitRow
               key={v.id}
               v={v}

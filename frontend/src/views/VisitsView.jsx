@@ -17,7 +17,16 @@ const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
 const PAGE_SIZE = 60;
 
 const STATUS_OPTS = [{ k: 'all', label: 'All', cls: '' }, ...STATUSES];
-const STAGE_OPTS = [{ k: 'all', label: 'All', cls: '' }, ...STAGES];
+// "Visit Completed" = every operational stage except Upcoming + Cancelled.
+const COMPLETED_EXCLUDE = new Set(['upcoming', 'cancelled']);
+const STAGE_OPTS = [
+  { k: 'all', label: 'All', cls: '' },
+  { k: '__completed', label: 'Visit Completed', cls: 'sg-avfu' },
+  ...STAGES,
+];
+// true if a visit's stage passes the selected stage filter (handles the meta value)
+const stagePass = (vstage, sel) => sel === 'all'
+  || (sel === '__completed' ? !COMPLETED_EXCLUDE.has(vstage) : vstage === sel);
 const PRIORITY_OPTS = [
   { k: 'all', label: 'All', cls: '' },
   { k: 'nudged', label: '🔔 Nudged', cls: 'pr-nudged' },
@@ -120,16 +129,20 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   }, [cityBase]);
 
   const stageCounts = useMemo(() => {
-    const c = { all: cityBase.length };
+    const c = { all: cityBase.length, __completed: 0 };
     STAGES.forEach((s) => { c[s.k] = 0; });
-    cityBase.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; });
+    cityBase.forEach((v) => {
+      const s = visitStage(v);
+      c[s] = (c[s] || 0) + 1;
+      if (!COMPLETED_EXCLUDE.has(s)) c.__completed += 1;
+    });
     return c;
   }, [cityBase]);
 
   // last-FU base = city base + status + stage (legacy renderLastFuChips)
   const lastFuBase = useMemo(() => cityBase.filter((v) => {
     if (status !== 'all' && visitStatus(v) !== status) return false;
-    if (stage !== 'all' && visitStage(v) !== stage) return false;
+    if (!stagePass(visitStage(v), stage)) return false;
     return true;
   }), [cityBase, status, stage]);
 
@@ -171,7 +184,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
       if (!hit) return false;
     }
     if (status !== 'all' && visitStatus(v) !== status) return false;
-    if (stage !== 'all' && visitStage(v) !== stage) return false;
+    if (!stagePass(visitStage(v), stage)) return false;
     if (lastFu && lastFu !== 'all' && !matchLastFuFilter(lastFollowupTakenForVisit(v, fuByVisit), lastFu, v)) return false;
     if (priority === 'nudged' && !isVisitNudged(v, nudgesByVisit)) return false;
     if (priority === 'tl_ask' && !isVisitTlAsk(v, teamTasks)) return false;
