@@ -12,6 +12,9 @@ import SnapshotView from './views/SnapshotView.jsx';
 import TeamView from './views/TeamView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
+
+const SEARCH_VIEWS = new Set(['visits', 'cps', 'properties']);
 
 const NAV = [
   { k: 'visits',        icon: '📋', label: 'Visits' },
@@ -37,6 +40,10 @@ export default function App() {
     try { return localStorage.getItem('rx-nav-collapsed') === '1'; } catch { return false; }
   });
   useEffect(() => { try { localStorage.setItem('rx-nav-collapsed', navCollapsed ? '1' : '0'); } catch { /* ignore */ } }, [navCollapsed]);
+  const [search, setSearch] = useState('');          // global topbar search (like crm.html)
+  const [filters, setFilters] = useState({});         // advanced Visits filters
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  useEffect(() => { setSearch(''); }, [view]);         // clear search when switching views
 
   useEffect(() => {
     let alive = true;
@@ -94,9 +101,23 @@ export default function App() {
               <span><b>OpenHouse</b> <span className="rx-demand">DEMAND</span></span>
             </div>
           </div>
-          <div className="rx-who">
-            <span>{me.name || me.slug || 'Signed in'}{me.team ? ` · ${me.team}` : ''}</span>
-            <span className="rx-avatar">{initials(me.name || me.slug)}</span>
+          <div className="rx-topbar-right">
+            {SEARCH_VIEWS.has(view) && (
+              <div className="rx-search">
+                <span className="rx-search-ic">🔍</span>
+                <input value={search} onChange={(e) => setSearch(e.target.value)}
+                       placeholder="Search visit, society, CP, buyer, phone…" />
+              </div>
+            )}
+            {view === 'visits' && (
+              <button className="rx-filters-btn" type="button" onClick={() => setFiltersOpen(true)}>
+                Filters{activeFilterCount(filters) > 0 && <span className="rx-filters-badge">{activeFilterCount(filters)}</span>}
+              </button>
+            )}
+            <div className="rx-who">
+              <span>{me.name || me.slug || 'Signed in'}{me.team ? ` · ${me.team}` : ''}</span>
+              <span className="rx-avatar">{initials(me.name || me.slug)}</span>
+            </div>
           </div>
         </header>
 
@@ -116,11 +137,11 @@ export default function App() {
               <h2 style={{ margin: '2px 0 12px', letterSpacing: '-.3px' }}>{active?.label}</h2>
               <ErrorBoundary resetKey={view}>
               {view === 'visits' ? (
-                <VisitsView seed={seed} onOpenBroker={setOpenCp} />
+                <VisitsView seed={seed} onOpenBroker={setOpenCp} search={search} filters={filters} />
               ) : view === 'cps' ? (
-                <CpView seed={seed} onOpenBroker={setOpenCp} />
+                <CpView seed={seed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'properties' ? (
-                <PropertiesView seed={seed} onOpenBroker={setOpenCp} />
+                <PropertiesView seed={seed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'queue' ? (
                 <QueueView seed={seed} reloadSeed={reloadSeed} />
               ) : view === 'notifications' ? (
@@ -138,6 +159,11 @@ export default function App() {
         </div>
       </div>
       {openCp && <BrokerModal cpCode={openCp} seed={seed} reloadSeed={reloadSeed} onClose={() => setOpenCp(null)} />}
+      {filtersOpen && (
+        <FiltersModal seed={seed} value={filters}
+          onApply={(f) => { setFilters(f); setFiltersOpen(false); }}
+          onClose={() => setFiltersOpen(false)} />
+      )}
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useDeferredValue } from 'react';
-import { fmtDate, fmtDay } from '../lib/format.js';
+import { fmtDate, fmtDay, daysBetween } from '../lib/format.js';
 import {
   STAGES, STAGE_BY_KEY, STATUSES, LAST_FU_PRESETS,
   visitStage, visitStatus, nextFuFor, matchLastFuFilter, scopeVisits, isOldLead,
@@ -45,7 +45,7 @@ const VISIT_COLS = [
   { k: 'price', label: 'Price', sort: false },
 ];
 
-export default function VisitsView({ seed, onOpenBroker }) {
+export default function VisitsView({ seed, onOpenBroker, search = '', filters = {} }) {
   const isMobile = useIsMobile();
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
@@ -67,6 +67,18 @@ export default function VisitsView({ seed, onOpenBroker }) {
   // overlay seed.followups so 'Last FU' reflects followups even when the visit
   // projection (latest_followup_date) is blank — matches legacy store.followupLog.
   const fuByVisit = useMemo(() => buildFuByVisit(seed.followups || []), [seed]);
+  // society -> { micro-markets, BHK configs } for the advanced locality/BHK filters
+  const propBySociety = useMemo(() => {
+    const m = {};
+    properties.forEach((p) => {
+      if (!p.society_name) return;
+      const e = m[p.society_name] || (m[p.society_name] = { mms: new Set(), bhks: new Set() });
+      if (p.micro_market) e.mms.add(p.micro_market);
+      const dig = String(p.configuration || '').match(/([1-4])\s*BHK/i);
+      if (dig) e.bhks.add(dig[1] + ' BHK');
+    });
+    return m;
+  }, [properties]);
 
   const isAdminOrTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
 
@@ -78,7 +90,6 @@ export default function VisitsView({ seed, onOpenBroker }) {
   const [priority, setPriority] = useState('all');
   const [leadSet, setLeadSet] = useState('active');  // #6 Active | Old Leads | All — default hides old leads
   const [unit, setUnit] = useState('');            // #4 typeable unit number
-  const [q, setQ] = useState('');
   const [sortField, setSortField] = useState('visit_date');
   const [sortDir, setSortDir] = useState('desc');  // default visit_date desc
   const [page, setPage] = useState(1);
@@ -144,7 +155,7 @@ export default function VisitsView({ seed, onOpenBroker }) {
 
   // --- full filtered set (legacy filterVisits): search + status + stage + lastFu + priority + unit ---
   // deferred search keeps typing responsive on slower machines (non-blocking recompute)
-  const dq = useDeferredValue(q);
+  const dq = useDeferredValue(search);
   const filtered = useMemo(() => cityBase.filter((v) => {
     if (dq.trim()) {
       const s = dq.trim().toLowerCase();
@@ -168,8 +179,37 @@ export default function VisitsView({ seed, onOpenBroker }) {
       const u = [v.unit_address_line1, v.unit_address_line2, v.floor].filter(Boolean).join(' ').toLowerCase();
       if (!u.includes(unit.trim().toLowerCase())) return false;
     }
+    // --- advanced filters (topbar Filters modal) ---
+    const F = filters || {};
+    if (F.society && v.society_name !== F.society) return false;
+    if (F.locality) {
+      const mms = propBySociety[v.society_name]?.mms;
+      if (!(mms && mms.has(F.locality)) && !(v.society_name || '').toLowerCase().includes(F.locality.toLowerCase())) return false;
+    }
+    if (F.bhk?.length) {
+      const bhks = propBySociety[v.society_name]?.bhks;
+      if (!bhks || !F.bhk.some((b) => bhks.has(b))) return false;
+    }
+    if (F.tier?.length) { const b = brokersByCode[v.cp_code]; if (!b || !F.tier.includes(b.tier)) return false; }
+    if (F.cp && v.cp_code !== F.cp) return false;
+    if (F.rm && v.sales_manager !== F.rm) return false;
+    if (F.source?.length && !F.source.includes(v.source)) return false;
+    if (F.visitFrom && !(v.visit_date && v.visit_date >= F.visitFrom)) return false;
+    if (F.visitTo && !(v.visit_date && v.visit_date <= F.visitTo)) return false;
+    if (F.followupDate?.length) {
+      const nf = nextFuFor(v);
+      let ok = F.followupDate.includes('none') && !nf;
+      if (nf != null) {
+        const d = daysBetween(nf);
+        if (F.followupDate.includes('overdue') && d > 0) ok = true;
+        if (F.followupDate.includes('today') && d === 0) ok = true;
+        if (F.followupDate.includes('tomorrow') && d === -1) ok = true;
+        if (F.followupDate.includes('week') && d <= 0 && d > -7) ok = true;
+      }
+      if (!ok) return false;
+    }
     return true;
-  }), [cityBase, dq, status, stage, lastFu, priority, unit, nudgesByVisit, teamTasks]);
+  }), [cityBase, dq, status, stage, lastFu, priority, unit, filters, propBySociety, brokersByCode, nudgesByVisit, teamTasks]);
 
   // --- sort (legacy sortVisits) ---
   const sorted = useMemo(() => {
@@ -201,7 +241,7 @@ export default function VisitsView({ seed, onOpenBroker }) {
   const end = Math.min(total, pg * PAGE_SIZE);
 
   // reset to page 1 when any filter changes
-  useEffect(() => { setPage(1); }, [city, status, stage, lastFu, priority, leadSet, unit, dq, sortField, sortDir]);
+  useEffect(() => { setPage(1); }, [city, status, stage, lastFu, priority, leadSet, unit, dq, filters, sortField, sortDir]);
 
   function onSort(k) {
     if (sortField === k) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -280,13 +320,6 @@ export default function VisitsView({ seed, onOpenBroker }) {
           placeholder="Unit no. — 203"
           value={unit}
           onChange={(e) => setUnit(e.target.value)}
-        />
-        <input
-          className="rx-inp"
-          style={{ flex: 1, minWidth: 200 }}
-          placeholder="Search visit, society, CP, buyer, phone…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
         />
         <button
           className={'btn' + (selectMode ? ' primary' : '')}

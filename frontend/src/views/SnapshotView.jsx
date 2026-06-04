@@ -37,6 +37,7 @@ function groupPropertiesByCity(properties) {
 const enIN = (opts) => TODAY.toLocaleDateString('en-IN', opts);
 
 export default function SnapshotView({ seed }) {
+  const me = seed.current_user || {};
   // Inventory snapshot is unscoped (full property list), matching legacy store.properties.
   const properties = useMemo(() => seed.properties || [], [seed]);
 

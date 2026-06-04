@@ -27,7 +27,7 @@ function propCounts(visits, p) {
   };
 }
 
-export default function PropertiesView({ seed, onOpenBroker }) {
+export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
   const me = seed.current_user || {};
   const visits = seed.visits || [];
   const isMobile = useIsMobile();
@@ -36,14 +36,13 @@ export default function PropertiesView({ seed, onOpenBroker }) {
 
   const [city, setCity] = useState('all');         // state.cityFilter
   const [propFilter, setPropFilter] = useState('all'); // state.propFilter
-  const [q, setQ] = useState('');                  // state.search
   const [open, setOpen] = useState(null);          // state.openProperty (the property obj)
 
   // filter pipeline — exact order from legacy renderPropertiesView
   const rows = useMemo(() => {
     let list = all;
     if (city !== 'all') list = list.filter((p) => p.city_name === city);
-    const s = q.trim().toLowerCase();
+    const s = (search || '').trim().toLowerCase();
     if (s) {
       list = list.filter((p) =>
         (p.property_name || '').toLowerCase().includes(s) ||
@@ -53,7 +52,7 @@ export default function PropertiesView({ seed, onOpenBroker }) {
     }
     if (propFilter !== 'all') list = list.filter((p) => p.listing_status === propFilter);
     return list;
-  }, [all, city, q, propFilter]);
+  }, [all, city, search, propFilter]);
 
   return (
     <div className="view rx-fade" id="view-properties">
@@ -63,17 +62,6 @@ export default function PropertiesView({ seed, onOpenBroker }) {
         {CITIES.map((c) => (
           <button key={c} className={city === c ? 'on' : ''} data-city={c} onClick={() => setCity(c)}>{c}</button>
         ))}
-      </div>
-
-      <div className="rx-filters" style={{ marginTop: 8 }}>
-        <input
-          className="rx-inp"
-          id="searchInput"
-          style={{ flex: 1, minWidth: 200 }}
-          placeholder="Search visit, society, CP, buyer, phone…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
       </div>
 
       {/* list-head: count label (left) + propFilter select (right) */}

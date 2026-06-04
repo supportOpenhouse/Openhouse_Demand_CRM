@@ -26,7 +26,7 @@ const PRIORITY_OPTS = [
 // D30 bold color rule (spec #9.7 / mobile #12.4).
 const d30Color = (n) => (n >= 3 ? 'var(--good)' : n > 0 ? 'var(--warn)' : 'var(--mut2)');
 
-export default function CpView({ seed, onOpenBroker }) {
+export default function CpView({ seed, onOpenBroker, search = '' }) {
   const isMobile = useIsMobile();
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
@@ -60,12 +60,11 @@ export default function CpView({ seed, onOpenBroker }) {
   const [city, setCity] = useState('all');
   const [owner, setOwner] = useState('all');   // all | __none__ | slug
   const [unit, setUnit] = useState('');         // #4 typeable unit number
-  const [q, setQ] = useState('');
   const [sort, setSort] = useState('rank');
   const [lastFu, setLastFu] = useState('all');     // chip-bar 1
   const [priority, setPriority] = useState('all'); // chip-bar 2
   const [page, setPage] = useState(1);
-  const dq = useDeferredValue(q);                   // keep typing responsive
+  const dq = useDeferredValue(search);              // global topbar search, debounced
 
   // overlay seed.followups into per-CP last-FU (matches legacy store.followupLog).
   const fuByVisit = useMemo(() => buildFuByVisit(seed.followups || []), [seed]);
@@ -275,7 +274,6 @@ export default function CpView({ seed, onOpenBroker }) {
           <option value="onboard">Sort: Recently onboarded</option>
         </select>
         <input className="rx-inp" style={{ width: 132 }} placeholder="Unit no. — 203" value={unit} onChange={(e) => setUnit(e.target.value)} />
-        <input className="rx-inp" style={{ flex: 1, minWidth: 200 }} placeholder="Search name / CP code / company / phone…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
       <div className="list-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--mut)', fontSize: 12, margin: '6px 2px 10px' }}>
