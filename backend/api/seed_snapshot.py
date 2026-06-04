@@ -188,8 +188,8 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.society_name, v.unit_address_line1, v.unit_address_line2, v.floor,
           v.furnishing_status, v.listing_status, v.sales_feedback, v.buyer_feedback,
           v.all_feedback, v.reminder_status, v.profession, v.intent, v.metadata,
-          v.lead_status, v.current_stage, v.latest_followup_date, v.latest_followup_note,
-          v.next_followup_date, v.revisit_date,
+          v.lead_status, v.current_stage, v.latest_followup_at, v.latest_followup_note,
+          v.latest_followup_date, v.next_followup_date, v.revisit_date, v.is_old_lead,
           v.created_at, v.updated_at
           FROM visits v
          ORDER BY v.visit_date DESC NULLS LAST, v.created_at DESC
@@ -273,10 +273,14 @@ async def build(conn: asyncpg.Connection) -> dict:
             "created_at": _date_str(r["created_at"]),
             "updated_at": _date_str(r["updated_at"]),
         }
-        # _stage / _next_followup_date / _revisit_date are the local overrides the frontend
-        # reads via visitStage()/nextFuFor(). Carry them through so the projection survives a reload.
-        if r["current_stage"]:
+        # _stage is the worked pipeline stage — ONLY trust it when a real app follow-up
+        # set it (latest_followup_at not null). Otherwise current_stage is the stale
+        # NOT-NULL DEFAULT 'upcoming', which would mislabel completed/cancelled sheet
+        # visits as upcoming; without _stage the frontend derives stage from status
+        # (upcoming→Upcoming, completed→After-Visit-FU, cancelled→Cancelled).
+        if r["current_stage"] and r["latest_followup_at"] is not None:
             visit["_stage"] = r["current_stage"]
+        visit["is_old_lead"] = bool(r["is_old_lead"])   # persisted: old (pre-1-May) AND never actioned
         if r["next_followup_date"]:
             visit["_next_followup_date"] = _date_str(r["next_followup_date"])
         if r["revisit_date"]:

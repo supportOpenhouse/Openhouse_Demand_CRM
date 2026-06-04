@@ -112,9 +112,11 @@ export function visitStatus(v) {
 // After-Visit-FU. Hidden from the default list; surfaced via the "Old Leads" filter.
 export const OLD_LEADS_CUTOFF = '2026-05-01';
 export function isOldLead(v) {
+  // Prefer the persisted DB flag (old pre-1-May AND never actioned in the app).
+  if (typeof v.is_old_lead === 'boolean') return v.is_old_lead;
+  // Fallback for an older seed without the column.
   const st = visitStage(v);
-  if (!['upcoming', 'cancelled', 'avfu'].includes(st)) return false;
-  return !!v.visit_date && v.visit_date < OLD_LEADS_CUTOFF;
+  return ['upcoming', 'cancelled', 'avfu'].includes(st) && !!v.visit_date && v.visit_date < OLD_LEADS_CUTOFF;
 }
 
 // ---- #4 typeable unit-number filter (matches the unit address lines + floor)

@@ -347,7 +347,10 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
                 g(r, "first_added_by"), g(r, "added_by"), g(r, "sales_manager"),
                 g(r, "source"), g(r, "status"),
                 _date_or_none(g(r, "selected_date")), g(r, "selected_time"),
-                _date_or_none(g(r, "visit_date")), soc,
+                # visit_date falls back to selected_date when the sheet cell is blank
+                # (so 'Old Leads' / date filters have a date to work with). EXCLUDED
+                # in the upsert reflects this coalesced value too.
+                _date_or_none(g(r, "visit_date")) or _date_or_none(g(r, "selected_date")), soc,
                 g(r, "unit_address_line1"), g(r, "unit_address_line2"),
                 g(r, "floor"), g(r, "furnishing_status"),
                 g(r, "listing_status"), g(r, "sales_feedback"), g(r, "buyer_feedback"),
