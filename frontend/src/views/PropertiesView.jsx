@@ -1,71 +1,221 @@
 import { useMemo, useState } from 'react';
 import { propertiesForUser } from '../lib/properties.js';
+import { visitStatus, visitStage } from '../lib/visits.js';
+import useIsMobile from '../lib/useIsMobile.js';
 import PropertyModal from '../components/PropertyModal.jsx';
 
 const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
 
+// commission normalization — verbatim from legacy renderPropertiesView
+function fmtCommission(c) {
+  return (c || '')
+    .replace('Commission Payable on', '—')
+    .replace('Commission payable on', '—')
+    .replace('Registry', 'Reg.');
+}
+
+// per-property derived visit counts (matched by society_name, like legacy)
+function propCounts(visits, p) {
+  const propVisits = visits.filter((v) => v.society_name === p.society_name);
+  return {
+    propVisits,
+    total: propVisits.length,
+    hot: propVisits.filter((v) => visitStatus(v) === 'hot').length,
+    warm: propVisits.filter((v) => visitStatus(v) === 'warm').length,
+    upcoming: propVisits.filter((v) => visitStage(v) === 'upcoming').length,
+    booking: propVisits.filter((v) => visitStage(v) === 'booking').length,
+  };
+}
+
 export default function PropertiesView({ seed, onOpenBroker }) {
   const me = seed.current_user || {};
-  const all = useMemo(() => propertiesForUser(seed.properties || [], me), [seed]); // eslint-disable-line
   const visits = seed.visits || [];
+  const isMobile = useIsMobile();
 
-  const [city, setCity] = useState('all');
-  const [status, setStatus] = useState('all');
-  const [q, setQ] = useState('');
-  const [open, setOpen] = useState(null);
+  const all = useMemo(() => propertiesForUser(seed.properties || [], me), [seed]); // eslint-disable-line
 
-  const visitCountBySoc = useMemo(() => {
-    const m = {}; visits.forEach((v) => { if (v.society_name) m[v.society_name] = (m[v.society_name] || 0) + 1; });
-    return m;
-  }, [visits]);
+  const [city, setCity] = useState('all');         // state.cityFilter
+  const [propFilter, setPropFilter] = useState('all'); // state.propFilter
+  const [q, setQ] = useState('');                  // state.search
+  const [open, setOpen] = useState(null);          // state.openProperty (the property obj)
 
-  const statuses = useMemo(() => [...new Set(all.map((p) => p.listing_status).filter(Boolean))].sort(), [all]);
-
-  const rows = useMemo(() => all.filter((p) => {
-    if (city !== 'all' && p.city_name !== city) return false;
-    if (status !== 'all' && p.listing_status !== status) return false;
-    if (q.trim()) {
-      const s = q.trim().toLowerCase();
-      if (!((p.property_name || '').toLowerCase().includes(s) || (p.society_name || '').toLowerCase().includes(s)
-        || (p.micro_market || '').toLowerCase().includes(s) || (p.sales_manager || '').toLowerCase().includes(s))) return false;
+  // filter pipeline — exact order from legacy renderPropertiesView
+  const rows = useMemo(() => {
+    let list = all;
+    if (city !== 'all') list = list.filter((p) => p.city_name === city);
+    const s = q.trim().toLowerCase();
+    if (s) {
+      list = list.filter((p) =>
+        (p.property_name || '').toLowerCase().includes(s) ||
+        (p.society_name || '').toLowerCase().includes(s) ||
+        (p.micro_market || '').toLowerCase().includes(s) ||
+        (p.sales_manager || '').toLowerCase().includes(s));
     }
-    return true;
-  }), [all, city, status, q]);
+    if (propFilter !== 'all') list = list.filter((p) => p.listing_status === propFilter);
+    return list;
+  }, [all, city, q, propFilter]);
 
   return (
-    <div className="rx-fade">
-      <div className="rx-filters">
-        <select className="rx-sel" value={city} onChange={(e) => setCity(e.target.value)}>
-          <option value="all">All cities</option>{CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select className="rx-sel" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="all">All statuses</option>{statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <input className="rx-inp" style={{ flex: 1, minWidth: 200 }} placeholder="Search property / society / RM…" value={q} onChange={(e) => setQ(e.target.value)} />
+    <div className="view rx-fade" id="view-properties">
+      {/* City tabs (global control that filters this view) */}
+      <div className="city-tabs" id="cityTabs">
+        <button className={city === 'all' ? 'on' : ''} onClick={() => setCity('all')}>All</button>
+        {CITIES.map((c) => (
+          <button key={c} className={city === c ? 'on' : ''} data-city={c} onClick={() => setCity(c)}>{c}</button>
+        ))}
       </div>
-      <div className="muted" style={{ fontSize: 12, margin: '6px 2px 10px' }}>{rows.length} propert{rows.length === 1 ? 'y' : 'ies'} · click a row for visits + top brokers</div>
 
-      <div className="tbl-wrap">
-        <table className="t" style={{ minWidth: 1100 }}>
-          <thead><tr><th>Property</th><th>Society · MM</th><th>City</th><th>Config</th><th>Status</th><th>Price</th><th>RM</th><th style={{ textAlign: 'center' }}>Visits</th></tr></thead>
-          <tbody>
-            {rows.length ? rows.map((p, i) => (
-              <tr key={p.property_name || i} style={{ cursor: 'pointer' }} onClick={() => setOpen(p)}>
-                <td style={{ whiteSpace: 'normal', maxWidth: 240 }}><b>{p.property_name}</b></td>
-                <td style={{ whiteSpace: 'normal', maxWidth: 200 }}>{p.society_name || '—'}<div className="rx-sub">{p.micro_market || ''}</div></td>
-                <td><span className="city-pill">{p.city_name || ''}</span></td>
-                <td>{p.configuration || '—'}<div className="rx-sub">{[p.super_sqft, p.carpet_sqft].filter(Boolean).join(' / ')} sqft</div></td>
-                <td><span className="rx-pill" style={{ background: 'var(--panel2)', color: 'var(--txt)' }}>{p.listing_status || '—'}</span></td>
-                <td style={{ fontWeight: 700, color: 'var(--accDark,var(--acc))' }}>{p.listing_price || '—'}</td>
-                <td>{p.sales_manager || '—'}</td>
-                <td style={{ textAlign: 'center', fontWeight: 700 }}>{visitCountBySoc[p.society_name] || 0}</td>
+      <div className="rx-filters" style={{ marginTop: 8 }}>
+        <input
+          className="rx-inp"
+          id="searchInput"
+          style={{ flex: 1, minWidth: 200 }}
+          placeholder="Search visit, society, CP, buyer, phone…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
+
+      {/* list-head: count label (left) + propFilter select (right) */}
+      <div className="list-head">
+        <span id="propCountLabel">{rows.length} properties</span>
+        <div className="pager">
+          <span style={{ color: 'var(--mut)' }}>Filter:</span>
+          <select
+            id="propFilter"
+            style={{ padding: '5px 8px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, background: 'var(--panel)' }}
+            value={propFilter}
+            onChange={(e) => setPropFilter(e.target.value)}
+          >
+            <option value="all">All</option>
+            <option value="Ready">Ready</option>
+            <option value="Coming Soon">Coming Soon</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="prop-tbl-wrap">
+        {isMobile ? (
+          <PropertiesMobile rows={rows} visits={visits} onOpen={setOpen} />
+        ) : (
+          <table className="prop-t">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Property · Unit</th>
+                <th>Society / MM</th>
+                <th>City</th>
+                <th>Config · Area</th>
+                <th>Status</th>
+                <th>Price</th>
+                <th style={{ textAlign: 'center' }}>Visits</th>
+                <th style={{ textAlign: 'center' }}>Hot</th>
+                <th style={{ textAlign: 'center' }}>Warm</th>
+                <th style={{ textAlign: 'center' }}>Upcoming</th>
+                <th style={{ textAlign: 'center' }}>Booking</th>
+                <th>PM</th>
+                <th>Commission</th>
               </tr>
-            )) : <tr><td colSpan={8}><div className="empty"><div className="emoji">🏠</div><div className="t">No properties match</div></div></td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.length ? rows.map((p, i) => {
+                const { total, hot, warm, upcoming, booking } = propCounts(visits, p);
+                const isReady = p.listing_status === 'Ready';
+                return (
+                  <tr
+                    key={p.property_name || i}
+                    data-prop={p.property_name}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setOpen(p)}
+                  >
+                    <td>
+                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isReady ? 'var(--good)' : 'var(--warn)' }} />
+                    </td>
+                    <td><b>{p.property_name}</b></td>
+                    <td>
+                      {p.society_name || '—'}
+                      <div style={{ fontSize: '10.5px', color: 'var(--mut)', marginTop: 1 }}>{p.micro_market || ''}</div>
+                    </td>
+                    <td><span className="city-pill">{p.city_name || ''}</span></td>
+                    <td>
+                      {p.configuration || '—'}
+                      <div style={{ fontSize: '10.5px', color: 'var(--mut)', marginTop: 1 }}>{p.super_sqft || ''} / {p.carpet_sqft || ''} sqft</div>
+                    </td>
+                    <td>
+                      <span
+                        className={isReady ? 'stpill warm' : 'stpill cold'}
+                        style={{ background: isReady ? 'var(--goodBg)' : 'var(--warnBg)', color: isReady ? 'var(--goodDk)' : 'var(--warnDk)' }}
+                      >
+                        {p.listing_status}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 700, color: 'var(--accDark)' }}>{p.listing_price || '—'}</td>
+                    <td style={{ textAlign: 'center', fontWeight: 700 }}>{total}</td>
+                    <td style={{ textAlign: 'center', fontWeight: hot ? 700 : 500, color: hot ? 'var(--bad)' : 'var(--mut2)' }}>{hot}</td>
+                    <td style={{ textAlign: 'center', fontWeight: warm ? 700 : 500, color: warm ? 'var(--warn)' : 'var(--mut2)' }}>{warm}</td>
+                    <td style={{ textAlign: 'center', fontWeight: upcoming ? 700 : 500, color: upcoming ? 'var(--blue)' : 'var(--mut2)' }}>{upcoming}</td>
+                    <td style={{ textAlign: 'center', fontWeight: booking ? 700 : 500, color: booking ? 'var(--good)' : 'var(--mut2)' }}>{booking}</td>
+                    <td style={{ fontSize: 12 }}>{p.sales_manager || '—'}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mut)' }}>{fmtCommission(p.commission)}</td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td colSpan={14}>
+                    <div className="empty"><div className="emoji">🏠</div><div className="t">No properties</div></div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {open && <PropertyModal property={open} seed={seed} onClose={() => setOpen(null)} onOpenBroker={onOpenBroker} />}
+    </div>
+  );
+}
+
+function PropertiesMobile({ rows, visits, onOpen }) {
+  if (!rows.length) {
+    return <div className="empty"><div className="emoji">🏠</div><div className="t">No properties</div></div>;
+  }
+  return (
+    <div className="m-card-list">
+      {rows.map((p, i) => {
+        const { total, hot, warm, upcoming, booking } = propCounts(visits, p);
+        const isReady = p.listing_status === 'Ready';
+        return (
+          <div key={p.property_name || i} className="m-card" data-prop={p.property_name} onClick={() => onOpen(p)}>
+            <div className="mc-top">
+              <div className="mc-title">
+                {p.property_name}
+                <span className="sub">{p.society_name || ''} · {p.micro_market || ''}</span>
+              </div>
+              <div className="mc-right">
+                <span className="stpill" style={{ background: isReady ? 'var(--goodBg)' : 'var(--warnBg)', color: isReady ? 'var(--goodDk)' : 'var(--warnDk)', fontSize: '9.5px' }}>{p.listing_status}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accDark)', marginTop: 3 }}>{p.listing_price || ''}</span>
+              </div>
+            </div>
+            <div className="mc-meta">
+              <span className="bhk-pill">{p.configuration || ''}</span>
+              <span className="bhk-pill">{p.super_sqft || ''} sqft</span>
+              {p.exit_facing ? <span className="bhk-pill">{p.exit_facing}</span> : null}
+              <span className="city-pill">{p.city_name || ''}</span>
+            </div>
+            <div className="mc-foot">
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: '11.5px' }}>
+                <span><b>{total}</b> <span style={{ color: 'var(--mut)', fontSize: '10.5px' }}>Visits</span></span>
+                <span><b style={{ color: hot ? 'var(--bad)' : 'var(--mut2)' }}>{hot}</b> <span style={{ color: 'var(--mut)', fontSize: '10.5px' }}>Hot</span></span>
+                <span><b style={{ color: warm ? 'var(--warn)' : 'var(--mut2)' }}>{warm}</b> <span style={{ color: 'var(--mut)', fontSize: '10.5px' }}>Warm</span></span>
+                <span><b style={{ color: upcoming ? 'var(--blue)' : 'var(--mut2)' }}>{upcoming}</b> <span style={{ color: 'var(--mut)', fontSize: '10.5px' }}>Upc</span></span>
+                <span><b style={{ color: booking ? 'var(--good)' : 'var(--mut2)' }}>{booking}</b> <span style={{ color: 'var(--mut)', fontSize: '10.5px' }}>Book</span></span>
+              </div>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--mut)' }}>PM: <b style={{ color: 'var(--txt)' }}>{p.sales_manager || '—'}</b></div>
+          </div>
+        );
+      })}
     </div>
   );
 }
