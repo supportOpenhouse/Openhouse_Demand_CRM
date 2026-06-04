@@ -1,7 +1,69 @@
 // Visit stage/status derivation + scoping — ported verbatim from the legacy app
 // (visitStage/visitStatus/visitsForUser) so behavior is identical, plus the new
 // "Old Leads" (#6) and unit-number (#4) helpers.
-import { TODAY, ymd } from './format.js';
+import { TODAY, ymd, daysBetween } from './format.js';
+
+// Buyer-status chips (colored), ported from the legacy STATUSES.
+export const STATUSES = [
+  { k: 'hot',  label: 'Hot',  cls: 'st-hot' },
+  { k: 'warm', label: 'Warm', cls: 'st-warm' },
+  { k: 'cold', label: 'Cold', cls: 'st-cold' },
+  { k: 'dead', label: 'Dead', cls: 'st-dead' },
+  { k: 'future_prospect', label: 'Future', cls: 'st-warm' },
+  { k: 'unc',  label: 'Not Updated', cls: 'st-unc' },
+];
+
+// "Last followup taken" presets — the daily-triage filter from the legacy app.
+export const LAST_FU_PRESETS = [
+  { k: 'all',       label: 'All' },
+  { k: 'overdue',   label: '🚨 Overdue' },
+  { k: 'not_taken', label: '⚠️ Not taken yet', cls: 'pr-tl' },
+  { k: 'today',     label: 'Today' },
+  { k: 'yesterday', label: 'Yesterday' },
+  { k: 'last3',     label: 'Last 3 days' },
+  { k: 'last7',     label: 'Last 7 days' },
+  { k: '2w',        label: '2 weeks ago' },
+  { k: '3w',        label: '3 weeks ago' },
+  { k: 'older',     label: 'Older' },
+];
+
+// next scheduled FU (in-session save) → else the latest taken date
+export function nextFuFor(v) {
+  return v._next_followup_date || v.latest_followup_date || null;
+}
+// latest followup date taken on this visit (seed projection = the real latest)
+export function lastFollowupTaken(v) {
+  return v.latest_followup_date || null;
+}
+export function matchLastFuFilter(lfDate, key, v) {
+  if (key === 'all') return true;
+  if (key === 'overdue') {              // next FU is in the past, regardless of last taken
+    const next = v ? nextFuFor(v) : null;
+    return !!next && daysBetween(next) > 0;
+  }
+  if (key === 'not_taken') return !lfDate;
+  if (!lfDate) return false;
+  const d = daysBetween(lfDate);
+  if (d == null) return false;
+  if (key === 'today') return d === 0;
+  if (key === 'yesterday') return d === 1;
+  if (key === 'last3') return d >= 0 && d <= 3;
+  if (key === 'last7') return d >= 0 && d <= 7;
+  if (key === '2w') return d >= 8 && d <= 14;
+  if (key === '3w') return d >= 15 && d <= 21;
+  if (key === 'older') return d > 21;
+  return true;
+}
+
+// Priority flags (TL ask & nudges), ported from the legacy app.
+export function isVisitNudged(v, nudgesByVisit = {}) {
+  const arr = nudgesByVisit[v.id];
+  return !!(arr && arr.some((n) => !n.resolved));
+}
+export function isVisitTlAsk(v, teamTasks = {}) {
+  if (!v.cp_code) return false;
+  return Object.values(teamTasks).some((tt) => (tt.daily_calls || []).includes(v.cp_code));
+}
 
 export const STAGES = [
   { k: 'upcoming',          label: 'Upcoming Visit',   cls: 'sg-up' },

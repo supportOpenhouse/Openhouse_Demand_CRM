@@ -1,33 +1,42 @@
 import { useMemo, useState } from 'react';
 import { fmtDate, fmtDay } from '../lib/format.js';
 import {
-  STAGES, STAGE_BY_KEY, visitStage, visitStatus,
-  isOldLead, matchesUnit, visitUnitText, scopeVisits,
+  STAGES, STAGE_BY_KEY, STATUSES, LAST_FU_PRESETS,
+  visitStage, visitStatus, isOldLead, matchesUnit, visitUnitText, scopeVisits,
+  matchLastFuFilter, lastFollowupTaken, isVisitNudged, isVisitTlAsk,
 } from '../lib/visits.js';
+import ChipBar from '../components/ChipBar.jsx';
 
 const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
-const STATUS_COLOR = {
-  hot: 'var(--bad,#B91C1C)', warm: '#B45309', cold: '#1E40AF', dead: 'var(--mut)',
-};
+const STATUS_COLOR = { hot: 'var(--bad,#B91C1C)', warm: '#B45309', cold: '#1E40AF', dead: 'var(--mut)' };
+const PRIORITY_OPTS = [
+  { k: 'all', label: 'All', cls: '' },
+  { k: 'nudged', label: '🔔 Nudged', cls: 'pr-nudged' },
+  { k: 'tl_ask', label: '📌 TL Ask', cls: 'pr-tl' },
+];
 
 export default function VisitsView({ seed, onOpenBroker }) {
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
   const properties = seed.properties || [];
+  const nudgesByVisit = seed.nudges_by_visit || {};
+  const teamTasks = seed.team_tasks || {};
   const scoped = useMemo(
     () => scopeVisits(seed.visits || [], me, cpOwner, properties),
     [seed], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const [city, setCity] = useState('all');
-  const [status, setStatus] = useState('all');      // #8 — clickable Hot/Warm/etc.
+  const [status, setStatus] = useState('all');
   const [stage, setStage] = useState('all');
-  const [leadSet, setLeadSet] = useState('active');  // #6 — active | old | all
-  const [unit, setUnit] = useState('');              // #4 — typeable unit number
+  const [lastFu, setLastFu] = useState('all');     // daily-triage filter (overdue / not-taken / today …)
+  const [priority, setPriority] = useState('all');
+  const [leadSet, setLeadSet] = useState('active'); // #6 active | old | all
+  const [unit, setUnit] = useState('');             // #4 typeable unit number
   const [q, setQ] = useState('');
 
-  // city + lead-set scoped base (drives the stat boxes)
-  const base = useMemo(() => scoped.filter((v) => {
+  // L0 — city + lead-set scope; drives the status/stage chip counts
+  const L0 = useMemo(() => scoped.filter((v) => {
     if (city !== 'all' && v.city !== city) return false;
     const old = isOldLead(v);
     if (leadSet === 'active' && old) return false;
@@ -35,19 +44,41 @@ export default function VisitsView({ seed, onOpenBroker }) {
     return true;
   }), [scoped, city, leadSet]);
 
-  const counts = useMemo(() => {
-    const c = { total: base.length, hot: 0, warm: 0, cold: 0, upcoming: 0, booking: 0 };
-    base.forEach((v) => {
-      const st = visitStatus(v); if (st in c) c[st]++;
-      const sg = visitStage(v); if (sg === 'upcoming') c.upcoming++; if (sg === 'booking') c.booking++;
-    });
+  const statusCounts = useMemo(() => {
+    const c = { all: L0.length };
+    L0.forEach((v) => { const s = visitStatus(v); c[s] = (c[s] || 0) + 1; });
     return c;
-  }, [base]);
+  }, [L0]);
+  const stageCounts = useMemo(() => {
+    const c = { all: L0.length };
+    STAGES.forEach((s) => { c[s.k] = 0; });
+    L0.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; });
+    return c;
+  }, [L0]);
+
+  // L1 — after status + stage; drives the last-followup chip counts
+  const L1 = useMemo(() => L0.filter((v) =>
+    (status === 'all' || visitStatus(v) === status) &&
+    (stage === 'all' || visitStage(v) === stage)), [L0, status, stage]);
+  const lastFuCounts = useMemo(() => {
+    const c = {};
+    LAST_FU_PRESETS.forEach((p) => { c[p.k] = L1.filter((v) => matchLastFuFilter(lastFollowupTaken(v), p.k, v)).length; });
+    return c;
+  }, [L1]);
+
+  // L2 — after last-followup; drives the priority chip counts
+  const L2 = useMemo(() => L1.filter((v) => matchLastFuFilter(lastFollowupTaken(v), lastFu, v)), [L1, lastFu]);
+  const priorityCounts = useMemo(() => ({
+    all: L2.length,
+    nudged: L2.filter((v) => isVisitNudged(v, nudgesByVisit)).length,
+    tl_ask: L2.filter((v) => isVisitTlAsk(v, teamTasks)).length,
+  }), [L2, nudgesByVisit, teamTasks]);
+
   const oldCount = useMemo(() => scoped.filter(isOldLead).length, [scoped]);
 
-  const rows = useMemo(() => base.filter((v) => {
-    if (status !== 'all' && visitStatus(v) !== status) return false;
-    if (stage !== 'all' && visitStage(v) !== stage) return false;
+  const rows = useMemo(() => L2.filter((v) => {
+    if (priority === 'nudged' && !isVisitNudged(v, nudgesByVisit)) return false;
+    if (priority === 'tl_ask' && !isVisitTlAsk(v, teamTasks)) return false;
     if (unit.trim() && !matchesUnit(v, unit.trim())) return false;
     if (q.trim()) {
       const s = q.trim().toLowerCase();
@@ -55,55 +86,35 @@ export default function VisitsView({ seed, onOpenBroker }) {
       if (!hay.includes(s)) return false;
     }
     return true;
-  }).sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '')), [base, status, stage, unit, q]);
-
-  function statCard(key, label, value, color, kind) {
-    const active = kind === 'status' ? status === key
-      : kind === 'stage' ? stage === key
-      : (status === 'all' && stage === 'all');
-    const onClick = () => {
-      if (kind === 'status') setStatus((s) => (s === key ? 'all' : key));
-      else if (kind === 'stage') setStage((s) => (s === key ? 'all' : key));
-      else { setStatus('all'); setStage('all'); }
-    };
-    return (
-      <button className={'rx-stat' + (active ? ' on' : '')} onClick={onClick}
-              style={active ? { borderColor: color } : undefined}>
-        <div className="rx-stat-v" style={{ color }}>{value}</div>
-        <div className="rx-stat-l">{label}</div>
-      </button>
-    );
-  }
+  }).sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '')), [L2, priority, unit, q, nudgesByVisit, teamTasks]);
 
   return (
     <div className="rx-fade">
-      <div className="rx-stats">
-        {statCard(null, 'Total', counts.total, 'var(--txt)', 'clear')}
-        {statCard('hot', 'Hot', counts.hot, STATUS_COLOR.hot, 'status')}
-        {statCard('warm', 'Warm', counts.warm, STATUS_COLOR.warm, 'status')}
-        {statCard('cold', 'Cold', counts.cold, STATUS_COLOR.cold, 'status')}
-        {statCard('upcoming', 'Upcoming', counts.upcoming, '#1E40AF', 'stage')}
-        {statCard('booking', 'Booking', counts.booking, 'var(--good,#15803D)', 'stage')}
-      </div>
+      <ChipBar label="Buyer status · Hot / Warm / Cold / Dead — set in AVFU"
+               options={[{ k: 'all', label: 'All', cls: '' }, ...STATUSES]}
+               counts={statusCounts} value={status} onChange={(k) => setStatus((s) => (s === k ? 'all' : k))} />
+      <ChipBar label="Visit stage · operational pipeline"
+               options={[{ k: 'all', label: 'All', cls: '' }, ...STAGES]}
+               counts={stageCounts} value={stage} onChange={(k) => setStage((s) => (s === k ? 'all' : k))} />
+      <ChipBar label="Last followup taken"
+               options={LAST_FU_PRESETS}
+               counts={lastFuCounts} value={lastFu} onChange={setLastFu} />
+      <ChipBar label="Priority · TL ask & nudges"
+               options={PRIORITY_OPTS}
+               counts={priorityCounts} value={priority} onChange={setPriority} />
 
-      <div className="rx-filters">
+      <div className="rx-filters" style={{ marginTop: 4 }}>
         <select className="rx-sel" value={city} onChange={(e) => setCity(e.target.value)}>
           <option value="all">All cities</option>
           {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select className="rx-sel" value={stage} onChange={(e) => setStage(e.target.value)}>
-          <option value="all">All stages</option>
-          {STAGES.map((s) => <option key={s.k} value={s.k}>{s.label}</option>)}
         </select>
         <div className="rx-segment" title="Old Leads = pre-1-May visits still Upcoming / Cancelled / After-Visit-FU">
           {[['active', 'Active'], ['old', `Old Leads${oldCount ? ` · ${oldCount}` : ''}`], ['all', 'All']].map(([k, l]) => (
             <button key={k} className={'rx-seg' + (leadSet === k ? ' on' : '')} onClick={() => setLeadSet(k)}>{l}</button>
           ))}
         </div>
-        <input className="rx-inp" style={{ width: 132 }} placeholder="Unit no. — 203" value={unit}
-               onChange={(e) => setUnit(e.target.value)} />
-        <input className="rx-inp" style={{ flex: 1, minWidth: 200 }} placeholder="Search buyer / society / CP / RM…"
-               value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="rx-inp" style={{ width: 132 }} placeholder="Unit no. — 203" value={unit} onChange={(e) => setUnit(e.target.value)} />
+        <input className="rx-inp" style={{ flex: 1, minWidth: 200 }} placeholder="Search buyer / society / CP / RM…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
       <div className="muted" style={{ fontSize: 12, margin: '6px 2px 10px' }}>

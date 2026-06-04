@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { loadSeed } from './api.js';
 import Toast from './components/Toast.jsx';
 import AppSkeleton from './components/AppSkeleton.jsx';
+import Logo from './components/Logo.jsx';
 import VisitsView from './views/VisitsView.jsx';
 import CpView from './views/CpView.jsx';
 import PropertiesView from './views/PropertiesView.jsx';
@@ -82,8 +83,7 @@ export default function App() {
         {busy && <div className="rx-progress" aria-hidden="true" />}
         <header className="rx-topbar">
           <div className="rx-brand">
-            <img src="/openhouse_logo.png" alt="" width="26" height="26"
-                 onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            <Logo size={26} />
             <span><b>OpenHouse</b> <span className="rx-demand">DEMAND</span></span>
           </div>
           <div className="rx-who">
