@@ -60,6 +60,11 @@ def scope_for_user(snap: dict, user: dict) -> dict:
         codes = codes | t34
         snap["brokers"] = [b for b in brokers if b["cp_code"] in codes]
         snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in codes}
+        # engagement + followup history follow the broker they belong to.
+        # `codes` already includes all T3/T4 (t34), so history on ownerless T3/T4
+        # CPs stays visible to everyone — same rule as the brokers themselves.
+        snap["engagements"] = {cp: e for cp, e in snap.get("engagements", {}).items() if cp in codes}
+        snap["followups"] = [f for f in snap.get("followups", []) if f.get("cp_code") in codes]
 
     if team == "TL" or role in ("kam_tl", "caller_tl"):
         # TLs and the calling-team lead (kam_tl) see the team, not a personal book.
@@ -417,6 +422,75 @@ async def build(conn: asyncpg.Connection) -> dict:
                 "priority": r["message_priority"] or "normal",
             })
 
+    # --- engagements per CP (cp_code -> [entries], newest first) ----------
+    # The save endpoint writes these; without surfacing them here the history was
+    # only ever the author's local optimistic copy (invisible to teammates/admin
+    # and lost on reload). Shape matches store.engagements in the frontend.
+    eng_rows = await conn.fetch(
+        """
+        SELECT b.cp_code, u.slug AS by_slug, e.id, e.created_at,
+               e.inventory_shared, e.recording_done, e.listing_done,
+               e.listing_link, e.listing_followup_date, e.support_asked,
+               e.support_details, e.remarks, e.notes
+          FROM engagements e
+          JOIN brokers b ON b.id = e.broker_id
+          JOIN users   u ON u.id = e.by_user_id
+         ORDER BY e.created_at DESC
+        """
+    )
+
+    def _yn(v):
+        return "yes" if v is True else "no" if v is False else None
+
+    engagements: dict[str, list] = {}
+    for r in eng_rows:
+        cp = r["cp_code"]
+        if not cp:
+            continue
+        engagements.setdefault(cp, []).append({
+            "id": str(r["id"]),
+            "ts": r["created_at"].isoformat() if r["created_at"] else "",
+            "by": r["by_slug"],                       # author slug (id == slug in the frontend)
+            "inventoryShared": _yn(r["inventory_shared"]),
+            "recordingDone": _yn(r["recording_done"]),
+            "listingDone": _yn(r["listing_done"]),
+            "listingLink": r["listing_link"] or "",
+            "listingFollowupDate": _date_str(r["listing_followup_date"]),
+            "supportAsked": _yn(r["support_asked"]),
+            "supportDetails": r["support_details"] or "",
+            "remarks": r["remarks"] or "",
+            "notes": r["notes"] or "",
+        })
+
+    # --- followup history (flat list, newest first) -----------------------
+    # The visit record already carries the *latest* followup (date/note/by); this
+    # is the full per-followup history the broker-popup timeline shows. Like
+    # engagements, without surfacing it the timeline entries were the author's
+    # local optimistic copy only (invisible to teammates/admin, lost on reload).
+    # Shape matches store.followupLog in the frontend.
+    fu_rows = await conn.fetch(
+        """
+        SELECT vis.visit_code, vis.cp_code, u.slug AS by_slug,
+               f.created_at, f.buyer_status, f.stage, f.note,
+               f.next_followup_date, f.revisit_date
+          FROM followups f
+          JOIN visits vis ON vis.id = f.visit_id
+          JOIN users  u   ON u.id   = f.by_user_id
+         ORDER BY f.created_at DESC
+        """
+    )
+    followups = [{
+        "ts": r["created_at"].isoformat() if r["created_at"] else "",
+        "by": r["by_slug"],
+        "cp_code": r["cp_code"] or "",
+        "visit_id": r["visit_code"] or "",      # frontend keys followups by the sheet visit code
+        "status": r["buyer_status"] or "",
+        "stage": r["stage"] or "",
+        "note": r["note"] or "",
+        "next_date": _date_str(r["next_followup_date"]),
+        "revisit_date": _date_str(r["revisit_date"]),
+    } for r in fu_rows]
+
     # tiers_meta (counts of current T1/T2)
     tier_counts = await conn.fetch(
         "SELECT tier, COUNT(*) AS c FROM tier_assignments "
@@ -441,6 +515,8 @@ async def build(conn: asyncpg.Connection) -> dict:
 
     return {
         "users": users,
+        "engagements": engagements,
+        "followups": followups,
         "tiers_meta": {
             "T1": {"label": "Gold",   "count": counts_map.get("T1", 0)},
             "T2": {"label": "Silver", "count": counts_map.get("T2", 0)},

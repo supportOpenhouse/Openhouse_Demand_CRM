@@ -1,0 +1,264 @@
+/* Migration-only layout + motion. Uses the theme variables from theme.css.
+   Shell classes are rx-* prefixed so they never collide with the legacy
+   class names that also live in theme.css. */
+html, body, #root { height: 100%; margin: 0; }
+
+.rx-shell { display: flex; flex-direction: column; height: 100vh; min-height: 0; }
+
+.rx-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.rx-brand { display: flex; align-items: center; gap: 9px; font-size: 16px; letter-spacing: -.2px; }
+.rx-brand .rx-demand { color: var(--mut); font-size: 10.5px; letter-spacing: 1.5px; font-weight: 700; }
+.rx-who { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--mut); }
+.rx-avatar {
+  width: 30px; height: 30px; border-radius: 50%; background: var(--accBg);
+  color: var(--accDark, var(--acc)); display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+}
+
+.rx-body { display: flex; flex: 1; min-height: 0; }
+.rx-sidebar {
+  width: 232px; background: var(--panel); border-right: 1px solid var(--line);
+  padding: 12px 10px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto;
+}
+.rx-nav-btn {
+  display: flex; align-items: center; gap: 11px; padding: 10px 12px; border: none;
+  background: none; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--mut);
+  cursor: pointer; text-align: left; width: 100%;
+  transition: background .12s ease, color .12s ease, transform .07s ease;
+}
+.rx-nav-btn:hover { background: var(--panel2); color: var(--txt); }
+.rx-nav-btn:active { transform: scale(.97); }
+.rx-nav-btn.on { background: var(--accBg); color: var(--accDark, var(--acc)); }
+.rx-nav-btn .rx-ic { font-size: 15px; width: 18px; text-align: center; }
+.rx-badge { margin-left: auto; background: var(--bad, #B91C1C); color: #fff; font-size: 10px; font-weight: 700; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; }
+
+.rx-main { flex: 1; min-width: 0; overflow: auto; padding: 22px 26px; }
+
+/* motion tokens — product-register easing (natural deceleration, no bounce) */
+:root {
+  --ease-out-quart: cubic-bezier(.25, 1, .5, 1);
+  --ease-out-quint: cubic-bezier(.22, 1, .36, 1);
+  --ease-out-expo:  cubic-bezier(.16, 1, .3, 1);
+}
+/* animated view transition — the keyed wrapper owns the slide so nested
+   .rx-fade roots never compound the translate (just cross-fade inside). */
+.rx-view { animation: rx-view-in .26s var(--ease-out-quint); }
+.rx-fade { animation: rx-fade-in .26s var(--ease-out-quint); }
+@keyframes rx-view-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes rx-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* thin top progress bar shown while a post-write seed re-fetch is in flight */
+.rx-progress { position: absolute; top: 0; left: 0; right: 0; height: 2.5px; z-index: 300; overflow: hidden; background: var(--accBg); }
+.rx-progress::before { content: ''; position: absolute; inset: 0; width: 40%; background: var(--acc); border-radius: 2px; animation: rx-progress-slide 1s var(--ease-out-quart) infinite; }
+@keyframes rx-progress-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+
+/* ---- mobile (baseline responsive: stack shell, sidebar becomes a scroll strip) ---- */
+@media (max-width: 760px) {
+  .rx-body { flex-direction: column; }
+  .rx-sidebar { width: 100%; flex-direction: row; gap: 6px; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 8px 10px; }
+  .rx-nav-btn { white-space: nowrap; padding: 8px 11px; }
+  .rx-badge { margin-left: 6px; }
+  .rx-main { padding: 14px 12px; }
+  .rx-stats { gap: 7px; }
+  .rx-stat { min-width: calc(50% - 4px); }
+  .rx-modal { width: 100vw; max-width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+  .rx-fuform { grid-template-columns: 1fr; }
+  .rx-topbar { padding: 9px 12px; }
+}
+
+/* branded full-screen loader */
+.rx-loader {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px; background: var(--bg);
+}
+.rx-spinner {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 3px solid var(--line); border-top-color: var(--acc);
+  animation: rx-spin .8s linear infinite;
+}
+.rx-loader-label { font-size: 13px; color: var(--mut); letter-spacing: .2px; }
+@keyframes rx-spin { to { transform: rotate(360deg); } }
+
+/* lightweight skeleton shimmer for chunked/lazy view loads */
+.rx-skel { height: 14px; border-radius: 6px; background:
+  linear-gradient(90deg, var(--panel2) 25%, var(--line) 37%, var(--panel2) 63%);
+  background-size: 400% 100%; animation: rx-shimmer 1.2s ease-in-out infinite; }
+@keyframes rx-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* ---- Visits view ---- */
+.rx-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.rx-stat {
+  flex: 1; min-width: 110px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 11px; padding: 12px 14px; cursor: pointer; text-align: left;
+  transition: border-color .12s, transform .07s, box-shadow .12s;
+}
+.rx-stat:hover { box-shadow: 0 2px 10px rgba(0,0,0,.05); }
+.rx-stat:active { transform: scale(.98); }
+.rx-stat.on { border-width: 2px; padding: 11px 13px; }
+.rx-stat-v { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.rx-stat-l { font-size: 11px; color: var(--mut); margin-top: 3px; text-transform: uppercase; letter-spacing: .4px; font-weight: 600; }
+
+.rx-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+.rx-sel, .rx-inp {
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px;
+  font-size: 12.5px; background: var(--panel); color: var(--txt);
+}
+.rx-inp:focus, .rx-sel:focus { outline: none; border-color: var(--acc); }
+
+.rx-segment { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.rx-seg { padding: 7px 12px; border: none; background: var(--panel); color: var(--mut); font-size: 12px; font-weight: 600; cursor: pointer; transition: background .1s, color .1s; }
+.rx-seg + .rx-seg { border-left: 1px solid var(--line); }
+.rx-seg:hover { background: var(--panel2); }
+.rx-seg.on { background: var(--accBg); color: var(--accDark, var(--acc)); }
+
+.rx-sub { font-size: 10.5px; color: var(--mut); margin-top: 1px; }
+.rx-tag-old { display: inline-block; margin-left: 6px; font-size: 9px; font-weight: 700; letter-spacing: .4px; color: #92400E; background: var(--warmBg, #FEF3C7); border: 1px solid #FCD34D; padding: 0 5px; border-radius: 5px; vertical-align: middle; }
+.rx-pill { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 11px; text-transform: capitalize; }
+.rx-st-hot  { background: var(--badBg, #FEE2E2); color: var(--bad, #B91C1C); }
+.rx-st-warm { background: var(--warmBg, #FEF3C7); color: #92400E; }
+.rx-st-cold { background: var(--coldBg, #DBEAFE); color: #1E40AF; }
+.rx-st-dead { background: var(--panel2); color: var(--mut); }
+.rx-st-future_prospect { background: var(--accBg); color: var(--accDark, var(--acc)); }
+
+/* ---- Channel Partners view ---- */
+.rx-chip { display: inline-block; font-size: 10.5px; background: var(--panel2); color: var(--txt); padding: 1px 7px; border-radius: 5px; margin: 1px 3px 1px 0; }
+.rx-pager { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 0 4px; }
+.rx-bulkbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--accBg); border: 1px solid var(--acc); border-radius: 9px; padding: 9px 13px; margin: 8px 0 12px; font-size: 12.5px; }
+
+/* ---- Modal (property) ---- */
+.rx-modal-bg { position: fixed; inset: 0; background: rgba(22,28,36,.55); display: flex; align-items: center; justify-content: center; z-index: 200; animation: rx-fadein .12s ease-out; }
+@keyframes rx-fadein { from { opacity: 0; } to { opacity: 1; } }
+.rx-modal { background: var(--panel); border-radius: 13px; width: min(1120px, 95vw); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.25); animation: rx-pop .15s ease-out; }
+@keyframes rx-pop { from { transform: translateY(8px) scale(.99); opacity: .5; } to { transform: none; opacity: 1; } }
+.rx-modal-head { display: flex; align-items: flex-start; gap: 12px; padding: 15px 20px; border-bottom: 1px solid var(--line); }
+.rx-modal-head h2 { margin: 0; font-size: 17px; letter-spacing: -.3px; }
+.rx-modal-body { overflow: auto; padding: 16px 20px; }
+.rx-x { margin-left: auto; width: 30px; height: 30px; border: none; background: var(--panel2); border-radius: 8px; color: var(--mut); font-size: 15px; cursor: pointer; }
+.rx-x:hover { background: var(--line); color: var(--txt); }
+.rx-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 4px 0 14px; flex-wrap: wrap; }
+.rx-tab { padding: 8px 13px; font-size: 12.5px; font-weight: 600; background: none; border: none; border-bottom: 2px solid transparent; color: var(--mut); cursor: pointer; margin-bottom: -1px; }
+.rx-tab.on { border-bottom-color: var(--acc); color: var(--accDark, var(--acc)); }
+.rx-tab .ct { font-size: 10.5px; background: var(--panel2); padding: 1px 6px; border-radius: 8px; margin-left: 5px; }
+.rx-stage-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.rx-stage-tab { padding: 5px 11px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--line); background: var(--panel); border-radius: 20px; color: var(--mut); cursor: pointer; }
+.rx-stage-tab.on { background: var(--accBg); color: var(--accDark, var(--acc)); border-color: transparent; }
+.rx-ohrow { display: flex; align-items: center; gap: 12px; padding: 10px 6px; border-bottom: 1px solid var(--line); }
+.rx-phone-btn { font-size: 11px; font-family: 'SF Mono', Menlo, monospace; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; color: var(--txt); }
+.rx-phone-add { font-size: 10.5px; color: var(--acc); background: none; border: 1px dashed var(--acc); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+
+/* ---- toast ---- */
+.rx-toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 400;
+  background: #161C24; color: #fff; padding: 10px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25); animation: rx-toast-in .18s ease-out; }
+.rx-toast.good { background: #15803D; }
+.rx-toast.bad { background: #B91C1C; }
+@keyframes rx-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ---- broker popup + follow-up form ---- */
+.rx-kv { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--mut); margin-top: 6px; }
+.rx-kv b { color: var(--txt); }
+.rx-vrow { border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; margin-bottom: 9px; background: var(--panel); }
+.rx-vrow-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rx-fuform { margin-top: 11px; padding-top: 11px; border-top: 1px dashed var(--line); display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.rx-fuform label { font-size: 10.5px; color: var(--mut); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; display: block; margin-bottom: 3px; }
+.rx-fuform .full { grid-column: 1 / -1; }
+.rx-fuform textarea, .rx-fuform select, .rx-fuform input {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px; background: var(--panel); color: var(--txt); font-family: inherit;
+}
+.rx-fuform textarea:focus, .rx-fuform select:focus, .rx-fuform input:focus { outline: none; border-color: var(--acc); }
+
+/* ============================================================
+   Motion polish — feedback on the things you click
+   ============================================================ */
+/* layer press feedback + smooth focus onto the theme's buttons/controls */
+.btn { transition: background .14s var(--ease-out-quart), border-color .14s, color .14s, filter .14s, transform .08s var(--ease-out-quart); }
+.btn:active:not(:disabled) { transform: scale(.96); }
+.btn:disabled { opacity: .55; cursor: default; }
+.rx-seg, .rx-tab, .rx-stage-tab, .rx-phone-btn, .rx-phone-add, .rx-x, .rx-card-edit {
+  transition: background .14s var(--ease-out-quart), color .14s, border-color .14s, transform .08s var(--ease-out-quart);
+}
+.rx-seg:active, .rx-stage-tab:active, .rx-phone-btn:active, .rx-phone-add:active, .rx-x:active, .rx-card-edit:active { transform: scale(.94); }
+.rx-tab:active { transform: translateY(1px); }
+.rx-stage-tab:hover, .rx-tab:hover { color: var(--txt); }
+.rx-sel, .rx-inp, .rx-fuform input, .rx-fuform select, .rx-fuform textarea {
+  transition: border-color .14s var(--ease-out-quart), box-shadow .14s var(--ease-out-quart);
+}
+.rx-inp:focus, .rx-sel:focus, .rx-fuform input:focus, .rx-fuform select:focus, .rx-fuform textarea:focus {
+  box-shadow: 0 0 0 3px var(--accBg);
+}
+/* table rows: smooth hover tint (the legacy .t rows had instant hover) */
+.t tbody tr { transition: background .12s var(--ease-out-quart); }
+
+/* ============================================================
+   Team roster — header + member cards (with bounded stagger)
+   ============================================================ */
+.rx-team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.rx-membercard {
+  border: 1px solid var(--line); border-radius: 11px; padding: 11px 13px; background: var(--panel);
+  transition: border-color .14s var(--ease-out-quart), box-shadow .14s var(--ease-out-quart), transform .14s var(--ease-out-quart);
+  animation: rx-card-in .32s var(--ease-out-quint) both;
+  animation-delay: calc(min(var(--i, 0), 11) * 28ms);   /* cap stagger so late cards aren't slow */
+}
+.rx-membercard:hover { border-color: var(--acc); box-shadow: 0 3px 12px rgba(0,0,0,.06); transform: translateY(-1px); }
+@keyframes rx-card-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+.rx-membercard-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.rx-card-edit {
+  flex: none; font-size: 11px; font-weight: 600; color: var(--acc); background: none;
+  border: 1px solid transparent; border-radius: 6px; padding: 2px 8px; cursor: pointer; opacity: 0;
+}
+.rx-membercard:hover .rx-card-edit, .rx-card-edit:focus-visible { opacity: 1; }
+.rx-card-edit:hover { background: var(--accBg); border-color: var(--acc); }
+@media (hover: none) { .rx-card-edit { opacity: 1; } }   /* touch: always show */
+
+/* ============================================================
+   User modal — footer, city chip-input, status switch, errors
+   ============================================================ */
+.rx-modal-foot { display: flex; justify-content: flex-end; gap: 9px; padding: 13px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+.rx-citybox {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel); min-height: 36px;
+  transition: border-color .14s var(--ease-out-quart), box-shadow .14s var(--ease-out-quart);
+}
+.rx-citybox:focus-within { border-color: var(--acc); box-shadow: 0 0 0 3px var(--accBg); }
+.rx-citychip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; background: var(--accBg); color: var(--accDark, var(--acc)); padding: 3px 4px 3px 9px; border-radius: 13px; font-weight: 600; }
+.rx-citychip button { border: none; background: none; color: inherit; cursor: pointer; font-size: 11px; line-height: 1; padding: 2px 4px; border-radius: 50%; opacity: .7; transition: opacity .12s, background .12s; }
+.rx-citychip button:hover { opacity: 1; background: rgba(0,0,0,.08); }
+.rx-cityinput { flex: 1; min-width: 120px; border: none; outline: none; background: none; color: var(--txt); font-size: 12.5px; padding: 3px 2px; font-family: inherit; }
+.rx-citysuggest { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.rx-switch { display: flex !important; align-items: center; gap: 9px; font-size: 12.5px !important; color: var(--txt) !important; font-weight: 500 !important; text-transform: none !important; letter-spacing: 0 !important; cursor: pointer; }
+.rx-switch input { width: auto !important; accent-color: var(--acc); width: 16px !important; height: 16px; flex: none; cursor: pointer; }
+.rx-form-err { margin-top: 12px; font-size: 12.5px; color: var(--bad, #B91C1C); background: var(--badBg, #FEE2E2); border: 1px solid #FCA5A5; border-radius: 8px; padding: 8px 11px; animation: rx-shake .3s var(--ease-out-quart); }
+@keyframes rx-shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-5px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
+
+/* ============================================================
+   Past engagements (broker popup)
+   ============================================================ */
+.rx-eng-h { font-size: 11px; color: var(--mut); text-transform: uppercase; letter-spacing: .5px; font-weight: 700; margin: 18px 0 8px; }
+.rx-eng-card { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; margin-bottom: 8px; }
+.rx-eng-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.rx-eng-flags { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 4px 14px; font-size: 11.5px; color: var(--mut); margin-bottom: 6px; }
+.rx-eng-flags b { color: var(--txt); }
+.rx-eng-line { font-size: 12px; color: var(--txt); margin-bottom: 4px; }
+.rx-eng-notes { font-size: 12.5px; color: var(--txt); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+
+/* ============================================================
+   Skeleton loaders
+   ============================================================ */
+.rx-skel-shell .rx-skel { opacity: .9; }
+.rx-skel-row td { animation: rx-fade-in .4s var(--ease-out-quint) both; animation-delay: calc(min(var(--i, 0), 12) * 30ms); }
+
+/* ============================================================
+   Reduced motion — collapse every animation/transition to instant
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .rx-card-edit { opacity: 1; }   /* no hover-reveal when motion is off */
+}

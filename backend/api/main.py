@@ -9,6 +9,7 @@ Cron: /admin/sync hit by Render Cron Job; gated by INTERNAL_CRON_TOKEN.
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -92,8 +93,14 @@ async def logout():
     return resp
 
 
-# Local review only (DEV_MODE=1) — log in as any roster user without Google,
-# then land on the app. Disabled in production (DEV_MODE unset on Render).
+# Local review only (DEV_MODE=1) — log in as any roster user without Google.
+# Disabled in production (DEV_MODE unset on Render).
+#
+# The React app (frontend/) is served by Vite in dev (`npm run dev` on :5173,
+# which proxies /api,/auth,/health here) and by Vercel in prod — the backend no
+# longer serves any static frontend. Sign in locally via the Vite origin:
+#   http://localhost:5173/auth/dev_login?slug=<slug>
+# The 302 to "/" then resolves against :5173 and Vite serves the app.
 if config.DEV_MODE:
     @app.get("/auth/dev_login")
     async def dev_login(slug: str):
@@ -106,22 +113,6 @@ if config.DEV_MODE:
         resp = RedirectResponse("/", status_code=302)
         auth.set_session_cookie(resp, str(u["id"]), u["email"], u["slug"])
         return resp
-
-    # Serve the frontend from the same origin so cookies + API just work locally.
-    import os as _os
-    from fastapi.responses import FileResponse
-    from fastapi.staticfiles import StaticFiles
-    _FE = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "frontend"))
-
-    @app.get("/")
-    async def _dev_index():
-        return FileResponse(_os.path.join(_FE, "index.html"))
-
-    @app.get("/openhouse_logo.png")
-    async def _dev_logo():
-        return FileResponse(_os.path.join(_FE, "openhouse_logo.png"))
-
-    app.mount("/brand", StaticFiles(directory=_os.path.join(_FE, "brand")), name="brand")
 
 
 @app.get("/api/me")
@@ -598,6 +589,135 @@ async def bulk_reassign_visits(body: VisitBulkReassignBody, user: dict = Depends
     # result is like "UPDATE N"
     n = int(result.split()[-1]) if result and result.split()[-1].isdigit() else 0
     return {"ok": True, "reassigned": n}
+
+
+# ============================================================================
+# Write · Users / roster (Admin only)
+# ============================================================================
+
+VALID_TEAMS = {"Admin", "TL", "KAM", "Ground"}
+
+
+class UserCreateBody(BaseModel):
+    name: str = Field(..., min_length=1)
+    email: str = Field(..., min_length=3)
+    team: str
+    role: str = Field(..., min_length=1)
+    slug: Optional[str] = None             # auto-derived from name when blank
+    phone: Optional[str] = None
+    cities: list[str] = Field(default_factory=list)
+    joined_at: Optional[str] = None
+
+
+class UserUpdateBody(BaseModel):
+    # All optional — only the keys present are changed (PATCH semantics).
+    name: Optional[str] = None
+    email: Optional[str] = None
+    team: Optional[str] = None
+    role: Optional[str] = None
+    phone: Optional[str] = None
+    cities: Optional[list[str]] = None
+    active: Optional[bool] = None
+
+
+def _slugify(name: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return base or "user"
+
+
+async def _unique_slug(conn, base: str) -> str:
+    """First-free slug: base, base-2, base-3, … (matches the legacy first-name style)."""
+    slug, n = base, 1
+    while await conn.fetchval("SELECT 1 FROM users WHERE slug = $1", slug):
+        n += 1
+        slug = f"{base}-{n}"
+    return slug
+
+
+def _check_email_domain(email: str) -> str:
+    email = (email or "").strip().lower()
+    if "@" not in email or not email.endswith("@" + config.ALLOWED_EMAIL_DOMAIN):
+        raise HTTPException(400, f"Email must be a @{config.ALLOWED_EMAIL_DOMAIN} address")
+    return email
+
+
+@app.post("/api/users")
+async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_user)):
+    """Add a roster member. Admin only. Persists to the users table (the sheet
+    sync never writes users, so manually-added people are not wiped)."""
+    _require_admin(user)
+    if body.team not in VALID_TEAMS:
+        raise HTTPException(400, f"Invalid team: {body.team}")
+    email = _check_email_domain(body.email)
+    cities = [c.strip() for c in (body.cities or []) if c.strip()]
+    async with acquire() as conn:
+        if await conn.fetchval("SELECT 1 FROM users WHERE email = $1", email):
+            raise HTTPException(409, "A user with this email already exists")
+        requested = (body.slug or "").strip().lower()
+        if requested:
+            if not re.fullmatch(r"[a-z0-9-]+", requested):
+                raise HTTPException(400, "Slug may only contain lowercase letters, numbers and hyphens")
+            if await conn.fetchval("SELECT 1 FROM users WHERE slug = $1", requested):
+                raise HTTPException(409, f"Slug '{requested}' is already taken")
+            slug = requested
+        else:
+            slug = await _unique_slug(conn, _slugify(body.name))
+        row = await conn.fetchrow(
+            """
+            INSERT INTO users (slug, email, name, phone, team, role, cities, joined_at, active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+            RETURNING slug, name
+            """,
+            slug, email, body.name.strip(), (body.phone or "").strip() or None,
+            body.team, body.role.strip(), cities, _date_or_none(body.joined_at),
+        )
+    return {"ok": True, "slug": row["slug"], "name": row["name"]}
+
+
+@app.patch("/api/users/{slug}")
+async def update_user(slug: str, body: UserUpdateBody, user: dict = Depends(auth.current_user)):
+    """Edit a roster member (name/email/team/role/phone/cities) or set active
+    (active=false = deactivate; drops out of the roster but keeps history/FKs).
+    Admin only. The slug is immutable (it is the owner identity used elsewhere)."""
+    _require_admin(user)
+    if body.team is not None and body.team not in VALID_TEAMS:
+        raise HTTPException(400, f"Invalid team: {body.team}")
+    async with acquire() as conn:
+        target = await conn.fetchrow("SELECT id, slug FROM users WHERE slug = $1", slug)
+        if not target:
+            raise HTTPException(404, "User not found")
+        # Build the SET clause from a fixed whitelist of columns (no injection).
+        fields: dict = {}
+        if body.name is not None:
+            if not body.name.strip():
+                raise HTTPException(400, "Name cannot be empty")
+            fields["name"] = body.name.strip()
+        if body.email is not None:
+            email = _check_email_domain(body.email)
+            if await conn.fetchval("SELECT 1 FROM users WHERE email = $1 AND id <> $2", email, target["id"]):
+                raise HTTPException(409, "Another user already uses this email")
+            fields["email"] = email
+        if body.team is not None:
+            fields["team"] = body.team
+        if body.role is not None:
+            if not body.role.strip():
+                raise HTTPException(400, "Role cannot be empty")
+            fields["role"] = body.role.strip()
+        if body.phone is not None:
+            fields["phone"] = body.phone.strip() or None
+        if body.cities is not None:
+            fields["cities"] = [c.strip() for c in body.cities if c.strip()]
+        if body.active is not None:
+            fields["active"] = body.active
+        if not fields:
+            return {"ok": True, "slug": slug, "changed": 0}
+        cols = list(fields.keys())
+        set_clause = ", ".join(f"{c} = ${i + 2}" for i, c in enumerate(cols))
+        await conn.execute(
+            f"UPDATE users SET {set_clause}, updated_at = now() WHERE id = $1",
+            target["id"], *[fields[c] for c in cols],
+        )
+    return {"ok": True, "slug": slug, "changed": len(fields)}
 
 
 # ============================================================================
