@@ -184,15 +184,16 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.visit_code, v.cp_code, v.broker_name, v.broker_contact, v.broker_alt_contact,
           v.company_name, v.city, v.buyer_name, v.buyer_contact, v.buyer_registration_date,
           v.lead_key, v.lead_occurrence_count, v.first_added_by, v.added_by, v.sales_manager,
-          v.source, v.status, v.selected_date, v.selected_time, v.visit_date,
+          v.source, v.status, v.selected_date, v.selected_time,
+          COALESCE(v.visit_date, v.selected_date) AS visit_date,
           v.society_name, v.unit_address_line1, v.unit_address_line2, v.floor,
           v.furnishing_status, v.listing_status, v.sales_feedback, v.buyer_feedback,
           v.all_feedback, v.reminder_status, v.profession, v.intent, v.metadata,
           v.lead_status, v.current_stage, v.latest_followup_at, v.latest_followup_note,
-          v.latest_followup_date, v.next_followup_date, v.revisit_date, v.is_old_lead,
+          v.latest_followup_date, v.next_followup_date, v.revisit_date,
           v.created_at, v.updated_at
           FROM visits v
-         ORDER BY v.visit_date DESC NULLS LAST, v.created_at DESC
+         ORDER BY COALESCE(v.visit_date, v.selected_date) DESC NULLS LAST, v.created_at DESC
          LIMIT $1
         """,
         config.SEED_VISITS_LIMIT,
@@ -280,7 +281,11 @@ async def build(conn: asyncpg.Connection) -> dict:
         # (upcoming→Upcoming, completed→After-Visit-FU, cancelled→Cancelled).
         if r["current_stage"] and r["latest_followup_at"] is not None:
             visit["_stage"] = r["current_stage"]
-        visit["is_old_lead"] = bool(r["is_old_lead"])   # persisted: old (pre-1-May) AND never actioned
+        # Old lead = old (pre-1-May effective visit_date) AND never actioned in the app.
+        # Computed live from the COALESCE'd visit_date so it's correct even if the sheet
+        # sync (until redeployed) re-blanks the visit_date column.
+        _eff_vd = r["visit_date"]   # already COALESCE(visit_date, selected_date)
+        visit["is_old_lead"] = bool(_eff_vd and _eff_vd < dt.date(2026, 5, 1) and r["latest_followup_at"] is None)
         if r["next_followup_date"]:
             visit["_next_followup_date"] = _date_str(r["next_followup_date"])
         if r["revisit_date"]:

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { fmtDate, fmtDay } from '../lib/format.js';
 import { usersBySlug, ownedCpCodes, buildCpIndex, TIERS, TIER_META, sortInTier } from '../lib/brokers.js';
 import { LAST_FU_PRESETS, matchLastFuFilter } from '../lib/visits.js';
@@ -7,6 +7,7 @@ import ChipBar from '../components/ChipBar.jsx';
 import useIsMobile from '../lib/useIsMobile.js';
 
 const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
+const PAGE = 100;   // render in pages so a 2,000+ row tier doesn't lock up the browser
 
 // Short tier descriptions used in the mobile layout (legacy renderCpViewMobile, 2583-2588).
 const TIER_DESC_MOBILE = {
@@ -63,6 +64,8 @@ export default function CpView({ seed, onOpenBroker }) {
   const [sort, setSort] = useState('rank');
   const [lastFu, setLastFu] = useState('all');     // chip-bar 1
   const [priority, setPriority] = useState('all'); // chip-bar 2
+  const [page, setPage] = useState(1);
+  const dq = useDeferredValue(q);                   // keep typing responsive
 
   // overlay seed.followups into per-CP last-FU (matches legacy store.followupLog).
   const fuByVisit = useMemo(() => buildFuByVisit(seed.followups || []), [seed]);
@@ -103,8 +106,8 @@ export default function CpView({ seed, onOpenBroker }) {
     if (city !== 'all' && b.city !== city) return false;
     if (owner !== 'all') { const o = cpOwner[b.cp_code]; if (owner === '__none__' ? !!o : o !== owner) return false; }
     if (unit.trim()) { const u = cpIndex[b.cp_code]?.units || []; if (!u.some((x) => x.includes(unit.trim().toLowerCase()))) return false; }
-    if (q.trim()) {
-      const s = q.trim().toLowerCase();
+    if (dq.trim()) {
+      const s = dq.trim().toLowerCase();
       if (!((b.name || '').toLowerCase().includes(s) || (b.cp_code || '').toLowerCase().includes(s)
         || (b.company_name || '').toLowerCase().includes(s) || (b.phone_number || '').includes(s))) return false;
     }
@@ -112,7 +115,7 @@ export default function CpView({ seed, onOpenBroker }) {
     if (priority === 'nudged' && !nudgedForCp[b.cp_code]) return false;
     if (priority === 'tl_ask' && !tlAskForCp[b.cp_code]) return false;
     return true;
-  }), [universe, city, owner, unit, q, lastFu, priority, cpIndex, cpOwner, lfForCp, nudgedForCp, tlAskForCp]);
+  }), [universe, city, owner, unit, dq, lastFu, priority, cpIndex, cpOwner, lfForCp, nudgedForCp, tlAskForCp]);
 
   const groups = useMemo(() => {
     const g = { T1: [], T2: [], T3: [], T4: [] };
@@ -130,7 +133,11 @@ export default function CpView({ seed, onOpenBroker }) {
   }, [groups, activeTier, sort, cpIndex]);
   const SORT_LABEL = { rank: 'Rank (tier)', recent: 'Most recent visit', d30: 'D30 visits', all_time: 'All-time visits', onboard: 'Recently onboarded' };
 
-  useEffect(() => { /* keep tier in sync when its group empties */ }, [activeTier]);
+  // pagination — only render PAGE rows at a time
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE));
+  const pg = Math.min(page, totalPages);
+  const pageRows = useMemo(() => sorted.slice((pg - 1) * PAGE, pg * PAGE), [sorted, pg]);
+  useEffect(() => { setPage(1); }, [activeTier, city, owner, unit, dq, sort, lastFu, priority]);
 
   // ---- desktop row ----
   const renderRow = (b) => {
@@ -283,7 +290,7 @@ export default function CpView({ seed, onOpenBroker }) {
 
       {isMobile ? (
         <div className="m-card-list">
-          {sorted.length ? sorted.map(renderCard) : (
+          {pageRows.length ? pageRows.map(renderCard) : (
             <div className="empty"><div className="emoji">👥</div><div className="t">No CPs in this tier</div></div>
           )}
         </div>
@@ -297,11 +304,19 @@ export default function CpView({ seed, onOpenBroker }) {
               <th>Onboarded by</th>{!hideOwner && <th>CP Owner</th>}<th>Last visit</th><th>Last FU taken</th><th>⚑</th>
             </tr></thead>
             <tbody>
-              {sorted.length ? sorted.map(renderRow) : (
+              {pageRows.length ? pageRows.map(renderRow) : (
                 <tr><td colSpan={hideOwner ? 13 : 14}><div className="empty"><div className="emoji">👥</div><div className="t">No CPs in this tier for your scope</div></div></td></tr>
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="rx-pager">
+          <button className="btn xs" type="button" disabled={pg <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Prev</button>
+          <span className="muted" style={{ fontSize: 12 }}>Page {pg} / {totalPages} · {sorted.length} CPs</span>
+          <button className="btn xs" type="button" disabled={pg >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next →</button>
         </div>
       )}
     </div>

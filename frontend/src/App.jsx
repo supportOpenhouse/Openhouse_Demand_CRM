@@ -33,6 +33,10 @@ export default function App() {
   const [view, setView] = useState('visits');
   const [openCp, setOpenCp] = useState(null);   // broker popup, openable from any view
   const [busy, setBusy] = useState(false);       // re-fetch in flight → top progress bar
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try { return localStorage.getItem('rx-nav-collapsed') === '1'; } catch { return false; }
+  });
+  useEffect(() => { try { localStorage.setItem('rx-nav-collapsed', navCollapsed ? '1' : '0'); } catch { /* ignore */ } }, [navCollapsed]);
 
   useEffect(() => {
     let alive = true;
@@ -82,9 +86,13 @@ export default function App() {
       <div className="rx-shell">
         {busy && <div className="rx-progress" aria-hidden="true" />}
         <header className="rx-topbar">
-          <div className="rx-brand">
-            <Logo size={26} />
-            <span><b>OpenHouse</b> <span className="rx-demand">DEMAND</span></span>
+          <div className="rx-topbar-left">
+            <button className="rx-navtoggle" onClick={() => setNavCollapsed((c) => !c)}
+                    title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-label="Toggle sidebar">☰</button>
+            <div className="rx-brand">
+              <Logo size={26} />
+              <span><b>OpenHouse</b> <span className="rx-demand">DEMAND</span></span>
+            </div>
           </div>
           <div className="rx-who">
             <span>{me.name || me.slug || 'Signed in'}{me.team ? ` · ${me.team}` : ''}</span>
@@ -93,10 +101,11 @@ export default function App() {
         </header>
 
         <div className="rx-body">
-          <nav className="rx-sidebar">
+          <nav className={'rx-sidebar' + (navCollapsed ? ' collapsed' : '')}>
             {nav.map((n) => (
-              <button key={n.k} className={'rx-nav-btn' + (view === n.k ? ' on' : '')} onClick={() => setView(n.k)}>
-                <span className="rx-ic">{n.icon}</span>{n.label}
+              <button key={n.k} className={'rx-nav-btn' + (view === n.k ? ' on' : '')} onClick={() => setView(n.k)}
+                      title={navCollapsed ? n.label : undefined}>
+                <span className="rx-ic">{n.icon}</span><span className="rx-nav-label">{n.label}</span>
                 {n.k === 'notifications' && unread > 0 && <span className="rx-badge">{unread}</span>}
               </button>
             ))}

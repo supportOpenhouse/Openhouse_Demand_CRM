@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { fmtDate, fmtDay } from '../lib/format.js';
 import {
   STAGES, STAGE_BY_KEY, STATUSES, LAST_FU_PRESETS,
-  visitStage, visitStatus, nextFuFor, matchLastFuFilter, scopeVisits,
+  visitStage, visitStatus, nextFuFor, matchLastFuFilter, scopeVisits, isOldLead,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -76,6 +76,7 @@ export default function VisitsView({ seed, onOpenBroker }) {
   const [stage, setStage] = useState('all');
   const [lastFu, setLastFu] = useState('not_taken'); // legacy default: focus on visits with no FU taken yet
   const [priority, setPriority] = useState('all');
+  const [leadSet, setLeadSet] = useState('active');  // #6 Active | Old Leads | All — default hides old leads
   const [unit, setUnit] = useState('');            // #4 typeable unit number
   const [q, setQ] = useState('');
   const [sortField, setSortField] = useState('visit_date');
@@ -90,11 +91,16 @@ export default function VisitsView({ seed, onOpenBroker }) {
   // --- per-row helpers reused across counts/sort/render ---
   const tierFor = (v) => (brokersByCode[v.cp_code]?.tier) || 'T4';
 
-  // city-scoped base — drives status & stage chip counts (legacy visitsForUser().filter(visibleCity))
-  const cityBase = useMemo(
-    () => scoped.filter((v) => city === 'all' || v.city === city),
-    [scoped, city],
-  );
+  const oldCount = useMemo(() => scoped.filter(isOldLead).length, [scoped]);
+  // city + lead-set scoped base — drives status & stage chip counts. Default 'active'
+  // hides old leads (pre-1-May, never actioned), which also lightens the working set.
+  const cityBase = useMemo(() => scoped.filter((v) => {
+    if (city !== 'all' && v.city !== city) return false;
+    const old = isOldLead(v);
+    if (leadSet === 'active' && old) return false;
+    if (leadSet === 'old' && !old) return false;
+    return true;
+  }), [scoped, city, leadSet]);
 
   const statusCounts = useMemo(() => {
     const c = { all: cityBase.length, hot: 0, warm: 0, cold: 0, dead: 0, future_prospect: 0, unc: 0 };
@@ -137,9 +143,11 @@ export default function VisitsView({ seed, onOpenBroker }) {
   }), [priorityBase, nudgesByVisit, teamTasks]);
 
   // --- full filtered set (legacy filterVisits): search + status + stage + lastFu + priority + unit ---
+  // deferred search keeps typing responsive on slower machines (non-blocking recompute)
+  const dq = useDeferredValue(q);
   const filtered = useMemo(() => cityBase.filter((v) => {
-    if (q.trim()) {
-      const s = q.trim().toLowerCase();
+    if (dq.trim()) {
+      const s = dq.trim().toLowerCase();
       const hit = (v.id || '').toLowerCase().includes(s)
         || (v.society_name || '').toLowerCase().includes(s)
         || (v.broker_name || '').toLowerCase().includes(s)
@@ -161,7 +169,7 @@ export default function VisitsView({ seed, onOpenBroker }) {
       if (!u.includes(unit.trim().toLowerCase())) return false;
     }
     return true;
-  }), [cityBase, q, status, stage, lastFu, priority, unit, nudgesByVisit, teamTasks]);
+  }), [cityBase, dq, status, stage, lastFu, priority, unit, nudgesByVisit, teamTasks]);
 
   // --- sort (legacy sortVisits) ---
   const sorted = useMemo(() => {
@@ -193,7 +201,7 @@ export default function VisitsView({ seed, onOpenBroker }) {
   const end = Math.min(total, pg * PAGE_SIZE);
 
   // reset to page 1 when any filter changes
-  useEffect(() => { setPage(1); }, [city, status, stage, lastFu, priority, unit, q, sortField, sortDir]);
+  useEffect(() => { setPage(1); }, [city, status, stage, lastFu, priority, leadSet, unit, dq, sortField, sortDir]);
 
   function onSort(k) {
     if (sortField === k) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -261,6 +269,11 @@ export default function VisitsView({ seed, onOpenBroker }) {
           <option value="all">All cities</option>
           {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+        <div className="rx-segment" title="Old Leads = pre-1-May visits never actioned in the app">
+          {[['active', 'Active'], ['old', `Old Leads${oldCount ? ` · ${oldCount}` : ''}`], ['all', 'All']].map(([k, l]) => (
+            <button key={k} type="button" className={'rx-seg' + (leadSet === k ? ' on' : '')} onClick={() => setLeadSet(k)}>{l}</button>
+          ))}
+        </div>
         <input
           className="rx-inp"
           style={{ width: 132 }}

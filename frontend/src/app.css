@@ -22,7 +22,23 @@ html, body, #root { height: 100%; margin: 0; }
 .rx-sidebar {
   width: 232px; background: var(--panel); border-right: 1px solid var(--line);
   padding: 12px 10px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto;
+  transition: width .22s var(--ease-out-quint, ease-out);
 }
+/* collapsed: icon-only rail (gives the wide tables more room) */
+.rx-sidebar.collapsed { width: 60px; padding: 12px 8px; }
+.rx-sidebar.collapsed .rx-nav-label { display: none; }
+.rx-sidebar.collapsed .rx-nav-btn { justify-content: center; padding: 10px 0; gap: 0; position: relative; }
+.rx-sidebar.collapsed .rx-badge { position: absolute; top: 3px; right: 6px; margin: 0; }
+/* topbar left group + sidebar toggle */
+.rx-topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rx-navtoggle {
+  border: 1px solid var(--line); background: var(--panel); color: var(--mut); cursor: pointer;
+  width: 32px; height: 32px; border-radius: 8px; font-size: 15px; line-height: 1; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .14s var(--ease-out-quart, ease), color .14s, transform .08s;
+}
+.rx-navtoggle:hover { background: var(--panel2); color: var(--txt); }
+.rx-navtoggle:active { transform: scale(.94); }
 .rx-nav-btn {
   display: flex; align-items: center; gap: 11px; padding: 10px 12px; border: none;
   background: none; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--mut);
@@ -58,7 +74,8 @@ html, body, #root { height: 100%; margin: 0; }
 /* ---- mobile (baseline responsive: stack shell, sidebar becomes a scroll strip) ---- */
 @media (max-width: 760px) {
   .rx-body { flex-direction: column; }
-  .rx-sidebar { width: 100%; flex-direction: row; gap: 6px; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 8px 10px; }
+  .rx-sidebar, .rx-sidebar.collapsed { width: 100%; flex-direction: row; gap: 6px; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 8px 10px; }
+  .rx-sidebar.collapsed .rx-nav-label { display: inline; }   /* mobile strip keeps labels */
   .rx-nav-btn { white-space: nowrap; padding: 8px 11px; }
   .rx-badge { margin-left: 6px; }
   .rx-main { padding: 14px 12px; }
