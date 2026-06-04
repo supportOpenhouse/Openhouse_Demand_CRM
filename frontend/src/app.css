@@ -61,8 +61,37 @@ html, body, #root { height: 100%; margin: 0; }
 .rx-flt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 22px; }
 .rx-flt-full { grid-column: 1 / -1; }
 .rx-fu-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ---- impersonation: "view as" switcher + banner ---- */
+.rx-who-wrap { position: relative; }
+.rx-who { border: none; background: none; font: inherit; color: var(--mut); display: flex; align-items: center; gap: 9px; }
+.rx-who.clickable { cursor: pointer; padding: 4px 8px; border-radius: 9px; transition: background .14s var(--ease-out-quart, ease); }
+.rx-who.clickable:hover { background: var(--panel2); }
+.rx-who.impersonating .rx-avatar { box-shadow: 0 0 0 2px var(--acc); }
+.rx-who-caret { font-size: 9px; color: var(--mut2); }
+.rx-switch-backdrop { position: fixed; inset: 0; z-index: 305; }
+.rx-switch-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 306; width: 300px; max-height: 64vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 16px 44px rgba(0,0,0,.22);
+  padding: 6px; animation: rx-pop .14s var(--ease-out-quint, ease-out);
+}
+.rx-switch-label { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--mut2); font-weight: 700; padding: 8px 9px 4px; }
+.rx-switch-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border: none; background: none; border-radius: 8px; cursor: pointer; font-size: 13px; text-align: left; color: var(--txt); }
+.rx-switch-item:hover { background: var(--panel2); }
+.rx-switch-item.on { background: var(--accBg); }
+.rx-switch-item.exit { color: var(--accDark, var(--acc)); font-weight: 600; }
+.rx-switch-item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rx-avatar.sm { width: 24px; height: 24px; font-size: 10px; }
+.rx-impersonate-bar {
+  display: flex; align-items: center; gap: 8px; padding: 7px 18px; font-size: 13px;
+  background: var(--warnBg, #FEF3C7); color: #92400E; border-bottom: 1px solid #FCD34D;
+}
+.rx-impersonate-bar button { margin-left: auto; border: 1px solid #FCD34D; background: #fff; color: #92400E; font-weight: 600; font-size: 12px; padding: 3px 12px; border-radius: 7px; cursor: pointer; }
+.rx-impersonate-bar button:hover { background: var(--warnBg, #FEF3C7); }
+
 @media (max-width: 760px) {
   .rx-search input { width: 150px; max-width: 46vw; }
+  .rx-switch-menu { width: 86vw; }
   .rx-topbar-right { gap: 8px; }
   .rx-flt-grid { grid-template-columns: 1fr; }
 }

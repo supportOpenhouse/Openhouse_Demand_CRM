@@ -13,6 +13,7 @@ import TeamView from './views/TeamView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
+import { TEAM_PILL } from './lib/legacy.js';
 
 const SEARCH_VIEWS = new Set(['visits', 'cps', 'properties']);
 
@@ -43,6 +44,8 @@ export default function App() {
   const [search, setSearch] = useState('');          // global topbar search (like crm.html)
   const [filters, setFilters] = useState({});         // advanced Visits filters
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [impersonate, setImpersonate] = useState(null); // admin: view as another user (slug)
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   useEffect(() => { setSearch(''); }, [view]);         // clear search when switching views
 
   useEffect(() => {
@@ -75,7 +78,14 @@ export default function App() {
   }
   if (!seed) return (<><Toast /><AppSkeleton /></>);
 
-  const me = seed.current_user || {};   // real signed-in user — no hardcoded default (#2)
+  const realMe = seed.current_user || {};   // real signed-in user — no hardcoded default (#2)
+  const canImpersonate = realMe.team === 'Admin' || realMe.role === 'admin';
+  // effective user: admins can "view as" anyone — the admin seed has the full dataset,
+  // so swapping current_user re-scopes every view exactly like that user would see it.
+  const me = (impersonate && canImpersonate)
+    ? ((seed.users || []).find((u) => u.slug === impersonate) || realMe)
+    : realMe;
+  const vseed = me === realMe ? seed : { ...seed, current_user: me, current_user_slug: me.slug };
   const isAdmTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
   const nav = NAV.filter((n) => !n.adm || isAdmTL)
     .map((n) => (n.k === 'team' ? { ...n, label: isAdmTL ? 'Team & Assignments' : 'My Day' } : n));
@@ -114,12 +124,47 @@ export default function App() {
                 Filters{activeFilterCount(filters) > 0 && <span className="rx-filters-badge">{activeFilterCount(filters)}</span>}
               </button>
             )}
-            <div className="rx-who">
-              <span>{me.name || me.slug || 'Signed in'}{me.team ? ` · ${me.team}` : ''}</span>
-              <span className="rx-avatar">{initials(me.name || me.slug)}</span>
+            <div className="rx-who-wrap">
+              <button type="button" className={'rx-who' + (canImpersonate ? ' clickable' : '') + (impersonate ? ' impersonating' : '')}
+                      onClick={() => canImpersonate && setSwitcherOpen((o) => !o)}
+                      title={canImpersonate ? 'View as another user' : undefined}>
+                <span>{me.name || me.slug || 'Signed in'}{me.team ? ` · ${me.team}` : ''}</span>
+                <span className="rx-avatar">{initials(me.name || me.slug)}</span>
+                {canImpersonate && <span className="rx-who-caret">▾</span>}
+              </button>
+              {switcherOpen && (
+                <>
+                  <div className="rx-switch-backdrop" onClick={() => setSwitcherOpen(false)} />
+                  <div className="rx-switch-menu">
+                    {impersonate && (
+                      <button type="button" className="rx-switch-item exit"
+                              onClick={() => { setImpersonate(null); setSwitcherOpen(false); setView('visits'); }}>
+                        ⤺ Back to myself ({realMe.name})
+                      </button>
+                    )}
+                    <div className="rx-switch-label">View as</div>
+                    {(seed.users || []).slice()
+                      .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''))
+                      .map((u) => (
+                        <button key={u.slug} type="button" className={'rx-switch-item' + (me.slug === u.slug ? ' on' : '')}
+                                onClick={() => { setImpersonate(u.slug === realMe.slug ? null : u.slug); setSwitcherOpen(false); setView('visits'); }}>
+                          <span className="rx-avatar sm">{initials(u.name)}</span>
+                          <span className="nm">{u.name}{u.slug === realMe.slug ? ' (you)' : ''}</span>
+                          <span className={'role-pill ' + (TEAM_PILL[u.team] || '')}>{u.team}</span>
+                        </button>
+                      ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </header>
+        {impersonate && (
+          <div className="rx-impersonate-bar">
+            <span>👁 Viewing as <b>{me.name}</b> · {me.team} — exactly what they see.</span>
+            <button type="button" onClick={() => { setImpersonate(null); setView('visits'); }}>Exit</button>
+          </div>
+        )}
 
         <div className="rx-body">
           <nav className={'rx-sidebar' + (navCollapsed ? ' collapsed' : '')}>
@@ -137,19 +182,19 @@ export default function App() {
               <h2 style={{ margin: '2px 0 12px', letterSpacing: '-.3px' }}>{active?.label}</h2>
               <ErrorBoundary resetKey={view}>
               {view === 'visits' ? (
-                <VisitsView seed={seed} onOpenBroker={setOpenCp} search={search} filters={filters} />
+                <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} />
               ) : view === 'cps' ? (
-                <CpView seed={seed} onOpenBroker={setOpenCp} search={search} />
+                <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'properties' ? (
-                <PropertiesView seed={seed} onOpenBroker={setOpenCp} search={search} />
+                <PropertiesView seed={vseed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'queue' ? (
-                <QueueView seed={seed} reloadSeed={reloadSeed} />
+                <QueueView seed={vseed} reloadSeed={reloadSeed} />
               ) : view === 'notifications' ? (
-                <NotificationsView seed={seed} onOpenBroker={setOpenCp} />
+                <NotificationsView seed={vseed} onOpenBroker={setOpenCp} />
               ) : view === 'snapshot' ? (
-                <SnapshotView seed={seed} />
+                <SnapshotView seed={vseed} />
               ) : view === 'team' ? (
-                <TeamView seed={seed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} />
+                <TeamView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} />
               ) : (
                 <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               )}
@@ -158,9 +203,9 @@ export default function App() {
           </main>
         </div>
       </div>
-      {openCp && <BrokerModal cpCode={openCp} seed={seed} reloadSeed={reloadSeed} onClose={() => setOpenCp(null)} />}
+      {openCp && <BrokerModal cpCode={openCp} seed={vseed} reloadSeed={reloadSeed} onClose={() => setOpenCp(null)} />}
       {filtersOpen && (
-        <FiltersModal seed={seed} value={filters}
+        <FiltersModal seed={vseed} value={filters}
           onApply={(f) => { setFilters(f); setFiltersOpen(false); }}
           onClose={() => setFiltersOpen(false)} />
       )}
