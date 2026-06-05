@@ -1,0 +1,150 @@
+// Property-Status report (Analytics tab): per-unit ageing + visit-bucket report.
+// Joins live inventory (seed.properties) + visits (counts) + the external
+// key-handover dates (/api/key-handovers), matching on society + unit "mix & match".
+import { TODAY, ymd, daysBetween } from './format.js';
+import { visitStage, visitStatus } from './visits.js';
+import { parsePrice } from './legacy.js';
+
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+
+// society → canonical (alnum, upper) so "Gaur City 2 - 14th Avenue" == "Gaur City 2 14th Avenue"
+export const normSoc = (s) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+// unit → sorted set of alnum tokens (digits de-zeroed) so order/punctuation/zero-pad
+// don't matter: "G - 805" == "805 G", "F-0105" == "F 105". This is the "mix & match".
+export function unitKey(s) {
+  return (s || '')
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean)
+    // strip leading zeros (012 == 12) without a float round-trip (preserves long tokens)
+    .map((t) => (/^\d+$/.test(t) ? t.replace(/^0+(?=\d)/, '') : t))
+    .sort()
+    .join('|');
+}
+
+// our property_name is "{unit}, {society}" → the unit is the part before the first
+// comma. If there's no comma we can't tell the unit apart from the society, so return
+// '' (no unit) rather than mis-using the whole name.
+export const unitNoOf = (p) => {
+  const name = p.property_name || '';
+  return name.includes(',') ? name.split(',')[0].trim() : '';
+};
+const visitUnitKey = (v) => unitKey(`${v.unit_address_line1 || ''} ${v.unit_address_line2 || ''}`);
+
+export function buildKhMap(items = []) {
+  const m = {};
+  items.forEach((it) => {
+    const uk = unitKey(it.unit);
+    if (!uk || !it.kh_date) return;                 // need a real unit + date (no SOC# collisions)
+    const k = `${normSoc(it.society)}#${uk}`;
+    if (!m[k] || it.kh_date < m[k]) m[k] = it.kh_date;   // earliest wins → deterministic
+  });
+  return m;
+}
+
+export function weekWindows(today = TODAY) {
+  const d0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const dow = (d0.getDay() + 6) % 7;                 // 0 = Monday
+  const thisMon = addDays(d0, -dow);
+  return {
+    lastFrom: ymd(addDays(thisMon, -7)), lastTo: ymd(addDays(thisMon, -1)),
+    prevFrom: ymd(addDays(thisMon, -14)), prevTo: ymd(addDays(thisMon, -8)),
+  };
+}
+
+// stage → which bucket column it lands in (null = not counted)
+function stageBucket(sg) {
+  if (sg === 'revisit_scheduled' || sg === 'after_revisit_fu') return 'revisit';
+  if (sg === 'negotiation') return 'negotiation';
+  if (sg === 'booking') return 'booking';
+  if (sg === 'not_interested') return 'not_interested';
+  if (sg === 'need_more') return 'need_more';
+  if (sg === 'future_prospect') return 'future_prospect';
+  return null;
+}
+
+export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}) {
+  const w = weekWindows();
+  // index visits by society + unit once (skip blank units so they don't collide on SOC#)
+  const vidx = {};
+  visits.forEach((v) => {
+    if (!v.society_name) return;
+    const uk = visitUnitKey(v);
+    if (!uk) return;
+    const k = `${normSoc(v.society_name)}#${uk}`;
+    (vidx[k] = vidx[k] || []).push(v);
+  });
+  return properties.map((p) => {
+    const unit = unitNoOf(p);
+    const uk = unitKey(unit);
+    const key = uk ? `${normSoc(p.society_name)}#${uk}` : null;   // no parseable unit → no match
+    const vs = key ? (vidx[key] || []) : [];
+    const c = {
+      total: vs.length, lastWeek: 0, prevWeek: 0, hot: 0, warm: 0, cold: 0,
+      revisit: 0, negotiation: 0, booking: 0, not_interested: 0, need_more: 0, future_prospect: 0,
+    };
+    vs.forEach((v) => {
+      const d = v.visit_date || '';
+      if (d >= w.lastFrom && d <= w.lastTo) c.lastWeek += 1;
+      if (d >= w.prevFrom && d <= w.prevTo) c.prevWeek += 1;
+      const st = visitStatus(v);
+      if (st === 'hot' || st === 'warm' || st === 'cold') c[st] += 1;
+      const b = stageBucket(visitStage(v));
+      if (b) c[b] += 1;
+    });
+    const kh = khMap[key] || '';
+    return {
+      region: p.micro_market || '', society: p.society_name || '', unit,
+      config: p.configuration || '', flat_status: p.listing_status || '',
+      ask_price: p.listing_price || '', responsible: p.sales_manager || '',
+      city: p.city_name || p.city || '',
+      kh_date: kh, days_since_kh: kh ? daysBetween(kh) : null,
+      ...c,
+    };
+  });
+}
+
+// columns: label + sort type. text | num | price
+export const PS_COLUMNS = [
+  { k: 'region', label: 'Region', type: 'text' },
+  { k: 'society', label: 'Society Name', type: 'text' },
+  { k: 'unit', label: 'Unit No', type: 'text' },
+  { k: 'config', label: 'Config', type: 'text' },
+  { k: 'flat_status', label: 'Flat Status', type: 'text' },
+  { k: 'ask_price', label: 'Ask Price', type: 'price' },
+  { k: 'responsible', label: 'Responsible Person', type: 'text' },
+  { k: 'kh_date', label: 'KH Date', type: 'text' },
+  { k: 'days_since_kh', label: 'Days Since KH', type: 'num' },
+  { k: 'total', label: 'Total Visits', type: 'num' },
+  { k: 'lastWeek', label: 'Last Week (Mon-Sun)', type: 'num' },
+  { k: 'prevWeek', label: 'Prev Week', type: 'num' },
+  { k: 'hot', label: 'Hot Leads', type: 'num' },
+  { k: 'warm', label: 'Warm Leads', type: 'num' },
+  { k: 'cold', label: 'Cold Leads', type: 'num' },
+  { k: 'revisit', label: 'Revisit', type: 'num' },
+  { k: 'negotiation', label: 'Negotiation', type: 'num' },
+  { k: 'booking', label: 'Booking', type: 'num' },
+  { k: 'not_interested', label: 'Not Interested', type: 'num' },
+  { k: 'need_more', label: 'Need More Props', type: 'num' },
+  { k: 'future_prospect', label: 'Future Prospect', type: 'num' },
+];
+
+export function sortRows(rows, key, dir) {
+  const col = PS_COLUMNS.find((c) => c.k === key);
+  if (!col) return rows;
+  const sgn = dir === 'asc' ? 1 : -1;
+  const val = (r) => {
+    if (col.type === 'num') { const n = r[key]; return n == null ? (dir === 'asc' ? Infinity : -Infinity) : n; }
+    if (col.type === 'price') return parsePrice(r[key]);
+    return (r[key] || '').toString().toLowerCase();
+  };
+  return rows.slice().sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * sgn; });
+}
+
+export function psToCsv(rows) {
+  const esc = (s) => { const t = String(s ?? ''); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const head = PS_COLUMNS.map((c) => c.label).join(',');
+  const body = rows.map((r) => PS_COLUMNS.map((c) => esc(c.k === 'days_since_kh' ? (r[c.k] == null ? '' : r[c.k]) : r[c.k])).join(',')).join('\n');
+  return head + '\n' + body;
+}

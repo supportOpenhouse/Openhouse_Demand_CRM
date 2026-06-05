@@ -1,5 +1,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import * as A from '../lib/analytics.js';
+import { loadKeyHandovers } from '../api.js';
+import PropertyStatusTable from '../components/PropertyStatusTable.jsx';
 
 const int = (n) => (n || 0).toLocaleString('en-IN');
 const dec = (n) => (n || 0).toFixed(1);
@@ -138,6 +140,12 @@ export default function AnalyticsView({ seed }) {
     apartments: [], salesManagers: [], brokers: [], listingStatuses: [], buyerQuery: '', dateFrom: '', dateTo: '',
   });
   const [cross, setCross] = useState({});
+  const [kh, setKh] = useState({ items: [], source: 'unset' });
+  useEffect(() => {
+    let alive = true;
+    loadKeyHandovers().then((d) => alive && setKh(d)).catch(() => alive && setKh({ items: [], source: 'error' }));
+    return () => { alive = false; };
+  }, []);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const opts = useMemo(() => A.optionLists(visits), [visits]);
 
@@ -226,6 +234,9 @@ export default function AnalyticsView({ seed }) {
         <BarList title="8 · By Source" hint="Direct vs CP · visits · per-property" rows={cSource} picked={cross.source} onPick={(v) => pick('source', v)}
           metrics={[{ key: 'visits', label: 'Visits' }, { key: 'perProp', label: 'Visits/property', fmt: dec }]} />
       </div>
+
+      {/* ---- Property Status report ---- */}
+      <PropertyStatusTable seed={seed} filters={f} khItems={kh.items} khSource={kh.source} />
 
       {/* ---- chart 9: raw data ---- */}
       <div className="an-card an-card-wide">

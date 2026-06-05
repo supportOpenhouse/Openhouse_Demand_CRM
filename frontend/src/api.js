@@ -34,6 +34,13 @@ export async function setTopBrokerPhone(id, phone) {
   return res.json();
 }
 
+// Key-handover dates from the external properties DB (Analytics Property-Status).
+export async function loadKeyHandovers() {
+  const res = await apiFetch('/api/key-handovers');
+  if (!res.ok) throw new Error(`key-handovers failed (HTTP ${res.status})`);
+  return res.json();   // { items:[{society,unit,kh_date}], source, count }
+}
+
 export async function saveFollowup(body) {
   const res = await apiFetch('/api/followups', { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw new Error(await res.text());

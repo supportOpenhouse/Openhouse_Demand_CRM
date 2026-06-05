@@ -50,6 +50,11 @@ SHEET_ID_TEAM = os.environ.get(
 # How many recent visits to ship to the frontend in /api/seed.
 SEED_VISITS_LIMIT = int(os.environ.get("SEED_VISITS_LIMIT", "1500"))
 
+# Optional second Postgres (the acquisitions/"properties" DB) — source of the
+# key-handover date for the Analytics Property-Status report. Unset = feature
+# degrades gracefully (KH columns blank).
+PROPERTIES_DATABASE_URL = os.environ.get("PROPERTIES_DATABASE_URL", "")
+
 # Local review only. When DEV_MODE=1 the app exposes /auth/dev_login?slug=…
 # (no Google round-trip) and serves the frontend at /. NEVER set on Render.
 DEV_MODE = os.environ.get("DEV_MODE") == "1"

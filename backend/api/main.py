@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from contextlib import asynccontextmanager
 from typing import Optional
+
+import asyncpg
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -219,6 +222,48 @@ async def set_top_broker_phone(row_id: int, body: TopBrokerPhoneBody,
     if not row:
         raise HTTPException(404, "Top-broker row not found")
     return {"ok": True, "id": row["id"], "phone": row["phone"] or ""}
+
+
+# ============================================================================
+# Read · Key-handover dates (from the optional acquisitions "properties" DB)
+# ============================================================================
+
+_kh_cache: dict = {"at": 0.0, "items": None}   # 5-min in-process cache
+_KH_TTL = 300
+
+
+@app.get("/api/key-handovers")
+async def key_handovers(user: dict = Depends(auth.current_user)):
+    """society_name + unit_no + key_handover_date from the external properties DB.
+    The frontend matches these to our inventory (society + unit) for the Analytics
+    Property-Status report. Degrades gracefully when PROPERTIES_DATABASE_URL is unset
+    or unreachable (returns an empty list + a source flag)."""
+    if not config.PROPERTIES_DATABASE_URL:
+        return {"items": [], "source": "unset", "count": 0}
+    now = time.monotonic()
+    if _kh_cache["items"] is not None and (now - _kh_cache["at"]) < _KH_TTL:
+        return {"items": _kh_cache["items"], "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
+    try:
+        conn = await asyncpg.connect(config.PROPERTIES_DATABASE_URL, timeout=8)
+        try:
+            rows = await conn.fetch(
+                "SELECT society_name, unit_no, key_handover_date "
+                "FROM properties WHERE key_handover_date IS NOT NULL",
+                timeout=8,   # bound the query too (connect timeout alone won't stop a slow SELECT)
+            )
+        finally:
+            await conn.close()
+    except Exception as e:  # noqa: BLE001 — never let a bad external DB break the page
+        log.warning("key-handovers fetch failed: %s", e)
+        return {"items": [], "source": "error", "error": str(e)[:200], "count": 0}
+    items = [{
+        "society": (r["society_name"] or "").strip(),
+        "unit": (r["unit_no"] or "").strip(),
+        "kh_date": r["key_handover_date"].isoformat() if r["key_handover_date"] else "",
+    } for r in rows]
+    _kh_cache["items"] = items
+    _kh_cache["at"] = now
+    return {"items": items, "source": "connected", "count": len(items)}
 
 
 # ============================================================================
