@@ -1,13 +1,18 @@
 // Property scoping (ported from propertiesForUser) + 99acres society matching.
 
-export function propertiesForUser(properties, me) {
+export function propertiesForUser(properties, me, pmByProperty = {}) {
   if (!me || !me.id) return properties;
   const admTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
   if (admTL) {
     if (me.role === 'tl_closer') return properties.filter((p) => (me.cities || []).includes(p.city_name));
     return properties;
   }
-  if (me.team === 'Ground') return properties.filter((p) => p.sales_manager === me.name);
+  // Ground: scope by the AUTHORITATIVE assignment (pm_by_property → slug), not the
+  // inventory sheet's sales_manager text — the sheet stores some PMs by first name only
+  // (e.g. "Ayush" vs user "Ayush Ojha"), which silently hid all their properties. Keep
+  // the name-match as a fallback so already-working PMs don't regress.
+  if (me.team === 'Ground') return properties.filter((p) =>
+    pmByProperty[p.property_name] === me.slug || p.sales_manager === me.name);
   return properties; // KAMs see all
 }
 

@@ -132,7 +132,7 @@ export function matchesUnit(v, q) {
 function isAdminOrTL(me) {
   return me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').startsWith('tl');
 }
-export function scopeVisits(visits, me, cpOwner = {}, properties = []) {
+export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByProperty = {}) {
   if (!me || !me.id) return visits;
   if (isAdminOrTL(me)) {
     if (me.role === 'tl_closer' || (me.team === 'TL' && (me.cities || []).length === 1)) {
@@ -142,7 +142,11 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = []) {
   }
   if (me.team === 'KAM') return visits.filter((v) => cpOwner[v.cp_code] === me.id);
   if (me.team === 'Ground') {
-    const socs = new Set(properties.filter((p) => p.sales_manager === me.name).map((p) => p.society_name));
+    // PM's properties via the authoritative assignment (pm_by_property → slug), with the
+    // sheet-name match as fallback (sheet stores some PMs by first name only).
+    const socs = new Set(properties
+      .filter((p) => pmByProperty[p.property_name] === me.slug || p.sales_manager === me.name)
+      .map((p) => p.society_name));
     return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id);
   }
   return [];

@@ -32,7 +32,7 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
   const visits = seed.visits || [];
   const isMobile = useIsMobile();
 
-  const all = useMemo(() => propertiesForUser(seed.properties || [], me), [seed]); // eslint-disable-line
+  const all = useMemo(() => propertiesForUser(seed.properties || [], me, seed.pm_by_property || {}), [seed]); // eslint-disable-line
 
   const [city, setCity] = useState('all');         // state.cityFilter
   const [propFilter, setPropFilter] = useState('all'); // state.propFilter
