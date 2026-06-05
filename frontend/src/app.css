@@ -386,10 +386,11 @@ html, body, #root { height: 100%; margin: 0; }
 
 /* bar list */
 .an-bars { display: flex; flex-direction: column; gap: 3px; max-height: 340px; overflow: auto; }
-.an-bar-row { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 7px; cursor: pointer; }
+.an-bar-row { display: grid; grid-template-columns: 240px 1fr auto; align-items: center; gap: 14px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
 .an-bar-row:hover { background: var(--panel2); }
 .an-bar-row.on { background: var(--accBg); outline: 1px solid var(--acc); }
-.an-bar-lbl { font-size: 12px; color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* full label — wrap long addresses instead of truncating (#5) */
+.an-bar-lbl { font-size: 12px; color: var(--txt); white-space: normal; word-break: break-word; line-height: 1.32; }
 .an-bar-track { height: 14px; background: var(--panel2); border-radius: 7px; overflow: hidden; }
 .an-bar-fill { height: 100%; background: linear-gradient(90deg, var(--acc), var(--accDark)); border-radius: 7px; }
 .an-bar-metrics { display: flex; gap: 12px; }
@@ -403,6 +404,11 @@ html, body, #root { height: 100%; margin: 0; }
 .an-line-path { stroke: var(--acc); stroke-width: 2; }
 .an-dot { fill: var(--acc); cursor: pointer; }
 .an-dot.on { fill: var(--accDark); }
+/* day-wise hover tooltip (#4) */
+.an-line-guide { stroke: var(--line2, var(--line)); stroke-width: 1; stroke-dasharray: 3 3; }
+.an-tip-box { fill: var(--ink); }
+.an-tip-n { fill: #fff; font-size: 11px; font-weight: 700; text-anchor: middle; }
+.an-tip-d { fill: #CBD5E1; font-size: 9px; text-anchor: middle; }
 .an-xtick { font-size: 9px; fill: var(--mut2); text-anchor: middle; }
 
 /* raw table */

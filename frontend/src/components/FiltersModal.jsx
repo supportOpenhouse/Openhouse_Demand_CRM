@@ -3,6 +3,7 @@ import { TODAY, ymd } from '../lib/format.js';
 
 // Advanced Visits filters — faithful to crm.html's #modal-filters (society / locality /
 // BHK / CP tier / CP / RM / source / visit-date range / next-followup).
+const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
 const BHK = ['1 BHK', '2 BHK', '3 BHK', '4 BHK'];
 const TIERS = [['T1', 'Tier 1 (Gold)'], ['T2', 'Tier 2 (Silver)'], ['T3', 'Tier 3'], ['T4', 'Tier 4']];
 const SOURCES = [['channel_partner', 'via CP'], ['direct', 'Direct']];
@@ -10,7 +11,7 @@ const FU = [['overdue', 'Overdue'], ['today', 'Today'], ['tomorrow', 'Tomorrow']
 const DATE_PRESETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This week'], ['month', 'This month'], ['last7', 'Last 7 days'], ['last30', 'Last 30 days']];
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-const EMPTY = { society: '', locality: '', bhk: [], tier: [], cp: '', rm: '', source: [], visitFrom: '', visitTo: '', followupDate: [] };
+const EMPTY = { cities: [], unit: '', society: '', locality: '', bhk: [], tier: [], cp: '', rm: '', source: [], visitFrom: '', visitTo: '', followupDate: [] };
 
 export default function FiltersModal({ seed, value, onApply, onClose }) {
   const [f, setF] = useState({ ...EMPTY, ...(value || {}) });
@@ -32,6 +33,7 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
     ...brokers.flatMap((b) => (b.micro_markets || '').split(',').map((s) => s.trim())),
   ].filter(Boolean))].sort(), [properties, brokers]);
   const rms = useMemo(() => [...new Set(visits.map((v) => v.sales_manager).filter(Boolean))].sort(), [visits]);
+  const units = useMemo(() => [...new Set(visits.map((v) => (v.unit_address_line1 || '').trim()).filter(Boolean))].sort(), [visits]);
 
   const togglePill = (key, v) => setF((p) => ({ ...p, [key]: p[key].includes(v) ? p[key].filter((x) => x !== v) : [...p[key], v] }));
   const setDate = (a, b) => setF((p) => ({ ...p, visitFrom: ymd(a), visitTo: ymd(b) }));
@@ -62,6 +64,16 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
         <div className="rx-modal-head"><h2>Filters</h2><button className="rx-x" onClick={onClose} aria-label="Close">✕</button></div>
         <div className="rx-modal-body">
           <div className="rx-flt-grid">
+            <div>
+              <label style={lbl}>City</label>
+              <Pills items={CITIES.map((c) => [c, c])} sel={f.cities} onToggle={(v) => togglePill('cities', v)} />
+            </div>
+            <div>
+              <label style={lbl}>Unit no.</label>
+              <input className="rx-inp" style={{ width: '100%' }} list="flt-unit" placeholder="Type or pick unit — e.g. 203…"
+                     value={f.unit} onChange={(e) => setF((p) => ({ ...p, unit: e.target.value }))} />
+              <datalist id="flt-unit">{units.map((s) => <option key={s} value={s} />)}</datalist>
+            </div>
             <div>
               <label style={lbl}>Society</label>
               <input className="rx-inp" style={{ width: '100%' }} list="flt-soc" placeholder="Type or pick society…"

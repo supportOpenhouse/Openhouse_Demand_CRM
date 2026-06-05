@@ -91,14 +91,13 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
 
   const isAdminOrTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
 
-  // --- filter state (matches legacy state.* defaults) ---
-  const [city, setCity] = useState('all');
-  const [status, setStatus] = useState('all');
-  const [stage, setStage] = useState('all');
-  const [lastFu, setLastFu] = useState('not_taken'); // legacy default: focus on visits with no FU taken yet
-  const [priority, setPriority] = useState('all');
+  // --- filter state (multi-select chip-bars) ---
+  const [statuses, setStatuses] = useState([]);
+  const [stages, setStages] = useState([]);
+  const [lastFus, setLastFus] = useState(['not_taken']); // default: focus on visits with no FU taken yet
+  const [priorities, setPriorities] = useState([]);
   const [leadSet, setLeadSet] = useState('active');  // #6 Active | Old Leads | All — default hides old leads
-  const [unit, setUnit] = useState('');            // #4 typeable unit number
+  // city + unit filters now live in the Filters modal (filters.cities / filters.unit)
   const [sortField, setSortField] = useState('visit_date');
   const [sortDir, setSortDir] = useState('desc');  // default visit_date desc
   const [page, setPage] = useState(1);
@@ -115,12 +114,12 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   // city + lead-set scoped base — drives status & stage chip counts. Default 'active'
   // hides old leads (pre-1-May, never actioned), which also lightens the working set.
   const cityBase = useMemo(() => scoped.filter((v) => {
-    if (city !== 'all' && v.city !== city) return false;
+    if (filters.cities?.length && !filters.cities.includes(v.city)) return false;
     const old = isOldLead(v);
     if (leadSet === 'active' && old) return false;
     if (leadSet === 'old' && !old) return false;
     return true;
-  }), [scoped, city, leadSet]);
+  }), [scoped, filters, leadSet]);
 
   const statusCounts = useMemo(() => {
     const c = { all: cityBase.length, hot: 0, warm: 0, cold: 0, dead: 0, future_prospect: 0, unc: 0 };
@@ -139,12 +138,12 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     return c;
   }, [cityBase]);
 
-  // last-FU base = city base + status + stage (legacy renderLastFuChips)
+  // last-FU base = city base + status + stage (multi-select)
   const lastFuBase = useMemo(() => cityBase.filter((v) => {
-    if (status !== 'all' && visitStatus(v) !== status) return false;
-    if (!stagePass(visitStage(v), stage)) return false;
+    if (statuses.length && !statuses.includes(visitStatus(v))) return false;
+    if (stages.length && !stages.some((s) => stagePass(visitStage(v), s))) return false;
     return true;
-  }), [cityBase, status, stage]);
+  }), [cityBase, statuses, stages]);
 
   const lastFuCounts = useMemo(() => {
     const c = {};
@@ -154,11 +153,11 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     return c;
   }, [lastFuBase]);
 
-  // priority base = last-FU base + lastFu filter (legacy renderPriorityChips; lastFu match w/o visit arg)
+  // priority base = last-FU base + lastFu filter (multi-select; match ANY chosen bucket)
   const priorityBase = useMemo(() => lastFuBase.filter((v) => {
-    if (lastFu && lastFu !== 'all' && !matchLastFuFilter(lastFollowupTakenForVisit(v, fuByVisit), lastFu)) return false;
+    if (lastFus.length && !lastFus.some((kk) => matchLastFuFilter(lastFollowupTakenForVisit(v, fuByVisit), kk, v))) return false;
     return true;
-  }), [lastFuBase, lastFu]);
+  }), [lastFuBase, lastFus, fuByVisit]);
 
   const priorityCounts = useMemo(() => ({
     all: priorityBase.length,
@@ -183,17 +182,16 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
         || (v.sales_manager || '').toLowerCase().includes(s);
       if (!hit) return false;
     }
-    if (status !== 'all' && visitStatus(v) !== status) return false;
-    if (!stagePass(visitStage(v), stage)) return false;
-    if (lastFu && lastFu !== 'all' && !matchLastFuFilter(lastFollowupTakenForVisit(v, fuByVisit), lastFu, v)) return false;
-    if (priority === 'nudged' && !isVisitNudged(v, nudgesByVisit)) return false;
-    if (priority === 'tl_ask' && !isVisitTlAsk(v, teamTasks)) return false;
-    if (unit.trim()) {
-      const u = [v.unit_address_line1, v.unit_address_line2, v.floor].filter(Boolean).join(' ').toLowerCase();
-      if (!u.includes(unit.trim().toLowerCase())) return false;
-    }
+    if (statuses.length && !statuses.includes(visitStatus(v))) return false;
+    if (stages.length && !stages.some((s) => stagePass(visitStage(v), s))) return false;
+    if (lastFus.length && !lastFus.some((kk) => matchLastFuFilter(lastFollowupTakenForVisit(v, fuByVisit), kk, v))) return false;
+    if (priorities.length && !((priorities.includes('nudged') && isVisitNudged(v, nudgesByVisit)) || (priorities.includes('tl_ask') && isVisitTlAsk(v, teamTasks)))) return false;
     // --- advanced filters (topbar Filters modal) ---
     const F = filters || {};
+    if (F.unit) {
+      const u = [v.unit_address_line1, v.unit_address_line2, v.floor].filter(Boolean).join(' ').toLowerCase();
+      if (!u.includes(F.unit.toLowerCase())) return false;
+    }
     if (F.society && v.society_name !== F.society) return false;
     if (F.locality) {
       const mms = propBySociety[v.society_name]?.mms;
@@ -222,7 +220,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
       if (!ok) return false;
     }
     return true;
-  }), [cityBase, dq, status, stage, lastFu, priority, unit, filters, propBySociety, brokersByCode, nudgesByVisit, teamTasks]);
+  }), [cityBase, dq, statuses, stages, lastFus, priorities, filters, propBySociety, brokersByCode, nudgesByVisit, teamTasks, fuByVisit]);
 
   // --- sort (legacy sortVisits) ---
   const sorted = useMemo(() => {
@@ -254,7 +252,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   const end = Math.min(total, pg * PAGE_SIZE);
 
   // reset to page 1 when any filter changes
-  useEffect(() => { setPage(1); }, [city, status, stage, lastFu, priority, leadSet, unit, dq, filters, sortField, sortDir]);
+  useEffect(() => { setPage(1); }, [statuses, stages, lastFus, priorities, leadSet, dq, filters, sortField, sortDir]);
 
   function onSort(k) {
     if (sortField === k) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -286,54 +284,43 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   return (
     <div className="rx-fade">
       {/* ===== 4 chip-bars ===== */}
-      <ChipBar
+      <ChipBar multi
         label="Buyer status · Hot / Warm / Cold / Dead — set in AVFU"
         options={STATUS_OPTS}
         counts={statusCounts}
-        value={status}
-        onChange={setStatus}
+        value={statuses}
+        onChange={setStatuses}
       />
-      <ChipBar
+      <ChipBar multi
         label="Visit stage · operational pipeline"
         options={STAGE_OPTS}
         counts={stageCounts}
-        value={stage}
-        onChange={setStage}
+        value={stages}
+        onChange={setStages}
       />
-      <ChipBar
+      <ChipBar multi
         label={'Last followup taken · default "Not taken" focuses on remaining work'}
         options={LAST_FU_PRESETS}
         counts={lastFuCounts}
-        value={lastFu}
-        onChange={setLastFu}
+        value={lastFus}
+        onChange={setLastFus}
         showDots={false}
       />
-      <ChipBar
+      <ChipBar multi
         label="Priority · TL ask & nudges"
         options={PRIORITY_OPTS}
         counts={priorityCounts}
-        value={priority}
-        onChange={setPriority}
+        value={priorities}
+        onChange={setPriorities}
       />
 
-      {/* ===== filter row: city / unit / search / select ===== */}
+      {/* ===== filter row: leads segment + select (city + unit moved to Filters modal) ===== */}
       <div className="rx-filters" style={{ marginTop: 4 }}>
-        <select className="rx-sel" value={city} onChange={(e) => setCity(e.target.value)}>
-          <option value="all">All cities</option>
-          {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
         <div className="rx-segment" title="Old Leads = pre-1-May visits never actioned in the app">
           {[['active', 'Active'], ['old', `Old Leads${oldCount ? ` · ${oldCount}` : ''}`], ['all', 'All']].map(([k, l]) => (
             <button key={k} type="button" className={'rx-seg' + (leadSet === k ? ' on' : '')} onClick={() => setLeadSet(k)}>{l}</button>
           ))}
         </div>
-        <input
-          className="rx-inp"
-          style={{ width: 132 }}
-          placeholder="Unit no. — 203"
-          value={unit}
-          onChange={(e) => setUnit(e.target.value)}
-        />
         <button
           className={'btn' + (selectMode ? ' primary' : '')}
           type="button"

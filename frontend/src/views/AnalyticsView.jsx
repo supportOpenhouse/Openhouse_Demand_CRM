@@ -3,6 +3,8 @@ import * as A from '../lib/analytics.js';
 
 const int = (n) => (n || 0).toLocaleString('en-IN');
 const dec = (n) => (n || 0).toFixed(1);
+// source-of-truth visit sheet (analytics is built off the visits data)
+const VISITS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/17eEX021t97pGnJasMJ6v7ERE0jezKEC0S8teKepJRWQ/edit';
 const asOpts = (arr) => arr.map((x) => (typeof x === 'string' ? { value: x, label: x } : x));
 
 // ---- reusable multi-select dropdown (dependency-free) ----------------------
@@ -81,23 +83,42 @@ function BarList({ title, hint, rows, metrics, labelOf, onPick, picked }) {
 // ---- day-wise line chart (SVG) ---------------------------------------------
 function LineChart({ title, points, onPick, pickedDay }) {
   const W = 760, H = 220, P = 28;
+  const [hover, setHover] = useState(null);   // hovered point index
   const max = Math.max(1, ...points.map((p) => p.n));
   const n = points.length;
   const x = (i) => P + (n <= 1 ? 0 : (i * (W - 2 * P)) / (n - 1));
   const y = (val) => H - P - (val / max) * (H - 2 * P);
   const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.n).toFixed(1)}`).join(' ');
   const ticks = points.filter((_, i) => i % Math.ceil(n / 8 || 1) === 0);
+  const hp = hover != null && points[hover] ? points[hover] : null;
   return (
     <div className="an-card an-card-wide">
       <div className="an-card-h"><div className="an-card-t">{title}</div><div className="an-card-s">{int(points.reduce((a, b) => a + b.n, 0))} visits over {n} days</div></div>
-      <svg className="an-line" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
+      <svg className="an-line" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" onMouseLeave={() => setHover(null)}>
         <line x1={P} y1={H - P} x2={W - P} y2={H - P} className="an-axis" />
         <path d={path} className="an-line-path" fill="none" />
+        {hp && (() => {
+          const cx = x(hover), cy = y(hp.n);
+          const bw = 104, bh = 36;
+          const bx = Math.min(Math.max(cx - bw / 2, 2), W - bw - 2);
+          const by = Math.max(cy - bh - 12, 2);
+          return (
+            <g pointerEvents="none">
+              <line x1={cx} y1={P - 4} x2={cx} y2={H - P} className="an-line-guide" />
+              <rect x={bx} y={by} width={bw} height={bh} rx={6} className="an-tip-box" />
+              <text x={bx + bw / 2} y={by + 15} className="an-tip-n">{hp.n} visit{hp.n === 1 ? '' : 's'}</text>
+              <text x={bx + bw / 2} y={by + 28} className="an-tip-d">{hp.day}</text>
+            </g>
+          );
+        })()}
         {points.map((p, i) => (
-          <circle key={p.day} cx={x(i)} cy={y(p.n)} r={pickedDay === p.day ? 4.5 : 2.5}
-            className={'an-dot' + (pickedDay === p.day ? ' on' : '')} onClick={() => onPick && onPick(p.day)}>
-            <title>{p.day}: {p.n} visits</title>
-          </circle>
+          <g key={p.day}>
+            {/* generous invisible hit target for hover/click */}
+            <circle cx={x(i)} cy={y(p.n)} r={11} fill="transparent" style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setHover(i)} onClick={() => onPick && onPick(p.day)} />
+            <circle cx={x(i)} cy={y(p.n)} r={pickedDay === p.day || hover === i ? 4.5 : 2.5}
+              className={'an-dot' + (pickedDay === p.day ? ' on' : '')} pointerEvents="none" />
+          </g>
         ))}
         {ticks.map((p, i) => <text key={i} x={x(points.indexOf(p))} y={H - 8} className="an-xtick">{p.day.slice(5)}</text>)}
       </svg>
@@ -212,7 +233,7 @@ export default function AnalyticsView({ seed }) {
           <div className="an-card-t">9 · Raw visit data <span className="an-card-s">({int(rows.length)} rows after filters)</span></div>
           <div className="an-table-actions">
             <button type="button" className="an-btn" onClick={() => A.downloadCsv(rows)}>⬇ Download CSV</button>
-            <button type="button" className="an-btn ghost" disabled title="Coming soon">View in Google Sheets</button>
+            <button type="button" className="an-btn ghost" onClick={() => window.open(VISITS_SHEET_URL, '_blank', 'noopener')}>↗ View in Google Sheets</button>
           </div>
         </div>
         <div className="an-table-wrap">
