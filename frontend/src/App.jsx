@@ -10,6 +10,7 @@ import NotificationsView from './views/NotificationsView.jsx';
 import QueueView from './views/QueueView.jsx';
 import SnapshotView from './views/SnapshotView.jsx';
 import TeamView from './views/TeamView.jsx';
+import AnalyticsView from './views/AnalyticsView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
@@ -21,6 +22,7 @@ const NAV = [
   { k: 'visits',        icon: '📋', label: 'Visits' },
   { k: 'cps',           icon: '🤝', label: 'Channel Partners' },
   { k: 'properties',    icon: '🏠', label: 'Properties' },
+  { k: 'analytics',     icon: '📊', label: 'Analytics' },
   { k: 'queue',         icon: '📥', label: 'To Be Assigned', adm: true },
   { k: 'snapshot',      icon: '📤', label: 'Inventory Snapshot' },
   { k: 'team',          icon: '👤', label: 'My Day' },
@@ -187,6 +189,8 @@ export default function App() {
                 <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'properties' ? (
                 <PropertiesView seed={vseed} onOpenBroker={setOpenCp} search={search} />
+              ) : view === 'analytics' ? (
+                <AnalyticsView seed={vseed} />
               ) : view === 'queue' ? (
                 <QueueView seed={vseed} reloadSeed={reloadSeed} />
               ) : view === 'notifications' ? (
