@@ -85,7 +85,15 @@ def scope_for_user(snap: dict, user: dict) -> dict:
         return snap
 
     if team == "Ground":
-        my_socs = {p["society_name"] for p in properties if p["sales_manager"] == name}
+        # Scope by the AUTHORITATIVE assignment (pm_by_property / property_assignments),
+        # not the inventory sheet's `sales_manager` text. The sheet stores some PMs by
+        # first name only (e.g. "Ayush" vs user "Ayush Ojha"), so a full-name string
+        # match silently hid all their properties. Keep the name-match as a fallback so
+        # nothing already-working regresses.
+        pm_by_property = snap.get("pm_by_property", {})
+        my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
+        my_socs = {p["society_name"] for p in properties
+                   if p["property_name"] in my_props or p["sales_manager"] == name}
         codes = set()
         for b in brokers:
             if cp_owner.get(b["cp_code"]) == slug or b.get("added_by") == name:
