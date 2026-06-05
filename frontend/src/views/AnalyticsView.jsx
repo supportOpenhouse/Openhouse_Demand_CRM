@@ -152,7 +152,7 @@ export default function AnalyticsView({ seed }) {
   const rows = useMemo(() => A.applyFilters(visits, f, cross), [visits, f, cross]);
   const k = useMemo(() => A.kpis(rows), [rows]);
   const cMonth = useMemo(() => A.chartMonth(rows), [rows]);
-  const cApt = useMemo(() => A.chartApartment(rows), [rows]);
+  const cApt = useMemo(() => A.chartApartment(rows, 100), [rows]);
   const cDay = useMemo(() => A.chartDay(rows), [rows]);
   const cBroker = useMemo(() => A.chartBroker(rows), [rows]);
   const cSM = useMemo(() => A.chartSM(rows), [rows]);
@@ -214,7 +214,7 @@ export default function AnalyticsView({ seed }) {
         <BarList title="1 · By Month" hint="visits · buyers · per-property" rows={cMonth} picked={cross.month} onPick={(v) => pick('month', v)}
           metrics={[{ key: 'visits', label: 'Visits' }, { key: 'buyers', label: 'Unique buyers' }, { key: 'perProp', label: 'Visits/property', fmt: dec }]} />
 
-        <BarList title="2 · By Apartment" hint="top 20 · visits · unique CPs" rows={cApt} picked={cross.apartment} onPick={(v) => pick('apartment', v)}
+        <BarList title="2 · By Apartment" hint="top 100 · visits · unique CPs" rows={cApt} picked={cross.apartment} onPick={(v) => pick('apartment', v)}
           metrics={[{ key: 'visits', label: 'Visits' }, { key: 'cps', label: 'Unique CPs' }]} />
 
         <LineChart title="3 · Day-wise visits" points={cDay} pickedDay={cross.day} onPick={(d) => pick('day', d)} />
