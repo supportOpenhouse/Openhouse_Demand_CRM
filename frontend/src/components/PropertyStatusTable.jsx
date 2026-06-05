@@ -4,6 +4,22 @@ import { buildKhMap, buildPropertyStatusRows, PS_COLUMNS, sortRows, psToCsv } fr
 const INVENTORY_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1-kxlCnXUv7absl4rpWeMoYIxSAHpWykyjpd9v_5df-o/edit';
 const int = (n) => (n || 0).toLocaleString('en-IN');
 
+// frozen identity columns (stay visible while scrolling the 18 count columns)
+const STICK = { region: { left: 0, w: 116 }, society: { left: 116, w: 188 }, unit: { left: 304, w: 92 } };
+// colored bucket cells (zeros are muted)
+const BUCKET_COLOR = {
+  hot: 'var(--bad)', warm: 'var(--warn)', cold: 'var(--cold,#3B82F6)',
+  revisit: 'var(--blue,#3B82F6)', negotiation: 'var(--warn)', booking: 'var(--good)',
+  not_interested: 'var(--mut)', need_more: 'var(--mut)', future_prospect: 'var(--purple,#8B5CF6)',
+};
+const STATUS_CLS = { Ready: 'good', Available: 'good', Booked: 'info', 'Coming Soon': 'warn' };
+const khAgeColor = (d) => (d == null ? undefined : d > 150 ? 'var(--bad)' : d > 90 ? 'var(--warn)' : 'var(--mut)');
+
+function Num({ n, color }) {
+  if (!n) return <span className="ps-zero">0</span>;
+  return <b style={color ? { color } : undefined}>{int(n)}</b>;
+}
+
 function downloadCsv(rows) {
   const blob = new Blob([psToCsv(rows)], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -23,8 +39,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
     [seed, khMap],
   );
 
-  // respect the page's City / Society filters (the buyer-name box is visit-only —
-  // property rows have no buyer field, so applying it would wrongly empty the table).
+  // respect the page's City / Society filters (buyer-name box is visit-only)
   const filtered = useMemo(() => {
     const cities = filters.cities || [];
     const socs = filters.societies || [];
@@ -36,6 +51,12 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
   }, [allRows, filters]);
 
   const rows = useMemo(() => sortRows(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
+  const matched = useMemo(() => allRows.filter((r) => r.kh_date).length, [allRows]);
+  const totals = useMemo(() => {
+    const t = { total: 0, lastWeek: 0, prevWeek: 0, hot: 0, warm: 0, cold: 0, revisit: 0, negotiation: 0, booking: 0, not_interested: 0, need_more: 0, future_prospect: 0 };
+    rows.forEach((r) => Object.keys(t).forEach((k) => { t[k] += r[k] || 0; }));
+    return t;
+  }, [rows]);
 
   const onSort = (k) => {
     if (sortKey === k) { setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); return; }
@@ -43,7 +64,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
     setSortDir(['region', 'society', 'unit', 'config', 'responsible'].includes(k) ? 'asc' : 'desc');
   };
 
-  const matched = useMemo(() => allRows.filter((r) => r.kh_date).length, [allRows]);
+  const BUCKETS = ['hot', 'warm', 'cold', 'revisit', 'negotiation', 'booking', 'not_interested', 'need_more', 'future_prospect'];
 
   return (
     <div className="an-card an-card-wide">
@@ -66,8 +87,11 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
         <table className="ps-table">
           <thead>
             <tr>
-              {PS_COLUMNS.map((c) => (
-                <th key={c.k} className={(c.type !== 'text' ? 'num ' : '') + (sortKey === c.k ? 'sorted' : '')} onClick={() => onSort(c.k)}>
+              {PS_COLUMNS.map((c, i) => (
+                <th key={c.k}
+                    className={(c.type !== 'text' ? 'num ' : '') + (STICK[c.k] ? 'ps-f ' : '') + (sortKey === c.k ? 'sorted' : '')}
+                    style={STICK[c.k] ? { left: STICK[c.k].left, minWidth: STICK[c.k].w } : undefined}
+                    onClick={() => onSort(c.k)}>
                   {c.label}<span className="ps-sort">{sortKey === c.k ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
                 </th>
               ))}
@@ -76,33 +100,39 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
           <tbody>
             {rows.map((r, i) => (
               <tr key={`${r.society}|${r.unit}|${i}`}>
-                <td>{r.region || '—'}</td>
-                <td className="ps-strong">{r.society || '—'}</td>
-                <td>{r.unit || '—'}</td>
+                <td className="ps-f" style={{ left: STICK.region.left, minWidth: STICK.region.w }}>{r.region || '—'}</td>
+                <td className="ps-f ps-strong" style={{ left: STICK.society.left, minWidth: STICK.society.w }}>{r.society || '—'}</td>
+                <td className="ps-f ps-edge" style={{ left: STICK.unit.left, minWidth: STICK.unit.w }}>{r.unit || '—'}</td>
                 <td>{r.config || '—'}</td>
-                <td>{r.flat_status || '—'}</td>
-                <td>{r.ask_price || '—'}</td>
+                <td>{r.flat_status ? <span className={'ps-pill ' + (STATUS_CLS[r.flat_status] || '')}>{r.flat_status}</span> : '—'}</td>
+                <td className="ps-strong">{r.ask_price || '—'}</td>
                 <td>{r.responsible || '—'}</td>
                 <td className="ps-kh">{r.kh_date || '—'}</td>
-                <td className="num ps-kh">{r.days_since_kh == null ? '—' : r.days_since_kh}</td>
-                <td className="num">{r.total}</td>
-                <td className="num">{r.lastWeek}</td>
-                <td className="num">{r.prevWeek}</td>
-                <td className="num">{r.hot}</td>
-                <td className="num">{r.warm}</td>
-                <td className="num">{r.cold}</td>
-                <td className="num">{r.revisit}</td>
-                <td className="num">{r.negotiation}</td>
-                <td className="num">{r.booking}</td>
-                <td className="num">{r.not_interested}</td>
-                <td className="num">{r.need_more}</td>
-                <td className="num">{r.future_prospect}</td>
+                <td className="num ps-kh"><b style={{ color: khAgeColor(r.days_since_kh) }}>{r.days_since_kh == null ? '—' : r.days_since_kh}</b></td>
+                <td className="num"><Num n={r.total} color="var(--ink)" /></td>
+                <td className="num"><Num n={r.lastWeek} color="var(--acc)" /></td>
+                <td className="num"><Num n={r.prevWeek} /></td>
+                {BUCKETS.map((b) => <td key={b} className="num"><Num n={r[b]} color={BUCKET_COLOR[b]} /></td>)}
               </tr>
             ))}
             {rows.length === 0 && (
               <tr><td colSpan={PS_COLUMNS.length}><div className="an-empty">No properties match the current filters.</div></td></tr>
             )}
           </tbody>
+          {rows.length > 0 && (
+            <tfoot>
+              <tr className="ps-foot">
+                <td className="ps-f" style={{ left: STICK.region.left, minWidth: STICK.region.w }}>Totals</td>
+                <td className="ps-f" style={{ left: STICK.society.left, minWidth: STICK.society.w }}>{int(rows.length)} properties</td>
+                <td className="ps-f ps-edge" style={{ left: STICK.unit.left, minWidth: STICK.unit.w }} />
+                <td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" />
+                <td className="num"><b>{int(totals.total)}</b></td>
+                <td className="num"><b>{int(totals.lastWeek)}</b></td>
+                <td className="num"><b>{int(totals.prevWeek)}</b></td>
+                {BUCKETS.map((b) => <td key={b} className="num"><b>{int(totals[b])}</b></td>)}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>

@@ -410,24 +410,38 @@ html, body, #root { height: 100%; margin: 0; }
 .an-tip-n { fill: #fff; font-size: 11px; font-weight: 700; text-anchor: middle; }
 .an-tip-d { fill: #CBD5E1; font-size: 9px; text-anchor: middle; }
 
-/* Property Status — sortable report table */
-.ps-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 10px; max-height: 72vh; }
-.ps-table { width: 100%; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+/* Property Status — sortable report table with frozen identity columns */
+.ps-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 10px; max-height: 74vh; }
+.ps-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; white-space: nowrap; }
 .ps-table th {
-  position: sticky; top: 0; z-index: 1; background: var(--accBg); color: var(--accDark, var(--acc));
+  position: sticky; top: 0; z-index: 2; background: var(--accBg); color: var(--accDark, var(--acc));
   text-align: left; padding: 9px 11px; font-weight: 700; font-size: 11px; cursor: pointer; user-select: none;
-  border-bottom: 1px solid var(--line); border-right: 1px solid rgba(0,0,0,.04);
+  border-bottom: 1px solid var(--line);
 }
-.ps-table th.num { text-align: right; }
-.ps-table th.sorted { background: var(--accBg2, var(--accBg)); color: var(--acc); }
+.ps-table th.num, .ps-table td.num { text-align: right; }
+.ps-table td.num { font-variant-numeric: tabular-nums; }
+.ps-table th.sorted { background: var(--accBg2, #FFE4D2); color: var(--acc); }
 .ps-table th:hover { filter: brightness(.97); }
 .ps-sort { margin-left: 5px; font-size: 9px; opacity: .55; }
 .ps-table td { padding: 8px 11px; border-bottom: 1px solid var(--line); color: var(--txt); }
-.ps-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .ps-table td.ps-strong { font-weight: 600; }
-.ps-table td.ps-kh { background: var(--warnBg, #FEF3C7); }   /* cream KH columns, like the report */
-.ps-table tbody tr:nth-child(even) { background: rgba(0,0,0,.015); }
-.ps-table tbody tr:hover { background: var(--panel2); }
+.ps-zero { color: var(--mut2); }
+/* cream key-handover columns */
+.ps-table td.ps-kh { background: var(--warnBg, #FEF3C7); }
+.ps-table th.ps-kh { background: var(--warnBg, #FEF3C7); }
+/* frozen left columns (Region / Society / Unit) */
+.ps-table th.ps-f { position: sticky; z-index: 3; }
+.ps-table td.ps-f { position: sticky; z-index: 1; background: var(--panel); }
+.ps-table .ps-edge { border-right: 2px solid var(--line); }
+.ps-table tbody tr:hover td { background: var(--panel2); }
+/* sticky totals footer */
+.ps-table tfoot td { position: sticky; bottom: 0; z-index: 2; background: var(--panel2); font-weight: 700; border-top: 2px solid var(--line); }
+.ps-table tfoot td.ps-f { z-index: 3; }
+/* status pills */
+.ps-pill { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 11px; background: var(--panel2); color: var(--mut); }
+.ps-pill.good { background: var(--goodBg, #E8F8EE); color: var(--goodDk, #15803D); }
+.ps-pill.info { background: var(--coldBg, #DBEAFE); color: #1E40AF; }
+.ps-pill.warn { background: var(--warnBg, #FEF3C7); color: #92400E; }
 .an-xtick { font-size: 9px; fill: var(--mut2); text-anchor: middle; }
 
 /* raw table */

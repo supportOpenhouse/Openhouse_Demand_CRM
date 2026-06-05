@@ -7,7 +7,6 @@ import VisitsView from './views/VisitsView.jsx';
 import CpView from './views/CpView.jsx';
 import PropertiesView from './views/PropertiesView.jsx';
 import NotificationsView from './views/NotificationsView.jsx';
-import QueueView from './views/QueueView.jsx';
 import SnapshotView from './views/SnapshotView.jsx';
 import TeamView from './views/TeamView.jsx';
 import AnalyticsView from './views/AnalyticsView.jsx';
@@ -23,7 +22,6 @@ const NAV = [
   { k: 'cps',           icon: '🤝', label: 'Channel Partners' },
   { k: 'properties',    icon: '🏠', label: 'Properties' },
   { k: 'analytics',     icon: '📊', label: 'Analytics' },
-  { k: 'queue',         icon: '📥', label: 'To Be Assigned', adm: true },
   { k: 'snapshot',      icon: '📤', label: 'Inventory Snapshot' },
   { k: 'team',          icon: '👤', label: 'My Day' },
   { k: 'notifications', icon: '🔔', label: 'Notifications' },
@@ -191,8 +189,6 @@ export default function App() {
                 <PropertiesView seed={vseed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'analytics' ? (
                 <AnalyticsView seed={vseed} />
-              ) : view === 'queue' ? (
-                <QueueView seed={vseed} reloadSeed={reloadSeed} />
               ) : view === 'notifications' ? (
                 <NotificationsView seed={vseed} onOpenBroker={setOpenCp} />
               ) : view === 'snapshot' ? (

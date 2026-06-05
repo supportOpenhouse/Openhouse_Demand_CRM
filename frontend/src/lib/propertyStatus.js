@@ -32,12 +32,19 @@ export const unitNoOf = (p) => {
 };
 const visitUnitKey = (v) => unitKey(`${v.unit_address_line1 || ''} ${v.unit_address_line2 || ''}`);
 
+// KH match key: the external "properties" DB stores unit_no compactly ("405B",
+// "12A04") with tower/block letters that DON'T agree with our "{tower} - {flat}"
+// naming, so matching on letters yields ~0. The flat NUMBER agrees, so we key the
+// key-handover lookup on society + the de-zeroed digit-runs only.
+export const unitDigitKey = (s) => [...new Set(((s || '').match(/\d+/g) || []).map((d) => d.replace(/^0+(?=\d)/, '')))].sort().join('|');
+const khKey = (society, unit) => `${normSoc(society)}#${unitDigitKey(unit)}`;
+
 export function buildKhMap(items = []) {
   const m = {};
   items.forEach((it) => {
-    const uk = unitKey(it.unit);
-    if (!uk || !it.kh_date) return;                 // need a real unit + date (no SOC# collisions)
-    const k = `${normSoc(it.society)}#${uk}`;
+    const dk = unitDigitKey(it.unit);
+    if (!dk || !it.kh_date) return;                 // need a flat number + date
+    const k = `${normSoc(it.society)}#${dk}`;
     if (!m[k] || it.kh_date < m[k]) m[k] = it.kh_date;   // earliest wins → deterministic
   });
   return m;
@@ -93,7 +100,7 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
       const b = stageBucket(visitStage(v));
       if (b) c[b] += 1;
     });
-    const kh = khMap[key] || '';
+    const kh = khMap[khKey(p.society_name, unit)] || '';
     return {
       region: p.micro_market || '', society: p.society_name || '', unit,
       config: p.configuration || '', flat_status: p.listing_status || '',
