@@ -1,10 +1,11 @@
 """Sheet-to-DB upsert. Runs the same data-shape logic as _build_seed.py but
 writes into Postgres instead of seed.json. Idempotent. Logs to sheet_sync_log.
 
-Three sources:
+Four sources:
   1. broker_data_query           → brokers (+ tier_assignments via team sheet)
   2. visitors_data               → buyers + visits (denormalized columns mirror sheet)
-  3. live_inventory              → properties (+ property_assignments via sales_manager)
+  3. live_inventory · Sheet1     → properties (+ property_assignments via sales_manager)
+  4. live_inventory · All Props  → all_properties (flat mirror, every listing status)
 
 Called on a Render Cron Job every 15 min (via POST /admin/sync with bearer header).
 """
@@ -360,6 +361,7 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
                 _date_or_none(g(r, "latest_followup_date")),
                 g(r, "latest_followup_note"),
                 _date_or_none(g(r, "created_at")),
+                g(r, "home_id") or None,
             ))
         except Exception as e:
             failed += 1
@@ -378,7 +380,7 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
           listing_status, sales_feedback, buyer_feedback, all_feedback,
           reminder_status, profession, intent,
           lead_status, latest_followup_date, latest_followup_note,
-          synced_from_sheet_at, created_at, updated_at
+          synced_from_sheet_at, created_at, updated_at, home_id
         ) VALUES (
           $1,$2,$3,$4,
           $5,$6,$7,$8,
@@ -390,7 +392,7 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
           $33,$34,$35::jsonb,
           COALESCE(NULLIF($36, ''), 'select_status'),
           $37,$38,
-          now(), COALESCE($39, now()), now()
+          now(), COALESCE($39, now()), now(), $40
         )
         ON CONFLICT (visit_code) DO UPDATE SET
           buyer_id = EXCLUDED.buyer_id,
@@ -435,6 +437,7 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
                                       THEN EXCLUDED.latest_followup_date ELSE visits.latest_followup_date END,
           latest_followup_note = CASE WHEN visits.latest_followup_at IS NULL
                                       THEN EXCLUDED.latest_followup_note ELSE visits.latest_followup_note END,
+          home_id = EXCLUDED.home_id,
           synced_from_sheet_at = now(),
           updated_at = now()
     """
@@ -489,12 +492,14 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                   listing_status, configuration, super_sqft, carpet_sqft,
                   exit_facing, balcony_view, listing_price, commission,
                   sales_manager, photo_count, video_added,
+                  home_id, supply_form_uid, sales_manager_contact,
                   synced_from_sheet_at, created_at, updated_at
                 ) VALUES (
                   $1,$2,$3,$4,$5,
                   COALESCE(NULLIF($6,''), 'Ready'),$7,$8,$9,
                   $10,$11,$12,$13,
                   $14,$15,$16,
+                  $17,$18,$19,
                   now(), now(), now()
                 )
                 ON CONFLICT (property_name) DO UPDATE SET
@@ -513,6 +518,9 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                   sales_manager = EXCLUDED.sales_manager,
                   photo_count = EXCLUDED.photo_count,
                   video_added = EXCLUDED.video_added,
+                  home_id = EXCLUDED.home_id,
+                  supply_form_uid = EXCLUDED.supply_form_uid,
+                  sales_manager_contact = EXCLUDED.sales_manager_contact,
                   synced_from_sheet_at = now(),
                   updated_at = now()
                 RETURNING id, sales_manager
@@ -524,6 +532,8 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                 g(r, "exit_facing"), g(r, "balcony_view"),
                 g(r, "listing_price"), g(r, "commission"),
                 g(r, "sales_manager"), g(r, "photo_count"), g(r, "video_added"),
+                g(r, "home_id") or None, g(r, "supply_form_uid") or None,
+                g(r, "sales_manager_contact") or None,
             )
             ins += 1 if not row else 0  # rough; ON CONFLICT path returns same shape
             # PM assignment refresh
@@ -562,6 +572,106 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
             "skipped": skipped, "failed": failed, "pm_changes": pm_changes}
 
 
+# ---- ALL PROPERTIES (every listing status; "All Properties" tab) -------------
+
+async def sync_all_properties(conn: asyncpg.Connection) -> dict:
+    """Mirror the live-inventory sheet's 'All Properties' tab (every status,
+    incl. Sold/Archived) into all_properties. Same row→column mapping as
+    sync_properties (Sheet1) and upsert by property_name, but no PM-assignment
+    side effects — this is a flat reference table."""
+    sheet_id = config.SHEET_ID_INVENTORY
+    rows = sheets.read_tab(sheet_id, "All Properties")
+    if not rows or len(rows) < 3:
+        return {"seen": 0, "ins": 0, "upd": 0, "skipped": 0, "failed": 0}
+    # Same layout as Sheet1: row 1 = "Last refreshed…", header at row 2, data row 3+.
+    header = rows[1]
+    body = rows[2:]
+    idx = {h: i for i, h in enumerate(header)}
+
+    def g(r, k):
+        return _safe(r[idx[k]]) if (k in idx and idx[k] < len(r)) else ""
+
+    run_id = await _begin_run(conn, "all_properties", sheet_id, "All Properties")
+    seen = skipped = failed = 0
+    errors: list = []
+    rows_out: list = []
+
+    for r in body:
+        if not r or not _safe(r[0]):
+            continue
+        seen += 1
+        prop_name = g(r, "property_name")
+        if not prop_name:
+            skipped += 1
+            continue
+        try:
+            rows_out.append((
+                prop_name, g(r, "society_name"), g(r, "city_name"),
+                g(r, "micro_market"), g(r, "locality_or_sector"),
+                g(r, "configuration"), g(r, "super_sqft"), g(r, "carpet_sqft"),
+                g(r, "area_unit"), g(r, "listing_price"), g(r, "commission"),
+                g(r, "exit_facing"), g(r, "balcony_view"),
+                g(r, "listing_status"), g(r, "photo_count"), g(r, "video_added"),
+                g(r, "sales_manager"), g(r, "sales_manager_contact") or None,
+                g(r, "home_id") or None, g(r, "supply_form_uid") or None,
+            ))
+        except Exception as e:
+            failed += 1
+            if len(errors) < 20:
+                errors.append({"property_name": prop_name, "error": str(e)[:200]})
+
+    upsert_sql = """
+        INSERT INTO all_properties (
+          property_name, society_name, city, micro_market, locality_or_sector,
+          configuration, super_sqft, carpet_sqft, area_unit, listing_price, commission,
+          exit_facing, balcony_view, listing_status, photo_count, video_added,
+          sales_manager, sales_manager_contact, home_id, supply_form_uid,
+          synced_from_sheet_at, created_at, updated_at
+        ) VALUES (
+          $1,$2,$3,$4,$5,
+          $6,$7,$8,$9,$10,$11,
+          $12,$13,COALESCE(NULLIF($14,''), 'Ready'),$15,$16,
+          $17,$18,$19,$20,
+          now(), now(), now()
+        )
+        ON CONFLICT (property_name) DO UPDATE SET
+          society_name = EXCLUDED.society_name,
+          city = EXCLUDED.city,
+          micro_market = EXCLUDED.micro_market,
+          locality_or_sector = EXCLUDED.locality_or_sector,
+          configuration = EXCLUDED.configuration,
+          super_sqft = EXCLUDED.super_sqft,
+          carpet_sqft = EXCLUDED.carpet_sqft,
+          area_unit = EXCLUDED.area_unit,
+          listing_price = EXCLUDED.listing_price,
+          commission = EXCLUDED.commission,
+          exit_facing = EXCLUDED.exit_facing,
+          balcony_view = EXCLUDED.balcony_view,
+          listing_status = EXCLUDED.listing_status,
+          photo_count = EXCLUDED.photo_count,
+          video_added = EXCLUDED.video_added,
+          sales_manager = EXCLUDED.sales_manager,
+          sales_manager_contact = EXCLUDED.sales_manager_contact,
+          home_id = EXCLUDED.home_id,
+          supply_form_uid = EXCLUDED.supply_form_uid,
+          synced_from_sheet_at = now(),
+          updated_at = now()
+    """
+    chunk = 500
+    for i in range(0, len(rows_out), chunk):
+        try:
+            await conn.executemany(upsert_sql, rows_out[i:i+chunk])
+        except Exception as e:
+            failed += len(rows_out[i:i+chunk])
+            if len(errors) < 20:
+                errors.append({"chunk_start": i, "error": str(e)[:200]})
+
+    upserted = len(rows_out) - failed
+    await _finish_run(conn, run_id, seen, 0, upserted, skipped, failed, errors,
+                      status="partial" if failed else "success")
+    return {"seen": seen, "ins": 0, "upd": upserted, "skipped": skipped, "failed": failed}
+
+
 # ---- TOP-LEVEL ---------------------------------------------------------------
 
 async def run_all() -> dict:
@@ -577,5 +687,6 @@ async def run_all() -> dict:
         else:
             out["tiers"] = {"skipped": "ENABLE_TIER_SYNC is off"}
         out["properties"] = await sync_properties(conn)
+        out["all_properties"] = await sync_all_properties(conn)
         out["visits"] = await sync_visits(conn, limit=config.SEED_VISITS_LIMIT)
     return out
