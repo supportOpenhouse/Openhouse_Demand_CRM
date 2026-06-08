@@ -71,17 +71,19 @@ Openhouse_Demand_CRM/
 
 | Secret | Where it lives |
 |---|---|
-| Neon `DATABASE_URL` (incl. password) | local `.env` (the "Demand CRM" project) + Render env group `oh-crm-secrets` |
+| Neon `DATABASE_URL` (incl. password) | local `.env` at `~/Documents/Claude Code/_archive/Demand-CRM-old/.env` + Render env group `oh-crm-secrets` |
 | `SESSION_SECRET` (cookie signing) | same local `.env` + Render. **Local value matches prod** → you can mint valid cookies (see §4.2). |
 | Google OAuth client id/secret | local `.env` + Render + Google Cloud Console |
 | Google service-account JSON (Sheets) | inline in local `.env` (`GOOGLE_SERVICE_ACCOUNT_JSON`) + Render |
 | LSQ API keys (`LSQ_API_HOST`,`LSQ_ACCESS_KEY`,`LSQ_SECRET_KEY`) | `~/Documents/Claude Code/Credentials/.env` |
-| Vercel | project `openhouse-demand-crm` = `prj_7A4AyXhdcNnBBWPvzEFscfjZ50Uh`; team `supportopenhouses-projects` = `team_HPCnkwW6wT0SSeYmuCueVYTU` |
+| Vercel | project `openhouse-demand-crm` = `prj_7A4AyXhdcNnBBWPvzEFscfjZ50Uh`; team `supportopenhouses-projects` = `team_HPCnkwW6wT0SSeYmuCueVYTU`. **Deploy token** = a personal Vercel token from an **Owner/Admin** of the team (Vercel → Settings → Tokens) — **not stored in any `.env`**; create/rotate & use per deploy. |
 | `INTERNAL_CRON_TOKEN` (sheet sync trigger) | local `.env` + Render |
 
 **Two repos on disk:** work in `~/Documents/Claude Code/Openhouse_Demand_CRM` (prod).
-The sibling `~/Documents/Claude Code/Demand CRM` is the OLD pre-restructure prototype —
-but note its `.env` is the one that holds the live `DATABASE_URL`/`SESSION_SECRET` used in the recipes below.
+The OLD pre-restructure prototype was **moved to `~/Documents/Claude Code/_archive/Demand-CRM-old/`**
+(2026-06-08) — but note its `.env` is still the one that holds the live `DATABASE_URL` / `SESSION_SECRET`
+(plus `SESSION_COOKIE_NAME`, `GOOGLE_SERVICE_ACCOUNT_JSON` for sheet reads, `INTERNAL_CRON_TOKEN`) used in
+the recipes below. If it moves again, `grep -rl ep-wispy-bird ~/Documents/Claude\ Code/*/.env` finds it.
 
 ---
 
@@ -94,7 +96,7 @@ deploy. Reuse these recipes.
 ### 4.0 Load env (used by every recipe)
 ```python
 env = {}
-for l in open("/Users/akshit.chaudhary/Documents/Claude Code/Demand CRM/.env"):
+for l in open("/Users/akshit.chaudhary/Documents/Claude Code/_archive/Demand-CRM-old/.env"):
     l = l.strip()
     if l and not l.startswith("#") and "=" in l:
         k, v = l.split("=", 1); env[k.strip()] = v.strip().strip("'").strip('"')
@@ -142,7 +144,8 @@ to diagnose "user X can't see Y" bugs (e.g., the Ayush properties bug — §8).
 3. **Render smoke test with real data** (validate before prod): copy `dist/*` to a temp dir, drop the real `/api/me` + `/api/seed` (minted-cookie fetch, §4.2-4.3) into `<dir>/api/me` and `<dir>/api/seed`, serve it (`python3 -m http.server`), open in a browser and click through. `api.js` uses same-origin, so the built app loads the stubbed data exactly like prod.
 4. Deploy (Vercel is **owner-gated** — see §8): from repo root with `.vercel/project.json = {"projectId":"prj_7A4AyXhdcNnBBWPvzEFscfjZ50Uh","orgId":"team_HPCnkwW6wT0SSeYmuCueVYTU"}`:
    `npx vercel deploy --prod --yes --token=<OWNER_VERCEL_TOKEN>`
-5. Post-deploy: confirm the live `/assets/index-*.js` hash changed and `grep` the live bundle for your new strings; existing view labels still present (no regression).
+   **Confirmed working 2026-06-08.** The token must belong to an **Owner/Admin** of `supportopenhouses-projects` (akshit's personal token works). `vercel deploy` uploads the repo and builds `frontend/` on Vercel (project root dir = `frontend`), then aliases the build to `openhouse-demand-crm.vercel.app`. A `git push` does **not** auto-deploy Vercel here.
+5. Post-deploy: confirm the live `/assets/index-*.js` hash changed and `grep` the live bundle for your new strings; existing view labels still present (no regression). (Recipe: fetch `/` for the hash, fetch the bundle and `grep` for your marker, and mint-cookie `/api/seed` to confirm any backend field is live.)
 
 ### 4.5 Make a BACKEND change → deploy
 1. Edit under `backend/api/`. `py_compile` it.
@@ -203,9 +206,11 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
 
 ## 8. Gotchas / landmines (hard-won)
 - **Vercel deploys are owner-gated.** Git/hook deploys are blocked unless the commit author's GitHub
-  account is a *connected* member of the Vercel team. Fastest path: deploy with an **owner Vercel token**
-  (`vercel deploy --prod --token=…`) — uploads files, bypasses the author check. To-do: connect
-  `akshit-openhouse` to the Vercel team so normal pushes auto-deploy.
+  account is a *connected* member of the Vercel team (re-verified 2026-06-08: a `git push origin main` did
+  **not** trigger a Vercel build — only Render rebuilt). Working method: deploy with an **Owner/Admin Vercel
+  token** (`npx vercel deploy --prod --yes --token=…` from repo root) — uploads files, bypasses the author
+  check. The token is a personal token (akshit's works) and is **not stored on disk**; create/rotate it in
+  Vercel → Settings → Tokens. To-do: connect `akshit-openhouse`'s GitHub to the team so normal pushes auto-deploy.
 - **Render deploys fine on any push** (no author gate) — that's why backend changes ship via `git push main`.
 - **Neon `us-east-1` is flaky from this link** — retry on `getaddrinfo`.
 - **Stale browser cache** caused two false alarms ("login loop", "data not updating"). The backend was
@@ -231,13 +236,24 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   (`cp_reassign_2026_06`, 1,963 brokers); filters/impersonation/kam_tl fixes; `DEV_MODE`.
 - **2026-06-05 (Claude session):** **Analytics tab** shipped (PR #2, deployed + validated). **Ground-PM
   property scope fix** (Ayush/Abhishek) shipped to prod + validated across users.
+- **2026-06-08 (Saransh + Claude session):** Saransh: `SEED_VISITS_LIMIT`→20000 (scoped KAM/Ground were
+  missing older visits — the seed loads the global most-recent N *then* scopes) + Visits default filter now
+  shows all FU states (`6e75d57`). On top: **home_id unit mapping** (`1440b45`) — `seed_snapshot` exposes
+  `home_id` (visits + properties; migration 004 + sheet sync already populate it, ~98%); **PropertyModal**
+  scopes visits to the **unit** by `home_id` not society (Godrej Oasis A-704: 51 visits, was 325);
+  **`priceForVisit`** joins by `home_id` so each unit shows its own price (A-704 = ₹2.35 Cr, was the society's
+  ₹2.14) + guards the substring fallback; `vercel.json` no-caches `/`. Validated Admin/TL/KAM/Ground against
+  the live backend (0 mispriced of 3.5k home_id joins), then deployed (backend push→Render; frontend
+  owner-token `vercel deploy`). The **"Mayank/Saket can't see visits" report was stale browser cache**, not a
+  bug — their seeds were correct (Mayank 606 visits, Saket 339).
 
 ---
 
 ## 10. Pending / TODO
 1. **Analytics "View in Google Sheets"** export — needs a backend endpoint (service account writes a Sheet from the filtered rows) + buyer-PII sign-off.
 2. **Connect `akshit-openhouse` GitHub to the Vercel team** so frontend deploys aren't owner-token-only.
-3. **Revoke the shared Vercel token** once #2 is done.
+3. **Rotate the Vercel deploy token** — the one reused on 2026-06-08 is akshit's personal token and is sitting
+   in old Claude session transcripts. Create a fresh one (Vercel → Settings → Tokens), deploy with it, revoke the old.
 4. **Verify the `cp_reassign_2026_06`** result matches intent (the New Demand Flow sheet had ~1,267 "Unassigned" + new-hire placeholders).
 5. Delete the stray `backend/api/import_top_brokers 2.py`.
 6. (Optional) rotate the Neon password — it's in early git history.
