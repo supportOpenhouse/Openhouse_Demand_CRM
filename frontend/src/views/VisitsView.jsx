@@ -90,6 +90,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   }, [properties]);
 
   const isAdminOrTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
+  const isAdmin = me.team === 'Admin' || me.role === 'admin';
 
   // --- filter state (multi-select chip-bars) ---
   const [statuses, setStatuses] = useState([]);
@@ -383,7 +384,9 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
       <div className="list-head">
         <span>{start}–{end} of {total} visits</span>
         <div className="pager">
-          <button className="btn xs" type="button" disabled={!total} onClick={exportCsv} title="Download the currently-visible visits as CSV">⬇ CSV</button>
+          {isAdmin && (
+            <button className="btn xs" type="button" disabled={!total} onClick={exportCsv} title="Download the currently-visible visits as CSV (admins only)">⬇ CSV</button>
+          )}
           <button className="btn xs" type="button" disabled={pg <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Prev</button>
           Page
           <input

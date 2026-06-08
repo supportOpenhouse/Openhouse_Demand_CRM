@@ -206,13 +206,6 @@ export default function SnapshotView({ seed }) {
     });
   }, [filtered, buildShareText]);
 
-  // filtered-selection share (the whole filtered set, dynamic title)
-  const openFilteredShare = useCallback(() => {
-    const bits = filterTitleBits.length ? filterTitleBits.join(' · ') : 'Full Inventory';
-    const headline = `OpenHouse · ${bits} (${filtered.length} units)`;
-    setShare({ title: headline, text: buildShareText(filtered, headline) });
-  }, [filtered, filterTitleBits, buildShareText]);
-
   /* ----------------------------- image export ----------------------------- */
   const openImage = useCallback((props, title, subtitle, filebase) => {
     setImg({ props, title, subtitle, filebase, dataUrl: null, loading: true, canvas: null });
@@ -296,13 +289,8 @@ export default function SnapshotView({ seed }) {
           <button
             type="button" className="btn primary"
             disabled={!filtered.length}
-            onClick={openFilteredShare}
-          >📤 Share filtered selection</button>
-          <button
-            type="button" className="btn"
-            disabled={!filtered.length}
             onClick={openFilteredImage}
-          >🖼 Filtered as image</button>
+          >🖼 Share filtered selection</button>
         </div>
       </div>
 
