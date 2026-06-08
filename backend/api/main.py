@@ -292,7 +292,10 @@ async def save_followup(body: FollowupBody, user: dict = Depends(auth.current_us
         raise HTTPException(400, f"Invalid buyer_status: {body.buyer_status}")
     if body.stage not in VALID_STAGES:
         raise HTTPException(400, f"Invalid stage: {body.stage}")
-    if body.stage == "revisit_scheduled" and not body.revisit_date:
+    # A dead lead carries no follow-up: ignore any next-followup / revisit dates the
+    # client sent, and don't require a revisit date for it.
+    is_dead = body.buyer_status == "dead"
+    if not is_dead and body.stage == "revisit_scheduled" and not body.revisit_date:
         raise HTTPException(400, "revisit_scheduled requires revisit_date")
     if not body.note.strip():
         raise HTTPException(400, "Note is mandatory")
@@ -320,8 +323,8 @@ async def save_followup(body: FollowupBody, user: dict = Depends(auth.current_us
             RETURNING id, created_at
             """,
             visit["id"], user["id"], body.buyer_status, body.stage, body.note.strip(),
-            _date_or_none(body.next_followup_date),
-            _ts_or_none(body.revisit_date),
+            None if is_dead else _date_or_none(body.next_followup_date),
+            None if is_dead else _ts_or_none(body.revisit_date),
             prev["current_stage"], prev["current_status"],
         )
 

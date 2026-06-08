@@ -520,9 +520,11 @@ function RecentFeedback({ v }) {
 
 function FollowupForm({ v, draft, onPatch, onSaved }) {
   const [saving, setSaving] = useState(false);
+  // a Dead lead has no follow-up: the Next-FU date is disabled and never sent.
+  const isDead = (draft.status || visitStatus(v)) === 'dead';
   async function save() {
     if (!(draft.note || '').trim()) { toast('Note is required', 'bad'); return; }
-    if (draft.stage === 'revisit_scheduled' && !draft.revisit_date) { toast('Revisit Scheduled needs a revisit date', 'bad'); return; }
+    if (!isDead && draft.stage === 'revisit_scheduled' && !draft.revisit_date) { toast('Revisit Scheduled needs a revisit date', 'bad'); return; }
     setSaving(true);
     try {
       await saveFollowup({
@@ -530,8 +532,8 @@ function FollowupForm({ v, draft, onPatch, onSaved }) {
         buyer_status: draft.status || visitStatus(v),
         stage: draft.stage || visitStage(v),
         note: (draft.note || '').trim(),
-        next_followup_date: draft.next_date || null,
-        revisit_date: draft.revisit_date || null,
+        next_followup_date: isDead ? null : (draft.next_date || null),
+        revisit_date: isDead ? null : (draft.revisit_date || null),
       });
       toast('Follow-up logged', 'good');
       onSaved?.();
@@ -579,7 +581,11 @@ function FollowupForm({ v, draft, onPatch, onSaved }) {
       <div className="fu-actions">
         <div className="fu-grp" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <label style={{ margin: 0 }}>Next FU</label>
-          <input type="date" value={draft.next_date || ymd(addDays(TODAY, 2))} onChange={(e) => onPatch({ next_date: e.target.value })} />
+          <input type="date" disabled={isDead}
+                 value={isDead ? '' : (draft.next_date || ymd(addDays(TODAY, 2)))}
+                 onChange={(e) => onPatch({ next_date: e.target.value })}
+                 style={isDead ? { opacity: 0.5, cursor: 'not-allowed' } : undefined} />
+          {isDead ? <span style={{ fontSize: 10.5, color: 'var(--mut)' }}>No follow-up for a dead lead</span> : null}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button className="btn sm" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>

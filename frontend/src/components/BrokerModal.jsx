@@ -148,10 +148,11 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
       if (ta) { ta.focus(); ta.style.borderColor = 'var(--bad)'; setTimeout(() => { ta.style.borderColor = ''; }, 2000); }
       return;
     }
-    if (draft.stage === 'revisit_scheduled' && !draft.revisit_date) {
+    const buyerStatus = draft.status || (v && v.lead_status === 'select_status' ? 'unc' : (v && v.lead_status)) || 'unc';
+    const isDead = buyerStatus === 'dead';   // dead leads carry no follow-up
+    if (!isDead && draft.stage === 'revisit_scheduled' && !draft.revisit_date) {
       toast('Revisit Scheduled needs a revisit date & time', 'bad'); return;
     }
-    const buyerStatus = draft.status || (v && v.lead_status === 'select_status' ? 'unc' : (v && v.lead_status)) || 'unc';
     const stage = draft.stage || (v ? visitStage(v) : 'avfu') || 'avfu';
     setBusy(true);
     try {
@@ -160,8 +161,8 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
         buyer_status: buyerStatus,
         stage,
         note: draft.note.trim(),
-        next_followup_date: draft.next_date || null,
-        revisit_date: draft.revisit_date || null,
+        next_followup_date: isDead ? null : (draft.next_date || null),
+        revisit_date: isDead ? null : (draft.revisit_date || null),
       });
       setFuDrafts((prev) => { const n = { ...prev }; delete n[vid]; return n; });
       toast('Followup saved', 'good');
@@ -408,6 +409,7 @@ function VisitRow({ v, visits, open, isPriority, onToggle, draft, setDraft, onSa
   const nudgeOk = !!(ownerId && ownerId !== me.id);
   const unit = [v.unit_address_line1, v.unit_address_line2].filter(Boolean).join('-');
   const nextDefault = draft.next_date != null ? draft.next_date : ymd(addDays(TODAY, 2));
+  const isDead = (draft.status || visitStatus(v)) === 'dead';   // dead → no follow-up date
 
   return (
     <div className={'vrow' + (open ? ' open' : '') + (isPriority ? ' priority' : '')} data-vid={v.id}>
@@ -481,7 +483,11 @@ function VisitRow({ v, visits, open, isPriority, onToggle, draft, setDraft, onSa
           <div className="fu-actions">
             <div className="fu-grp" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <label style={{ margin: 0 }}>Next FU</label>
-              <input type="date" value={nextDefault} onChange={(e) => setDraft({ next_date: e.target.value })} />
+              <input type="date" disabled={isDead}
+                     value={isDead ? '' : nextDefault}
+                     onChange={(e) => setDraft({ next_date: e.target.value })}
+                     style={isDead ? { opacity: 0.5, cursor: 'not-allowed' } : undefined} />
+              {isDead ? <span style={{ fontSize: 10.5, color: 'var(--mut)' }}>No follow-up for a dead lead</span> : null}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button className="btn sm" disabled={busy} onClick={(e) => { e.stopPropagation(); onSave(v.id, 'save'); }}>Save &amp; continue</button>
