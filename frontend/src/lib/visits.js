@@ -108,13 +108,15 @@ export function visitStatus(v) {
   return ['hot', 'warm', 'cold', 'dead', 'future_prospect'].includes(ls) ? ls : 'unc';
 }
 
-// ---- #6 Old Leads: pre-cutoff visits still sitting in Upcoming / Cancelled /
-// After-Visit-FU. Hidden from the default list; surfaced via the "Old Leads" filter.
+// ---- #6 Old Leads: visits whose unit is no longer live inventory (Sold /
+// Archived / Booked, or no listing). Hidden from the default list; surfaced via
+// the "Old Leads" filter. The backend (sheet_sync.sync_inactive_leads) maintains
+// the is_old_lead flag off all_properties' status and marks these visits Dead.
 export const OLD_LEADS_CUTOFF = '2026-05-01';
 export function isOldLead(v) {
-  // Prefer the persisted DB flag (old pre-1-May AND never actioned in the app).
+  // Prefer the persisted DB flag (property-status based).
   if (typeof v.is_old_lead === 'boolean') return v.is_old_lead;
-  // Fallback for an older seed without the column.
+  // Fallback for an older seed without the column (legacy pre-1-May date rule).
   const st = visitStage(v);
   return ['upcoming', 'cancelled', 'avfu'].includes(st) && !!v.visit_date && v.visit_date < OLD_LEADS_CUTOFF;
 }

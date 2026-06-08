@@ -672,10 +672,53 @@ async def sync_all_properties(conn: asyncpg.Connection) -> dict:
     return {"seen": seen, "ins": 0, "upd": upserted, "skipped": skipped, "failed": failed}
 
 
+# ---- OLD-LEAD / DEAD RECLASSIFY (property-status based) ----------------------
+
+async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
+    """Old-lead + Buyer-Status='dead' for every visit whose unit is no longer
+    live inventory — i.e. it does NOT map (by home_id) to an all_properties row
+    that is 'Ready' or 'Coming Soon'. Covers Sold / Archived / Booked units AND
+    visits with no listing record at all.
+
+    This REPLACES the old pre-1-May date rule (migration 003 / 005). It runs as
+    the LAST step of run_all() — after sync_visits has re-upserted lead_status
+    from the sheet — so the sheet can never resurrect a dead lead: each cycle
+    ends with inactive-property visits forced back to dead + old. Idempotent;
+    the WHERE clause only touches rows whose classification actually changed."""
+    res = await conn.execute(
+        """
+        WITH cls AS (
+          SELECT v.id,
+                 bool_or(ap.listing_status IN ('Ready','Coming Soon')) AS active
+          FROM visits v
+          LEFT JOIN all_properties ap
+            ON ap.home_id = v.home_id AND ap.deleted_at IS NULL
+          GROUP BY v.id
+        )
+        UPDATE visits v SET
+          is_old_lead    = NOT COALESCE(cls.active, FALSE),
+          lead_status    = CASE WHEN COALESCE(cls.active, FALSE) THEN v.lead_status    ELSE 'dead' END,
+          current_status = CASE WHEN COALESCE(cls.active, FALSE) THEN v.current_status ELSE 'dead' END,
+          updated_at     = now()
+        FROM cls
+        WHERE cls.id = v.id
+          AND ( v.is_old_lead IS DISTINCT FROM (NOT COALESCE(cls.active, FALSE))
+                OR (NOT COALESCE(cls.active, FALSE) AND v.lead_status <> 'dead') )
+        """
+    )
+    # res is like "UPDATE 1234" → pull the count for the run log
+    try:
+        updated = int(res.split()[-1])
+    except (ValueError, IndexError, AttributeError):
+        updated = None
+    return {"reclassified": updated}
+
+
 # ---- TOP-LEVEL ---------------------------------------------------------------
 
 async def run_all() -> dict:
-    """Run brokers → tiers → properties → visits in that order (FK dependencies)."""
+    """Run brokers → tiers → properties → visits in that order (FK dependencies),
+    then reclassify old/dead leads off the freshly-synced property statuses."""
     out: dict = {}
     async with acquire() as conn:
         out["brokers"] = await sync_brokers(conn)
@@ -689,4 +732,7 @@ async def run_all() -> dict:
         out["properties"] = await sync_properties(conn)
         out["all_properties"] = await sync_all_properties(conn)
         out["visits"] = await sync_visits(conn, limit=config.SEED_VISITS_LIMIT)
+        # MUST be last: re-derives old/dead from the just-synced all_properties,
+        # overriding any lead_status the sheet upsert above restored.
+        out["inactive_leads"] = await sync_inactive_leads(conn)
     return out

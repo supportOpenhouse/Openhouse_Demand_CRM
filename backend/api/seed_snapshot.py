@@ -199,7 +199,7 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.all_feedback, v.reminder_status, v.profession, v.intent, v.metadata,
           v.lead_status, v.current_stage, v.latest_followup_at, v.latest_followup_note,
           v.latest_followup_date, v.next_followup_date, v.revisit_date,
-          v.created_at, v.updated_at, v.home_id
+          v.created_at, v.updated_at, v.home_id, v.is_old_lead
           FROM visits v
          ORDER BY COALESCE(v.visit_date, v.selected_date) DESC NULLS LAST, v.created_at DESC
          LIMIT $1
@@ -294,11 +294,10 @@ async def build(conn: asyncpg.Connection) -> dict:
         # (upcoming→Upcoming, completed→After-Visit-FU, cancelled→Cancelled).
         if r["current_stage"] and r["latest_followup_at"] is not None:
             visit["_stage"] = r["current_stage"]
-        # Old lead = old (pre-1-May effective visit_date) AND never actioned in the app.
-        # Computed live from the COALESCE'd visit_date so it's correct even if the sheet
-        # sync (until redeployed) re-blanks the visit_date column.
-        _eff_vd = r["visit_date"]   # already COALESCE(visit_date, selected_date)
-        visit["is_old_lead"] = bool(_eff_vd and _eff_vd < dt.date(2026, 5, 1) and r["latest_followup_at"] is None)
+        # Old lead = the visit's unit is no longer live inventory (not Ready/Coming
+        # Soon in all_properties). Maintained on the column by sheet_sync.
+        # sync_inactive_leads(); we just read it. (Replaces the old pre-1-May rule.)
+        visit["is_old_lead"] = bool(r["is_old_lead"])
         if r["next_followup_date"]:
             visit["_next_followup_date"] = _date_str(r["next_followup_date"])
         if r["revisit_date"]:

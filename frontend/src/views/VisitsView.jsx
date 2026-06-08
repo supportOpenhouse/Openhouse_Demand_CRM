@@ -370,7 +370,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
 
       {/* ===== filter row: leads segment + select (city + unit moved to Filters modal) ===== */}
       <div className="rx-filters" style={{ marginTop: 4 }}>
-        <div className="rx-segment" title="Old Leads = pre-1-May visits never actioned in the app">
+        <div className="rx-segment" title="Old Leads = visits on units that are no longer live inventory (Sold / Archived / Booked, or no listing). Marked Dead.">
           {[['active', 'Active'], ['old', `Old Leads${oldCount ? ` · ${oldCount}` : ''}`], ['all', 'All']].map(([k, l]) => (
             <button key={k} type="button" className={'rx-seg' + (leadSet === k ? ' on' : '')} onClick={() => setLeadSet(k)}>{l}</button>
           ))}
