@@ -153,7 +153,8 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
     const socs = new Set(properties
       .filter((p) => pmByProperty[p.property_name] === me.slug || p.sales_manager === me.name)
       .map((p) => p.society_name));
-    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id);
+    // also: visits the PM personally ran (they are the RM), even at others' properties.
+    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || v.sales_manager === me.name);
   }
   return [];
 }

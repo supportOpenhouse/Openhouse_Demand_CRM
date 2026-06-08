@@ -405,6 +405,7 @@ function PropVisitRow({
           <span className={'stpill ' + status}><span className="d" />{stDef ? stDef.label : status}</span>
           <span className={'sgpill ' + stage}><span className="d" />{sgDef ? sgDef.label : stage}</span>
           <span className={'fu-chip ' + nfc.cls} style={{ marginLeft: 4 }}><span className="d" />{nfc.label}</span>
+          {v._revisit_date ? <span className="fu-chip later" style={{ marginLeft: 4 }} title="Revisit scheduled"><span className="d" />↻ {fmtDate(v._revisit_date)}</span> : null}
         </div>
         {nudgeOk ? (
           <button

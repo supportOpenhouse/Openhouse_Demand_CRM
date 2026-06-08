@@ -99,12 +99,15 @@ def scope_for_user(snap: dict, user: dict) -> dict:
             if cp_owner.get(b["cp_code"]) == slug or b.get("added_by") == name:
                 codes.add(b["cp_code"])
         for v in visits:
-            if v["society_name"] in my_socs and v["cp_code"]:
+            if (v["society_name"] in my_socs or v["sales_manager"] == name) and v["cp_code"]:
                 codes.add(v["cp_code"])
         keep_brokers(codes)
         snap["properties"] = [p for p in properties if p["society_name"] in my_socs]
+        # A Ground PM also sees visits they personally ran (they are the RM), even when
+        # the property is managed by someone else and the CP isn't theirs (e.g. VST8592).
         snap["visits"] = [v for v in visits
-                          if v["society_name"] in my_socs or cp_owner.get(v["cp_code"]) == slug]
+                          if v["society_name"] in my_socs or cp_owner.get(v["cp_code"]) == slug
+                          or v["sales_manager"] == name]
         _scope_personal(snap, slug)
         return snap
 
@@ -221,6 +224,16 @@ async def build(conn: asyncpg.Connection) -> dict:
         )
         if r["visit_code"]
     }
+    # home_id → authoritative city from the inventory mirror. A visit's own `city`
+    # (Visitors sheet) is sometimes mis-entered (e.g. Ghaziabad societies tagged
+    # Noida); when the visit maps to a known unit, trust the inventory city.
+    home_city = {
+        r["home_id"]: r["city"]
+        for r in await conn.fetch(
+            "SELECT home_id, city FROM all_properties "
+            "WHERE home_id IS NOT NULL AND home_id <> '' AND city IS NOT NULL AND city <> ''"
+        )
+    }
     visits = []
     for r in visit_rows:
         intent = r["intent"] or {}
@@ -254,7 +267,7 @@ async def build(conn: asyncpg.Connection) -> dict:
             "broker_alt_contact": r["broker_alt_contact"] or "",
             "cp_code": r["cp_code"] or "",
             "company_name": r["company_name"] or "",
-            "city": r["city"] or "",
+            "city": home_city.get(r["home_id"]) or r["city"] or "",
             "buyer_name": r["buyer_name"] or "",
             "buyer_contact": r["buyer_contact"] or "",
             "buyer_registration_date": _date_str(r["buyer_registration_date"]),
@@ -458,7 +471,8 @@ async def build(conn: asyncpg.Connection) -> dict:
         SELECT b.cp_code, u.slug AS by_slug, e.id, e.created_at,
                e.inventory_shared, e.recording_done, e.listing_done,
                e.listing_link, e.listing_followup_date, e.support_asked,
-               e.support_details, e.remarks, e.notes
+               e.support_details, e.remarks, e.notes,
+               e.connected, e.outcome, e.followup_date
           FROM engagements e
           JOIN brokers b ON b.id = e.broker_id
           JOIN users   u ON u.id = e.by_user_id
@@ -487,6 +501,9 @@ async def build(conn: asyncpg.Connection) -> dict:
             "supportDetails": r["support_details"] or "",
             "remarks": r["remarks"] or "",
             "notes": r["notes"] or "",
+            "connected": r["connected"] or "",          # connected | no_answer | busy | switched_off | wrong_number
+            "outcome": r["outcome"] or "",              # set only when connected
+            "followupDate": _date_str(r["followup_date"]),
         })
 
     # --- followup history (flat list, newest first) -----------------------

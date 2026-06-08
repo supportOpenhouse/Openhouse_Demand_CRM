@@ -499,6 +499,9 @@ class EngagementBody(BaseModel):
     support_asked: Optional[bool] = None
     support_details: Optional[str] = None
     remarks: Optional[str] = None
+    connected: Optional[str] = None          # connected | no_answer | busy | switched_off | wrong_number
+    outcome: Optional[str] = None            # set only when connected
+    followup_date: Optional[str] = None
 
 
 @app.post("/api/engagements")
@@ -516,8 +519,9 @@ async def save_engagement(body: EngagementBody, user: dict = Depends(auth.curren
             INSERT INTO engagements (
               broker_id, by_user_id, inventory_shared, recording_done,
               listing_done, listing_link, listing_followup_date,
-              support_asked, support_details, remarks, notes
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+              support_asked, support_details, remarks, notes,
+              connected, outcome, followup_date
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
             RETURNING id, created_at
             """,
             broker["id"], user["id"],
@@ -525,6 +529,10 @@ async def save_engagement(body: EngagementBody, user: dict = Depends(auth.curren
             (body.listing_link or None), _date_or_none(body.listing_followup_date),
             body.support_asked, (body.support_details or None),
             (body.remarks or None), body.notes.strip(),
+            (body.connected or None),
+            # outcome only meaningful when connected
+            (body.outcome or None) if body.connected == "connected" else None,
+            _date_or_none(body.followup_date),
         )
     return {"ok": True, "engagement_id": str(row["id"])}
 

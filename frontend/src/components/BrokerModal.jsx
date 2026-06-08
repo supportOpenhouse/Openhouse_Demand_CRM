@@ -18,6 +18,9 @@ const STAGE_ORDER = ['all', 'upcoming', 'avfu', 'revisit_scheduled', 'after_revi
 const STATUS_PILLS = ['hot', 'warm', 'cold', 'dead', 'future_prospect'];
 const STAGE_PILLS = ['avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more'];
 const TIERS = ['T1', 'T2', 'T3', 'T4'];
+// engagement call-disposition labels (Close/HubSpot 2-axis model)
+const CONNECTED_LABEL = { connected: 'Connected', no_answer: 'No answer', busy: 'Busy', switched_off: 'Switched off', wrong_number: 'Wrong number' };
+const OUTCOME_LABEL = { interested: 'Interested', bringing_buyer: 'Bringing a buyer', callback_requested: 'Callback requested', no_inventory_match: 'No inventory match', not_interested: 'Not interested' };
 
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 
@@ -202,6 +205,9 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
         support_asked: d.supportAsked ? d.supportAsked === 'yes' : null,
         support_details: d.supportDetails || null,
         remarks: d.remarks || null,
+        connected: d.connected || null,
+        outcome: d.connected === 'connected' ? (d.outcome || null) : null,
+        followup_date: d.followupDate || null,
       });
       setEgDraft({});
       toast('Engagement saved', 'good');
@@ -685,6 +691,20 @@ function EngagementTab({ broker, engagements, ubs, draft, setDraft, onSave, busy
         <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--mut)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>Log a new engagement with {(broker.name || '').split(' ')[0]}</h3>
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 11, padding: '14px 16px' }}>
           <div className="fu-grp" style={{ marginBottom: 12 }}>
+            <label>Was the CP connected?</label>
+            <Pills field="connected" opts={[['connected', '✓ Connected'], ['no_answer', 'No answer'], ['busy', 'Busy'], ['switched_off', 'Switched off'], ['wrong_number', 'Wrong number']]} />
+            {draft.connected === 'connected' && (
+              <select data-eg-fld="outcome" value={draft.outcome || ''} onChange={(e) => setFld('outcome', e.target.value)} style={{ ...inputStyle, maxWidth: 300 }}>
+                <option value="">— Call outcome —</option>
+                <option value="interested">Interested</option>
+                <option value="bringing_buyer">Bringing a buyer</option>
+                <option value="callback_requested">Callback requested</option>
+                <option value="no_inventory_match">No inventory match</option>
+                <option value="not_interested">Not interested</option>
+              </select>
+            )}
+          </div>
+          <div className="fu-grp" style={{ marginBottom: 12 }}>
             <label>1. Was inventory shared during this engagement?</label>
             <Pills field="inventoryShared" opts={[['yes', '✓ Yes'], ['no', '✗ No']]} />
           </div>
@@ -717,6 +737,13 @@ function EngagementTab({ broker, engagements, ubs, draft, setDraft, onSave, busy
             <textarea data-eg-fld="remarks" placeholder="Anything else worth capturing about this engagement…" value={draft.remarks || ''} onChange={(e) => setFld('remarks', e.target.value)} style={{ ...taStyle, marginTop: 0 }} />
           </div>
           <div className="fu-grp" style={{ marginBottom: 12 }}>
+            <label>Schedule a follow-up with this CP <span style={{ fontWeight: 500, color: 'var(--mut)', textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>optional</span></label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+              <input type="date" data-eg-fld="followupDate" value={draft.followupDate || ''} onChange={(e) => setFld('followupDate', e.target.value)} style={{ padding: '6px 9px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12.5 }} />
+              {draft.followupDate ? <button className="btn xs" onClick={() => setFld('followupDate', '')}>clear</button> : null}
+            </div>
+          </div>
+          <div className="fu-grp" style={{ marginBottom: 12 }}>
             <label>Notes <span style={{ color: 'var(--bad)', fontWeight: 700 }}>*</span> <span style={{ fontWeight: 500, color: 'var(--mut)', textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>required — capture the conversation</span></label>
             <textarea data-eg-fld="notes" placeholder="Required — summary of the conversation, tone, next steps" value={draft.notes || ''} onChange={(e) => setFld('notes', e.target.value)} style={{ ...taStyle, marginTop: 0, minHeight: 80 }} />
           </div>
@@ -738,6 +765,16 @@ function EngagementTab({ broker, engagements, ubs, draft, setDraft, onSave, busy
                   <b style={{ fontSize: 13 }}>{by ? by.name : 'Team'} {by ? <span className={'role-pill ' + (TEAM_PILL[by.team] || '')}>{by.team}</span> : null}</b>
                   <span style={{ fontSize: 11, color: 'var(--mut)' }}>{fmtDay(e.ts)}</span>
                 </div>
+                {(e.connected || e.followupDate) ? (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                    {e.connected ? (
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--line)', color: e.connected === 'connected' ? 'var(--good)' : 'var(--mut)' }}>
+                        {e.connected === 'connected' ? '📞 ' : '📵 '}{CONNECTED_LABEL[e.connected] || e.connected}{e.connected === 'connected' && e.outcome ? ' · ' + (OUTCOME_LABEL[e.outcome] || e.outcome) : ''}
+                      </span>
+                    ) : null}
+                    {e.followupDate ? <span style={{ fontSize: 11, color: 'var(--acc)', fontWeight: 600 }}>↻ Follow-up {fmtDate(e.followupDate)}</span> : null}
+                  </div>
+                ) : null}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '5px 14px', fontSize: 11.5, color: 'var(--mut)', marginBottom: 6 }}>
                   <div>Inventory shared: <b style={{ color: e.inventoryShared === 'yes' ? 'var(--good)' : 'var(--bad)' }}>{e.inventoryShared === 'yes' ? 'Yes' : 'No'}</b></div>
                   <div>Recording: <b style={{ color: e.recordingDone === 'yes' ? 'var(--good)' : 'var(--bad)' }}>{e.recordingDone === 'yes' ? 'Yes' : 'No'}</b></div>

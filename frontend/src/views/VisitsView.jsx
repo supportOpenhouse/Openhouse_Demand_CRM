@@ -51,6 +51,7 @@ const VISIT_COLS = [
   { k: 'stage', label: 'Stage', sort: false },
   { k: 'nextFu', label: 'Next FU', sort: true },
   { k: 'lastFu', label: 'Last FU', sort: true },
+  { k: 'revisit', label: 'Revisit', sort: true },
   { k: 'priority', label: '⚑', sort: false },
   { k: 'price', label: 'Price', sort: false },
 ];
@@ -243,6 +244,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
         case 'source': return v.source || '';
         case 'nextFu': return nextFuFor(v) || '9999-12-31';
         case 'lastFu': return lastFollowupTakenForVisit(v, fuByVisit) || '0000-00-00';
+        case 'revisit': return v._revisit_date || '0000-00-00';
         default: return '';
       }
     };
@@ -516,6 +518,11 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                       ) : 'Not taken'}
                     </td>
                     <td>
+                      {v._revisit_date
+                        ? <span className="fu-chip later" title="Revisit scheduled"><span className="d" />↻ {fmtDate(v._revisit_date)}</span>
+                        : <span className="muted" style={{ fontSize: '11px' }}>—</span>}
+                    </td>
+                    <td>
                       {nudged ? <span className="prio-tag nudge">🔔 Nudge</span> : null}
                       {tlAsk ? <span className="prio-tag tl">{nudged ? ' ' : ''}📌 TL</span> : null}
                     </td>
@@ -588,6 +595,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                     {lfd
                       ? <span className="fu-chip later"><span className="d" />Last FU: {fmtDay(lfd)}</span>
                       : <span className="fu-chip overdue"><span className="d" />FU not taken</span>}
+                    {v._revisit_date ? <span className="fu-chip later"><span className="d" />↻ Revisit: {fmtDate(v._revisit_date)}</span> : null}
                     {nudged ? <span className="prio-tag nudge">🔔 Nudge</span> : null}
                     {tlAsk ? <span className="prio-tag tl">📌 TL Ask</span> : null}
                   </div>
