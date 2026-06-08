@@ -89,16 +89,26 @@ export function isCpTlAsk(cp, teamTasks = {}) {
   return Object.values(teamTasks).some((tt) => (tt.daily_calls || []).includes(cp));
 }
 
-// ---- price for a visit (join to properties by society + unit, else median in society) ----
+// ---- price for a visit ----
+// Primary: exact unit match via home_id (set on both visits + properties by the
+// sheet sync) — the only reliable join when a society has several priced units.
+// Fallback (home_id not mapped): society + unit-substring match, else society
+// median. The substring guard (len >= 2) stops a 1-char tower letter like "A"
+// from matching the society name ("oAsis") and returning a random unit's price.
 export function priceForVisit(v, properties = []) {
+  const vid = String(v.home_id || '').trim();
+  if (vid) {
+    const hit = properties.find((p) => String(p.home_id || '').trim() === vid);
+    if (hit) return parsePrice(hit.listing_price);
+  }
   const props = properties.filter((p) => p.society_name === v.society_name);
   if (!props.length) return 0;
   const u1 = (v.unit_address_line1 || '').trim().toLowerCase();
   const u2 = (v.unit_address_line2 || '').trim().toLowerCase();
   for (const p of props) {
     const n = (p.property_name || '').toLowerCase();
-    if (u1 && n.includes(u1)) return parsePrice(p.listing_price);
-    if (u2 && n.includes(u2)) return parsePrice(p.listing_price);
+    if (u1.length >= 2 && n.includes(u1)) return parsePrice(p.listing_price);
+    if (u2.length >= 2 && n.includes(u2)) return parsePrice(p.listing_price);
   }
   const prices = props.map((p) => parsePrice(p.listing_price)).filter(Boolean).sort((a, b) => a - b);
   return prices[Math.floor(prices.length / 2)] || 0;

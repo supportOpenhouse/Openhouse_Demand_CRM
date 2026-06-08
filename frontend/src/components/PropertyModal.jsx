@@ -48,10 +48,14 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
     return m;
   }, [seed]);
   const allVisits = seed.visits || [];
-  const visits = useMemo(
-    () => allVisits.filter((v) => v.society_name === p.society_name),
-    [allVisits, p.society_name],
-  );
+  // Scope to THIS unit, not the whole society. home_id is the authoritative join
+  // (set on both visits + properties by the sheet sync); fall back to the old
+  // society-wide match only when this property has no home_id mapped yet.
+  const visits = useMemo(() => {
+    const pid = String(p.home_id || '').trim();
+    if (pid) return allVisits.filter((v) => String(v.home_id || '').trim() === pid);
+    return allVisits.filter((v) => v.society_name === p.society_name);
+  }, [allVisits, p.home_id, p.society_name]);
 
   const [tab, setTab] = useState('visits');
   const [stageTab, setStageTab] = useState('avfu');

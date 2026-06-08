@@ -199,7 +199,7 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.all_feedback, v.reminder_status, v.profession, v.intent, v.metadata,
           v.lead_status, v.current_stage, v.latest_followup_at, v.latest_followup_note,
           v.latest_followup_date, v.next_followup_date, v.revisit_date,
-          v.created_at, v.updated_at
+          v.created_at, v.updated_at, v.home_id
           FROM visits v
          ORDER BY COALESCE(v.visit_date, v.selected_date) DESC NULLS LAST, v.created_at DESC
          LIMIT $1
@@ -279,6 +279,11 @@ async def build(conn: asyncpg.Connection) -> dict:
             "closing_signal": _intent_str(intent, "closing_signal"),
             "buyer_primary_concern": _intent_str(intent, "buyer_primary_concern"),
             "profession": r["profession"] or "",
+            # oh-core home id of the unit visited — the authoritative join key to a
+            # property (set on both sides by the sheet sync). Empty for the ~1% of
+            # visits the source sheet hasn't mapped yet (frontend falls back to
+            # society/unit matching there).
+            "home_id": r["home_id"] or "",
             "created_at": _date_str(r["created_at"]),
             "updated_at": _date_str(r["updated_at"]),
         }
@@ -311,6 +316,7 @@ async def build(conn: asyncpg.Connection) -> dict:
                p.super_sqft, p.carpet_sqft, p.exit_facing, p.balcony_view,
                p.listing_price, p.commission, p.sales_manager,
                p.photo_count, p.video_added,
+               p.home_id, p.sales_manager_contact, p.supply_form_uid,
                u.slug AS pm_slug
           FROM properties p
      LEFT JOIN v_property_current_pm pa ON pa.property_id = p.id
@@ -336,8 +342,13 @@ async def build(conn: asyncpg.Connection) -> dict:
             "listing_price": r["listing_price"] or "",
             "commission": r["commission"] or "",
             "sales_manager": r["sales_manager"] or "",
+            "sales_manager_contact": r["sales_manager_contact"] or "",
             "photo_count": r["photo_count"] or "",
             "video_added": r["video_added"] or "",
+            # New sheet-synced source-system ids (2026-06-07). home_id is the join
+            # key visits map to; the others are carried for future use.
+            "home_id": r["home_id"] or "",
+            "supply_form_uid": r["supply_form_uid"] or "",
         })
         if r["pm_slug"]:
             pm_by_property[r["property_name"]] = r["pm_slug"]
