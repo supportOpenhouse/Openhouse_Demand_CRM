@@ -696,14 +696,19 @@ async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
           GROUP BY v.id
         )
         UPDATE visits v SET
-          is_old_lead    = NOT COALESCE(cls.active, FALSE),
-          lead_status    = CASE WHEN COALESCE(cls.active, FALSE) THEN v.lead_status    ELSE 'dead' END,
-          current_status = CASE WHEN COALESCE(cls.active, FALSE) THEN v.current_status ELSE 'dead' END,
-          updated_at     = now()
+          is_old_lead        = NOT COALESCE(cls.active, FALSE),
+          lead_status        = CASE WHEN COALESCE(cls.active, FALSE) THEN v.lead_status        ELSE 'dead' END,
+          current_status     = CASE WHEN COALESCE(cls.active, FALSE) THEN v.current_status     ELSE 'dead' END,
+          -- dead leads carry no pending followup obligation (don't clutter FU-due lists)
+          next_followup_date = CASE WHEN COALESCE(cls.active, FALSE) THEN v.next_followup_date ELSE NULL END,
+          revisit_date       = CASE WHEN COALESCE(cls.active, FALSE) THEN v.revisit_date       ELSE NULL END,
+          updated_at         = now()
         FROM cls
         WHERE cls.id = v.id
           AND ( v.is_old_lead IS DISTINCT FROM (NOT COALESCE(cls.active, FALSE))
-                OR (NOT COALESCE(cls.active, FALSE) AND v.lead_status <> 'dead') )
+                OR (NOT COALESCE(cls.active, FALSE)
+                    AND (v.lead_status <> 'dead' OR v.current_status <> 'dead'
+                         OR v.next_followup_date IS NOT NULL OR v.revisit_date IS NOT NULL)) )
         """
     )
     # res is like "UPDATE 1234" → pull the count for the run log

@@ -34,9 +34,12 @@ WITH cls AS (
   GROUP BY v.id
 )
 UPDATE visits v SET
-  is_old_lead    = NOT COALESCE(cls.active, FALSE),
-  lead_status    = CASE WHEN COALESCE(cls.active, FALSE) THEN v.lead_status    ELSE 'dead' END,
-  current_status = CASE WHEN COALESCE(cls.active, FALSE) THEN v.current_status ELSE 'dead' END,
-  updated_at     = now()
+  is_old_lead        = NOT COALESCE(cls.active, FALSE),
+  lead_status        = CASE WHEN COALESCE(cls.active, FALSE) THEN v.lead_status        ELSE 'dead' END,
+  current_status     = CASE WHEN COALESCE(cls.active, FALSE) THEN v.current_status     ELSE 'dead' END,
+  -- dead leads carry no pending followup obligation (keeps them out of FU-due lists)
+  next_followup_date = CASE WHEN COALESCE(cls.active, FALSE) THEN v.next_followup_date ELSE NULL END,
+  revisit_date       = CASE WHEN COALESCE(cls.active, FALSE) THEN v.revisit_date       ELSE NULL END,
+  updated_at         = now()
 FROM cls
 WHERE cls.id = v.id;
