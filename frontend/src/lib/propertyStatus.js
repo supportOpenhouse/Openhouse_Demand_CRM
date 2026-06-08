@@ -37,6 +37,15 @@ const visitUnitKey = (v) => unitKey(`${v.unit_address_line1 || ''} ${v.unit_addr
 // naming, so matching on letters yields ~0. The flat NUMBER agrees, so we key the
 // key-handover lookup on society + the de-zeroed digit-runs only.
 export const unitDigitKey = (s) => [...new Set(((s || '').match(/\d+/g) || []).map((d) => d.replace(/^0+(?=\d)/, '')))].sort().join('|');
+
+// flat number ONLY — drop tower/block letters, keep the longest digit run (de-zeroed).
+// "A-704" → "704", "704" → "704", "Tower 2, 1204" → "1204", "G-15" → "15".
+// Used by the cascading unit filter so "A-704" and "704" collapse to one option ("704")
+// and picking it matches every tower's unit-704.
+export const flatNo = (s) => {
+  const runs = ((s || '').match(/\d+/g) || []).map((d) => d.replace(/^0+(?=\d)/, ''));
+  return runs.length ? runs.reduce((a, b) => (b.length >= a.length ? b : a)) : '';
+};
 const khKey = (society, unit) => `${normSoc(society)}#${unitDigitKey(unit)}`;
 
 export function buildKhMap(items = []) {

@@ -9,6 +9,7 @@ import {
   TEAM_PILL, fmtPrice, nextFuClass, lastFollowupTakenForVisit, buildFuByVisit,
   isVisitNudged, isVisitTlAsk, priceForVisit,
 } from '../lib/legacy.js';
+import { flatNo } from '../lib/propertyStatus.js';
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import ChipBar from '../components/ChipBar.jsx';
@@ -190,8 +191,11 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     // --- advanced filters (topbar Filters modal) ---
     const F = filters || {};
     if (F.unit) {
-      const u = [v.unit_address_line1, v.unit_address_line2, v.floor].filter(Boolean).join(' ').toLowerCase();
-      if (!u.includes(F.unit.toLowerCase())) return false;
+      // match on flat number only — the dropdown now yields "704" (tower-agnostic), and
+      // legacy saved values like "A-704" normalise to the same flat number too.
+      const target = flatNo(F.unit);
+      const vno = flatNo(v.unit_address_line1) || flatNo([v.unit_address_line1, v.unit_address_line2].filter(Boolean).join(' '));
+      if (target && vno !== target) return false;
     }
     if (F.society && v.society_name !== F.society) return false;
     if (F.locality) {

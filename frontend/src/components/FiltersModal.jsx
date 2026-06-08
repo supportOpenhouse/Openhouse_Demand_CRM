@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { TODAY, ymd } from '../lib/format.js';
+import { flatNo } from '../lib/propertyStatus.js';
 
 // Advanced Visits filters — faithful to crm.html's #modal-filters (society / locality /
 // BHK / CP tier / CP / RM / source / visit-date range / next-followup).
@@ -36,13 +37,14 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
 
   // unit options cascade off the chosen society: property unit = property_name
   // before the first comma; visit unit = unit_address_line1. No society → all units.
-  const unitFor = (s) => (s || '').trim();
+  // We collapse to the FLAT NUMBER only (flatNo) so "A-704" and "704" — the same unit
+  // formatted two ways across sources — become one option ("704") that matches every tower.
   const eqSoc = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
   const units = useMemo(() => {
     const soc = (f.society || '').trim();
     const pick = (rows, getUnit, getSoc) => rows
       .filter((r) => !soc || eqSoc(getSoc(r), soc))
-      .map((r) => unitFor(getUnit(r)));
+      .map((r) => flatNo(getUnit(r)));
     return [...new Set([
       ...pick(properties, (p) => (p.property_name || '').split(',')[0], (p) => p.society_name),
       ...pick(visits, (v) => v.unit_address_line1, (v) => v.society_name),
