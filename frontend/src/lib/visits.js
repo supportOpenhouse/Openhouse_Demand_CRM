@@ -29,6 +29,10 @@ export const LAST_FU_PRESETS = [
 
 // next scheduled FU (in-session save) → else the latest taken date
 export function nextFuFor(v) {
+  // A dead lead carries no follow-up — never derive a "next FU" for it (even if it
+  // has a last-FU date or a stage like Upcoming/After-FU). Keeps the column "No FU"
+  // and drops dead leads out of the overdue filter.
+  if (visitStatus(v) === 'dead') return null;
   return v._next_followup_date || v.latest_followup_date || null;
 }
 // latest followup date taken on this visit (seed projection = the real latest)
