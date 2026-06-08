@@ -94,7 +94,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   // --- filter state (multi-select chip-bars) ---
   const [statuses, setStatuses] = useState([]);
   const [stages, setStages] = useState([]);
-  const [lastFus, setLastFus] = useState(['not_taken']); // default: focus on visits with no FU taken yet
+  const [lastFus, setLastFus] = useState([]); // default: show all FU states (the "Not taken yet" chip is still there to focus)
   const [priorities, setPriorities] = useState([]);
   const [leadSet, setLeadSet] = useState('active');  // #6 Active | Old Leads | All — default hides old leads
   // city + unit filters now live in the Filters modal (filters.cities / filters.unit)

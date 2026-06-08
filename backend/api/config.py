@@ -47,8 +47,12 @@ SHEET_ID_TEAM = os.environ.get(
     "SHEET_ID_TEAM", "18XoHGVorN5cMOIJSvfqS2cS6teGi-iq98xwdCp3ZBjk"
 )
 
-# How many recent visits to ship to the frontend in /api/seed.
-SEED_VISITS_LIMIT = int(os.environ.get("SEED_VISITS_LIMIT", "1500"))
+# How many recent visits to ship to the frontend in /api/seed. IMPORTANT: the seed
+# loads the global most-recent N visits and THEN scopes per user, so a scoped KAM/
+# Ground user only sees their visits that fall inside this global window. Keep this
+# at/above the total visit count so scoped users see their full history (raise it as
+# the dataset grows). 1500 silently hid older visits from KAMs with longer books.
+SEED_VISITS_LIMIT = int(os.environ.get("SEED_VISITS_LIMIT", "20000"))
 
 # Optional second Postgres (the acquisitions/"properties" DB) — source of the
 # key-handover date for the Analytics Property-Status report. Unset = feature
