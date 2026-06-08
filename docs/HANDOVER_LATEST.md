@@ -246,6 +246,21 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   the live backend (0 mispriced of 3.5k home_id joins), then deployed (backend push→Render; frontend
   owner-token `vercel deploy`). The **"Mayank/Saket can't see visits" report was stale browser cache**, not a
   bug — their seeds were correct (Mayank 606 visits, Saket 339).
+- **2026-06-08 (later · Saransh + Claude):** Saransh shipped a 9-commit batch (→`22404b2`): **old-leads
+  redefined** — `is_old_lead` now means "the unit is no longer live inventory" (not the pre-1-May date rule),
+  maintained on `visits.is_old_lead` by `sheet_sync.sync_inactive_leads()` (**migration 005**); dead-lead
+  follow-ups disabled; PropertiesView/SnapshotView reworks; FiltersModal/CpView tweaks; admin-only CSV. On top
+  (`b1a0b0d`): **(1) city via home_id** — `seed_snapshot` derives a visit's city from its home_id-mapped
+  inventory unit, fixing 267 visits whose Visitors-sheet city was mis-entered (Supertech Livingston / Saviour
+  Greenisle were Noida → now Ghaziabad). Corrects the list, city tabs, **scoping** (those visits leave the
+  Noida TL and join Ghaziabad) and analytics. **(2) Ground-PM scope** now also includes visits where the PM is
+  the RM (`sales_manager`) — a PM sees visits they personally ran even at others' properties / non-owned CPs
+  (fixed VST8592 hidden from Abhash; mirrored in `scopeVisits`). **(3) Revisit column** — sortable, desktop +
+  mobile, surfaces `visits.revisit_date` (`↻ <date>`) + a chip in the Property/CP popups. **(4) Engagement
+  tab** got the Close/HubSpot 2-axis model: `connected` disposition + `outcome` (set only when connected) + a
+  follow-up date, history enriched (**migration 006** — expand/idempotent, applied to prod). Validated
+  L1/L2/L3 across Admin/TL/KAM/Ground + render smoke + a live engagement save round-trip; deployed (backend
+  push→Render; frontend owner-token `vercel deploy`).
 
 ---
 
@@ -258,6 +273,11 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
 5. Delete the stray `backend/api/import_top_brokers 2.py`.
 6. (Optional) rotate the Neon password — it's in early git history.
 7. (Optional) broader CP write-back to LSQ (all ~4,681 CPs vs the 1,248 active).
+8. **"My Follow-ups" view** (Overdue / Today / Upcoming buckets + optional daily digest) to surface the
+   engagement follow-up dates now captured via migration 006. Research-backed (Pipedrive/Zoho pattern); not built yet.
+9. (Optional, from the 2026-06-08 best-CRM research) **revisit-as-chain** (`original_visit_id` self-FK for a
+   linked visit sequence) and a Google Drive **`changes.watch` webhook + optimistic writes** to cut the 15-min
+   sheet-sync lag for app-entered activity.
 
 ---
 
