@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, useEffect, useCallback, forwardRef } from 'react';
 import { TODAY, ymd } from '../lib/format.js';
+import { parsePrice, fmtPrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
 
 const CITY_ORDER = ['Gurgaon', 'Noida', 'Ghaziabad'];
@@ -36,34 +37,149 @@ function groupPropertiesByCity(properties) {
 
 const enIN = (opts) => TODAY.toLocaleDateString('en-IN', opts);
 
+// ---- reusable multi-select dropdown (dependency-free) — same pattern/classes as AnalyticsView ----
+function MultiSelect({ label, options, value = [], onChange, width }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  const opts = options.map((x) => (typeof x === 'string' ? { value: x, label: x } : x));
+  const shown = q ? opts.filter((o) => o.label.toLowerCase().includes(q.toLowerCase())) : opts;
+  const toggle = (val) => onChange(value.includes(val) ? value.filter((x) => x !== val) : [...value, val]);
+  return (
+    <div className="an-ms" ref={ref} style={width ? { width } : undefined}>
+      <button type="button" className={'an-ms-btn' + (value.length ? ' has' : '')} onClick={() => setOpen((o) => !o)}>
+        {label}{value.length ? <span className="an-ms-count">{value.length}</span> : null}<span className="an-ms-caret">▾</span>
+      </button>
+      {open && (
+        <div className="an-ms-pop">
+          <input className="an-ms-search" autoFocus placeholder={`Search ${label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="an-ms-actions">
+            <button type="button" onClick={() => onChange(shown.map((o) => o.value))}>All</button>
+            <button type="button" onClick={() => onChange([])}>Clear</button>
+            <span className="an-ms-n">{value.length} selected</span>
+          </div>
+          <div className="an-ms-list">
+            {shown.slice(0, 400).map((o) => (
+              <label key={o.value} className="an-ms-opt">
+                <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
+                <span>{o.label}</span>
+              </label>
+            ))}
+            {shown.length > 400 && <div className="an-ms-more">+{shown.length - 400} more — refine search</div>}
+            {shown.length === 0 && <div className="an-ms-more">No matches</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// price range → compact label fragment for the dynamic share title, e.g. "₹1.5–2 Cr", "≤₹2 Cr", "₹1.5 Cr+"
+function priceLabel(min, max) {
+  const lo = min != null ? fmtPrice(min) : null;
+  const hi = max != null ? fmtPrice(max) : null;
+  if (lo && hi) return `${lo}–${hi}`;
+  if (hi) return `≤${hi}`;
+  if (lo) return `${lo}+`;
+  return null;
+}
+
 export default function SnapshotView({ seed }) {
   const me = seed.current_user || {};
   // Inventory snapshot is unscoped (full property list), matching legacy store.properties.
   const properties = useMemo(() => seed.properties || [], [seed]);
 
-  const grouped = useMemo(() => groupPropertiesByCity(properties), [properties]);
-  const totalReady = useMemo(() => properties.filter((p) => p.listing_status === 'Ready').length, [properties]);
-  const totalCS = useMemo(() => properties.filter((p) => p.listing_status === 'Coming Soon').length, [properties]);
+  /* ----------------------------- filter state ----------------------------- */
+  const [fCities, setFCities] = useState([]);          // city_name multi
+  const [fConfigs, setFConfigs] = useState([]);         // configuration multi
+  const [fRegions, setFRegions] = useState([]);         // micro_market multi
+  const [priceMin, setPriceMin] = useState('');         // ₹, numeric text
+  const [priceMax, setPriceMax] = useState('');         // ₹, numeric text
+
+  // distinct option lists, derived from the full property set (alpha sorted)
+  const cityOpts = useMemo(
+    () => CITY_ORDER.filter((c) => properties.some((p) => p.city_name === c)),
+    [properties]);
+  const configOpts = useMemo(() => {
+    const s = new Set();
+    properties.forEach((p) => { const c = (p.configuration || '').trim(); if (c) s.add(c); });
+    return [...s].sort((a, b) => a.localeCompare(b));
+  }, [properties]);
+  const regionOpts = useMemo(() => {
+    const s = new Set();
+    properties.forEach((p) => { const m = (p.micro_market || '').trim(); if (m) s.add(m); });
+    return [...s].sort((a, b) => a.localeCompare(b));
+  }, [properties]);
+
+  // inputs are in CRORES (natural unit for these listings) → convert to ₹ for comparison.
+  // e.g. "1.5" → 1.5 Cr → 15,000,000. (0.75 = 75 L works for sub-crore ranges too.)
+  const minRs = useMemo(() => { const n = parseFloat(priceMin); return Number.isFinite(n) && n > 0 ? n * 1e7 : null; }, [priceMin]);
+  const maxRs = useMemo(() => { const n = parseFloat(priceMax); return Number.isFinite(n) && n > 0 ? n * 1e7 : null; }, [priceMax]);
+
+  const hasFilters = fCities.length || fConfigs.length || fRegions.length || minRs != null || maxRs != null;
+
+  // apply filters to the property list BEFORE grouping / poster
+  const filtered = useMemo(() => properties.filter((p) => {
+    if (fCities.length && !fCities.includes(p.city_name)) return false;
+    if (fConfigs.length && !fConfigs.includes((p.configuration || '').trim())) return false;
+    if (fRegions.length && !fRegions.includes((p.micro_market || '').trim())) return false;
+    if (minRs != null || maxRs != null) {
+      const v = parsePrice(p.listing_price);
+      if (minRs != null && v < minRs) return false;
+      if (maxRs != null && v > maxRs) return false;
+    }
+    return true;
+  }), [properties, fCities, fConfigs, fRegions, minRs, maxRs]);
+
+  const clearFilters = useCallback(() => {
+    setFCities([]); setFConfigs([]); setFRegions([]); setPriceMin(''); setPriceMax('');
+  }, []);
+
+  // group / counts run off the FILTERED set so the page stays coherent with the filters
+  const grouped = useMemo(() => groupPropertiesByCity(filtered), [filtered]);
+  const totalReady = useMemo(() => filtered.filter((p) => p.listing_status === 'Ready').length, [filtered]);
+  const totalCS = useMemo(() => filtered.filter((p) => p.listing_status === 'Coming Soon').length, [filtered]);
 
   // text-share modal state (WhatsApp-ready)
-  const [share, setShare] = useState(null);       // { cities, title, text }
+  const [share, setShare] = useState(null);       // { title, text }
   // image-export modal state
-  const [img, setImg] = useState(null);           // { cities, title, dataUrl|null, loading, canvas }
+  const [img, setImg] = useState(null);           // { props, title, subtitle, filebase, dataUrl|null, loading, canvas }
   const posterRef = useRef(null);
 
-  const countLabel =
-    `${properties.length} live properties · ${totalReady} ready · ${totalCS} coming soon · share-ready snapshot`;
+  const countLabel = hasFilters
+    ? `${filtered.length} units match · ${totalReady} ready · ${totalCS} coming soon`
+    : `${properties.length} live properties · ${totalReady} ready · ${totalCS} coming soon · share-ready snapshot`;
+
+  // build the dynamic title fragments from the active filters (used by the filtered share)
+  const filterTitleBits = useMemo(() => {
+    const bits = [];
+    if (fConfigs.length) bits.push(fConfigs.join(' / '));
+    if (fCities.length) bits.push(fCities.join(' & '));
+    if (fRegions.length) bits.push(fRegions.join(' / '));
+    const pl = priceLabel(minRs, maxRs);
+    if (pl) bits.push(pl);
+    return bits;
+  }, [fConfigs, fCities, fRegions, minRs, maxRs]);
 
   /* ----------------------------- text share ----------------------------- */
-  const openShare = useCallback((cities) => {
-    const props = properties.filter((p) => cities.includes(p.city_name));
-    let body = `🏠 *OpenHouse Live Inventory · ${cities.join(' & ')}*\nUpdated ${enIN({ day: 'numeric', month: 'short', year: 'numeric' })}\n\n`;
+  // build a WhatsApp-ready text block from any property list + a headline label.
+  const buildShareText = useCallback((props, headline, sub) => {
+    let body = `🏠 *${headline}*\n${sub ? sub + '\n' : ''}Updated ${enIN({ day: 'numeric', month: 'short', year: 'numeric' })}\n\n`;
+    const cities = CITY_ORDER.filter((c) => props.some((p) => p.city_name === c));
+    // include any non-standard cities at the end, alpha
+    [...new Set(props.map((p) => p.city_name))].sort().forEach((c) => { if (!cities.includes(c)) cities.push(c); });
     cities.forEach((c) => {
       const cityProps = props
         .filter((p) => p.city_name === c)
         .sort((a, b) => (a.micro_market || '').localeCompare(b.micro_market || ''));
       if (!cityProps.length) return;
-      body += `━━━ ${c.toUpperCase()} (${cityProps.length} units) ━━━\n\n`;
+      body += `━━━ ${(c || 'Other').toUpperCase()} (${cityProps.length} units) ━━━\n\n`;
       let lastMM = '';
       cityProps.forEach((p) => {
         if (p.micro_market !== lastMM) {
@@ -78,13 +194,46 @@ export default function SnapshotView({ seed }) {
     });
     const first = (me.name || '').split(' ')[0] || 'Team';
     body += `\nReach out for site visits, virtual tour, or pricing details.\n\n– ${first}, OpenHouse`;
-    setShare({ cities, title: `Inventory snapshot · ${cities.join(' & ')}`, text: body });
-  }, [properties, me.name]);
+    return body;
+  }, [me.name]);
+
+  // per-city share (operates on the filtered set so it matches what's on screen)
+  const openShare = useCallback((cities) => {
+    const props = filtered.filter((p) => cities.includes(p.city_name));
+    setShare({
+      title: `Inventory snapshot · ${cities.join(' & ')}`,
+      text: buildShareText(props, `OpenHouse Live Inventory · ${cities.join(' & ')}`),
+    });
+  }, [filtered, buildShareText]);
+
+  // filtered-selection share (the whole filtered set, dynamic title)
+  const openFilteredShare = useCallback(() => {
+    const bits = filterTitleBits.length ? filterTitleBits.join(' · ') : 'Full Inventory';
+    const headline = `OpenHouse · ${bits} (${filtered.length} units)`;
+    setShare({ title: headline, text: buildShareText(filtered, headline) });
+  }, [filtered, filterTitleBits, buildShareText]);
 
   /* ----------------------------- image export ----------------------------- */
-  const openImage = useCallback((cities) => {
-    setImg({ cities, title: `Snapshot · ${cities.join(' & ')}`, dataUrl: null, loading: true, canvas: null });
+  const openImage = useCallback((props, title, subtitle, filebase) => {
+    setImg({ props, title, subtitle, filebase, dataUrl: null, loading: true, canvas: null });
   }, []);
+  const openCityImage = useCallback((cities) => {
+    openImage(
+      filtered.filter((p) => cities.includes(p.city_name)),
+      `Snapshot · ${cities.join(' & ')}`,
+      cities.join(' · '),
+      cities.join('-').toLowerCase(),
+    );
+  }, [filtered, openImage]);
+  const openFilteredImage = useCallback(() => {
+    const bits = filterTitleBits.length ? filterTitleBits.join(' · ') : 'Full Inventory';
+    openImage(
+      filtered,
+      `OpenHouse · ${bits}`,
+      bits,
+      'filtered',
+    );
+  }, [filtered, filterTitleBits, openImage]);
 
   // when an image modal is requested, render the off-screen poster then rasterize it
   useEffect(() => {
@@ -114,14 +263,57 @@ export default function SnapshotView({ seed }) {
 
   return (
     <div className="rx-fade">
+      {/* ----------------------------- filter bar ----------------------------- */}
+      <div className="snap-filters">
+        <div className="snap-filters-row">
+          <span className="snap-filters-lbl">Build a request-specific share</span>
+          <MultiSelect label="City" options={cityOpts} value={fCities} onChange={setFCities} />
+          <MultiSelect label="BHK / Config" options={configOpts} value={fConfigs} onChange={setFConfigs} />
+          <MultiSelect label="Region" options={regionOpts} value={fRegions} onChange={setFRegions} />
+          <div className="snap-price">
+            <span className="snap-price-lbl">Price (₹ Cr)</span>
+            <input
+              type="number" inputMode="decimal" min="0" step="0.25" placeholder="1.5"
+              className="snap-price-in" value={priceMin}
+              onChange={(e) => setPriceMin(e.target.value)}
+            />
+            <span className="snap-price-dash">–</span>
+            <input
+              type="number" inputMode="decimal" min="0" step="0.25" placeholder="2"
+              className="snap-price-in" value={priceMax}
+              onChange={(e) => setPriceMax(e.target.value)}
+            />
+          </div>
+          {hasFilters ? (
+            <button type="button" className="an-chip clear" onClick={clearFilters}>Clear filters ✕</button>
+          ) : null}
+        </div>
+        <div className="snap-filters-row">
+          <span className={'snap-match' + (filtered.length ? '' : ' zero')}>
+            <strong>{filtered.length}</strong> {filtered.length === 1 ? 'unit' : 'units'} match
+            {filterTitleBits.length ? <span className="snap-match-sub"> · {filterTitleBits.join(' · ')}</span> : null}
+          </span>
+          <button
+            type="button" className="btn primary"
+            disabled={!filtered.length}
+            onClick={openFilteredShare}
+          >📤 Share filtered selection</button>
+          <button
+            type="button" className="btn"
+            disabled={!filtered.length}
+            onClick={openFilteredImage}
+          >🖼 Filtered as image</button>
+        </div>
+      </div>
+
       <div className="list-head" style={{ flexWrap: 'wrap', gap: 10 }}>
         <span id="snapCountLabel">{countLabel}</span>
         <div className="pager" style={{ flexWrap: 'wrap', gap: 6 }}>
           <span style={{ fontSize: 11, color: 'var(--mut)', alignSelf: 'center', marginRight: 6 }}>As image:</span>
-          <button className="btn sm primary" onClick={() => openImage(['Gurgaon'])}>🖼 Gurgaon</button>
-          <button className="btn sm primary" onClick={() => openImage(['Noida'])}>🖼 Noida</button>
-          <button className="btn sm primary" onClick={() => openImage(['Ghaziabad'])}>🖼 Ghaziabad</button>
-          <button className="btn sm primary" onClick={() => openImage(['Noida', 'Ghaziabad'])}>🖼 Noida + Ghaziabad</button>
+          <button className="btn sm primary" onClick={() => openCityImage(['Gurgaon'])}>🖼 Gurgaon</button>
+          <button className="btn sm primary" onClick={() => openCityImage(['Noida'])}>🖼 Noida</button>
+          <button className="btn sm primary" onClick={() => openCityImage(['Ghaziabad'])}>🖼 Ghaziabad</button>
+          <button className="btn sm primary" onClick={() => openCityImage(['Noida', 'Ghaziabad'])}>🖼 Noida + Ghaziabad</button>
           <span style={{ fontSize: 11, color: 'var(--mut)', alignSelf: 'center', margin: '0 6px' }}>As text:</span>
           <button className="btn sm" onClick={() => openShare(['Gurgaon'])}>📤 Gurgaon</button>
           <button className="btn sm" onClick={() => openShare(['Noida'])}>📤 Noida</button>
@@ -132,7 +324,10 @@ export default function SnapshotView({ seed }) {
 
       <div id="snapBody">
         {cities.length === 0 ? (
-          <div className="empty"><div className="emoji">📦</div><div className="t">No inventory loaded</div></div>
+          <div className="empty">
+            <div className="emoji">📦</div>
+            <div className="t">{hasFilters ? 'No units match these filters' : 'No inventory loaded'}</div>
+          </div>
         ) : (
           cities.map((city) => <CityBlock key={city} city={city} g={grouped[city]} />)
         )}
@@ -142,7 +337,7 @@ export default function SnapshotView({ seed }) {
       {img && (
         <ImageModal img={img} onClose={() => setImg(null)}>
           {/* off-screen poster — html2canvas rasterizes this DOM node */}
-          {img.loading && <Poster ref={posterRef} cities={img.cities} properties={properties} />}
+          {img.loading && <Poster ref={posterRef} props={img.props} title={img.subtitle} />}
         </ImageModal>
       )}
     </div>
@@ -281,7 +476,7 @@ function ImageModal({ img, onClose, children }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const filename = `openhouse-${img.cities.join('-').toLowerCase()}-${ymd(TODAY)}.png`;
+  const filename = `openhouse-${img.filebase || 'inventory'}-${ymd(TODAY)}.png`;
 
   const download = () => {
     if (!img.dataUrl) return;
@@ -305,7 +500,7 @@ function ImageModal({ img, onClose, children }) {
     const a = document.createElement('a');
     a.href = img.dataUrl; a.download = filename; a.click();
     setTimeout(() => {
-      const txt = `OpenHouse · Live Inventory · ${img.cities.join(' & ')} · ${TODAY.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\n\nAttached image has the latest unit list. Ping me for any visit / pricing detail.`;
+      const txt = `${img.title} · ${TODAY.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\n\nAttached image has the latest unit list. Ping me for any visit / pricing detail.`;
       window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
       toast('Image downloaded — attach it in WhatsApp', 'good');
     }, 400);
@@ -355,9 +550,11 @@ const OH_ICON = (
   </svg>
 );
 
-const Poster = forwardRef(function Poster({ cities, properties }, ref) {
-    const props = properties.filter((p) => cities.includes(p.city_name));
+const Poster = forwardRef(function Poster({ props = [], title }, ref) {
     const ready = props.filter((p) => p.listing_status === 'Ready').length;
+    // fixed-order cities first, then any extras alpha — so a filtered set still renders sensibly
+    const cities = CITY_ORDER.filter((c) => props.some((p) => p.city_name === c));
+    [...new Set(props.map((p) => p.city_name))].sort().forEach((c) => { if (!cities.includes(c)) cities.push(c); });
 
     return (
       <div className="poster" id="posterEl" ref={ref}>
@@ -365,7 +562,7 @@ const Poster = forwardRef(function Poster({ cities, properties }, ref) {
           {OH_ICON}
           <div>
             <div className="pht">OpenHouse · Live Inventory</div>
-            <div className="phs">{cities.join(' · ')}</div>
+            <div className="phs">{title || cities.join(' · ')}</div>
           </div>
           <div className="phd">
             {TODAY.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -382,9 +579,9 @@ const Poster = forwardRef(function Poster({ cities, properties }, ref) {
           cityProps.forEach((p) => { const k = p.micro_market || 'Other'; (mmGroups[k] = mmGroups[k] || []).push(p); });
           const mmOrder = Object.keys(mmGroups).sort();
           return (
-            <div className="pcity" key={city}>
+            <div className="pcity" key={city || 'other'}>
               <div className="pcity-hd">
-                <h3>{city} · {cityProps.length} units</h3>
+                <h3>{city || 'Other'} · {cityProps.length} units</h3>
                 <div>
                   <span className="cnt">{cReady} Ready</span>
                   {cs ? <> <span className="cnt">{cs} CS</span></> : null}

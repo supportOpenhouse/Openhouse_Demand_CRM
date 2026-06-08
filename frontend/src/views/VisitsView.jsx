@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { fmtDate, fmtDay, daysBetween } from '../lib/format.js';
 import {
   STAGES, STAGE_BY_KEY, STATUSES, LAST_FU_PRESETS,
-  visitStage, visitStatus, nextFuFor, matchLastFuFilter, scopeVisits, isOldLead,
+  visitStage, visitStatus, nextFuFor, matchLastFuFilter, scopeVisits, isOldLead, visitUnitText,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -281,6 +281,55 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     if (cp) toast('WhatsApp draft picker — ' + cp);
   }
 
+  // #3 — export the CURRENTLY-VISIBLE rows (full filtered + sorted set, not just the page)
+  function exportCsv() {
+    const esc = (val) => {
+      const s = val == null ? '' : String(val);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const headers = [
+      'Visit ID', 'Visit date', 'Selected time', 'City', 'RM', 'Society', 'Unit',
+      'Buyer', 'Buyer contact', 'CP name', 'CP code', 'Company', 'Buyer status',
+      'Stage', 'Next FU', 'Last FU', 'Price',
+    ];
+    const rows = sorted.map((v) => {
+      const st = visitStatus(v);
+      const stLabel = STATUSES.find((s) => s.k === st)?.label || st;
+      const sgDef = STAGE_BY_KEY[visitStage(v)];
+      const sgLabel = sgDef ? sgDef.label : visitStage(v);
+      const price = priceForVisit(v, properties);
+      return [
+        v.id || '',
+        v.visit_date || '',
+        v.selected_time || '',
+        v.city || '',
+        v.sales_manager || '',
+        v.society_name || '',
+        visitUnitText(v),
+        v.buyer_name || '',
+        v.buyer_contact || '',
+        v.broker_name || '',
+        v.cp_code || '',
+        v.company_name || '',
+        stLabel,
+        sgLabel,
+        nextFuFor(v) || '',
+        lastFollowupTakenForVisit(v, fuByVisit) || '',
+        price ? fmtPrice(price) : '',
+      ].map(esc).join(',');
+    });
+    const csv = [headers.map(esc).join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'oh-visits.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="rx-fade">
       {/* ===== 4 chip-bars ===== */}
@@ -334,6 +383,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
       <div className="list-head">
         <span>{start}–{end} of {total} visits</span>
         <div className="pager">
+          <button className="btn xs" type="button" disabled={!total} onClick={exportCsv} title="Download the currently-visible visits as CSV">⬇ CSV</button>
           <button className="btn xs" type="button" disabled={pg <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Prev</button>
           Page
           <input

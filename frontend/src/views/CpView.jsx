@@ -61,6 +61,10 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
   const [owner, setOwner] = useState('all');   // all | __none__ | slug
   const [unit, setUnit] = useState('');         // #4 typeable unit number
   const [sort, setSort] = useState('rank');
+  // #4 clickable column-header sort — overrides the dropdown when a header is clicked.
+  // hdrField=null means "use the dropdown mode"; picking the dropdown resets it to null.
+  const [hdrField, setHdrField] = useState(null);
+  const [hdrDir, setHdrDir] = useState('asc');
   const [lastFu, setLastFu] = useState('all');     // chip-bar 1
   const [priority, setPriority] = useState('all'); // chip-bar 2
   const [page, setPage] = useState(1);
@@ -124,19 +128,55 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
 
   const activeTier = (groups[tier] && groups[tier].length) ? tier : (TIERS.find((t) => groups[t]?.length) || 'T1');
   const hideOwner = activeTier === 'T3' || activeTier === 'T4';   // #5: CP Owner hidden for T3/T4
+  // column-header sort keys (numeric vs text) — drives the clickable <th> sorting (#4)
+  const HDR_KEYS = useMemo(() => ({
+    tier_rank: { num: true, get: (b) => b.tier_rank || 9999 },
+    name: { num: false, get: (b) => (b.name || '').toLowerCase() },
+    city: { num: false, get: (b) => (b.city || '').toLowerCase() },
+    cp_code: { num: false, get: (b) => (b.cp_code || '').toLowerCase() },
+    activity: { num: false, get: (b) => (b.activity_category || '').toLowerCase() },
+    d30: { num: true, get: (b) => b.d30_visits || 0 },
+    d60: { num: true, get: (b) => b.d60_visits || 0 },
+    d90: { num: true, get: (b) => b.d90_visits || 0 },
+    all_time: { num: true, get: (b) => b.all_time_visits || 0 },
+    added_by: { num: false, get: (b) => (b.added_by || '').toLowerCase() },
+    owner: { num: false, get: (b) => (ubs[cpOwner[b.cp_code]]?.name || '').toLowerCase() },
+    last_visit: { num: false, get: (b) => (cpIndex[b.cp_code]?.lastVisit) || '' },
+    last_fu: { num: false, get: (b) => lfForCp[b.cp_code] || '' },
+  }), [ubs, cpOwner, cpIndex, lfForCp]);
+
   const sorted = useMemo(() => {
     const list = groups[activeTier] || [];
+    // header sort takes precedence over the dropdown when a column is clicked
+    if (hdrField && HDR_KEYS[hdrField]) {
+      const { num, get } = HDR_KEYS[hdrField];
+      const dir = hdrDir === 'asc' ? 1 : -1;
+      return list.slice().sort((a, b) => {
+        const ka = get(a); const kb = get(b);
+        if (num) return (ka - kb) * dir;
+        return (ka > kb ? 1 : ka < kb ? -1 : 0) * dir;
+      });
+    }
     if (sort === 'recent') return list.slice().sort((a, b) => ((cpIndex[b.cp_code]?.lastVisit) || '').localeCompare((cpIndex[a.cp_code]?.lastVisit) || ''));
     if (sort === 'onboard') return list.slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     return sortInTier(list, sort);
-  }, [groups, activeTier, sort, cpIndex]);
+  }, [groups, activeTier, sort, cpIndex, hdrField, hdrDir, HDR_KEYS]);
   const SORT_LABEL = { rank: 'Rank (tier)', recent: 'Most recent visit', d30: 'D30 visits', all_time: 'All-time visits', onboard: 'Recently onboarded' };
+
+  // clickable header sort: same field toggles asc/desc, new field starts ascending.
+  // Setting hdrField makes the header override the dropdown (see sorted, above).
+  function onSort(k) {
+    if (hdrField === k) setHdrDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setHdrField(k); setHdrDir('asc'); }
+  }
+  // picking the dropdown resets header sort to its mode (#4: dropdown reset)
+  function onPickSort(v) { setHdrField(null); setSort(v); }
 
   // pagination — only render PAGE rows at a time
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE));
   const pg = Math.min(page, totalPages);
   const pageRows = useMemo(() => sorted.slice((pg - 1) * PAGE, pg * PAGE), [sorted, pg]);
-  useEffect(() => { setPage(1); }, [activeTier, city, owner, unit, dq, sort, lastFu, priority]);
+  useEffect(() => { setPage(1); }, [activeTier, city, owner, unit, dq, sort, hdrField, hdrDir, lastFu, priority]);
 
   // ---- desktop row ----
   const renderRow = (b) => {
@@ -266,7 +306,7 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
             {ownerOptions.map((u) => <option key={u.slug} value={u.slug}>{u.name}</option>)}
           </select>
         )}
-        <select className="rx-sel" value={sort} onChange={(e) => setSort(e.target.value)}>
+        <select className="rx-sel" value={sort} onChange={(e) => onPickSort(e.target.value)}>
           <option value="rank">Sort: Rank (tier)</option>
           <option value="recent">Sort: Most recent visit</option>
           <option value="d30">Sort: D30 visits</option>
@@ -278,7 +318,7 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
 
       <div className="list-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--mut)', fontSize: 12, margin: '6px 2px 10px' }}>
         <span>{filteredAll.length} CPs</span>
-        <span>Sort within tier · {SORT_LABEL[sort] || 'Rank (tier)'}</span>
+        <span>Sort within tier · {hdrField ? `Column (${hdrDir === 'asc' ? '▲' : '▼'})` : (SORT_LABEL[sort] || 'Rank (tier)')}</span>
       </div>
 
       {tierTabs}
@@ -296,10 +336,27 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
         <div className="cp-tbl-wrap" style={{ borderRadius: 10 }}>
           <table className="t" style={{ minWidth: hideOwner ? 1300 : 1420 }}>
             <thead><tr>
-              <th>Rank</th><th>Channel Partner</th><th>City · MM</th><th>CP Code</th><th>Activity</th>
-              <th style={{ textAlign: 'center' }}>D30</th><th style={{ textAlign: 'center' }}>D60</th>
-              <th style={{ textAlign: 'center' }}>D90</th><th style={{ textAlign: 'center' }}>All time</th>
-              <th>Onboarded by</th>{!hideOwner && <th>CP Owner</th>}<th>Last visit</th><th>Last FU taken</th><th>⚑</th>
+              {[
+                ['tier_rank', 'Rank', null],
+                ['name', 'Channel Partner', null],
+                ['city', 'City · MM', null],
+                ['cp_code', 'CP Code', null],
+                ['activity', 'Activity', null],
+                ['d30', 'D30', 'center'],
+                ['d60', 'D60', 'center'],
+                ['d90', 'D90', 'center'],
+                ['all_time', 'All time', 'center'],
+                ['added_by', 'Onboarded by', null],
+                ...(hideOwner ? [] : [['owner', 'CP Owner', null]]),
+                ['last_visit', 'Last visit', null],
+                ['last_fu', 'Last FU taken', null],
+              ].map(([k, label, align]) => (
+                <th key={k} className="sort" onClick={() => onSort(k)} style={align ? { textAlign: align } : undefined}>
+                  {label}
+                  {hdrField === k ? <span className="sI"> {hdrDir === 'asc' ? '▲' : '▼'}</span> : null}
+                </th>
+              ))}
+              <th>⚑</th>
             </tr></thead>
             <tbody>
               {pageRows.length ? pageRows.map(renderRow) : (

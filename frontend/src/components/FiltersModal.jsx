@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { TODAY, ymd } from '../lib/format.js';
 
 // Advanced Visits filters — faithful to crm.html's #modal-filters (society / locality /
@@ -33,7 +33,26 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
     ...brokers.flatMap((b) => (b.micro_markets || '').split(',').map((s) => s.trim())),
   ].filter(Boolean))].sort(), [properties, brokers]);
   const rms = useMemo(() => [...new Set(visits.map((v) => v.sales_manager).filter(Boolean))].sort(), [visits]);
-  const units = useMemo(() => [...new Set(visits.map((v) => (v.unit_address_line1 || '').trim()).filter(Boolean))].sort(), [visits]);
+
+  // unit options cascade off the chosen society: property unit = property_name
+  // before the first comma; visit unit = unit_address_line1. No society → all units.
+  const unitFor = (s) => (s || '').trim();
+  const eqSoc = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+  const units = useMemo(() => {
+    const soc = (f.society || '').trim();
+    const pick = (rows, getUnit, getSoc) => rows
+      .filter((r) => !soc || eqSoc(getSoc(r), soc))
+      .map((r) => unitFor(getUnit(r)));
+    return [...new Set([
+      ...pick(properties, (p) => (p.property_name || '').split(',')[0], (p) => p.society_name),
+      ...pick(visits, (v) => v.unit_address_line1, (v) => v.society_name),
+    ].filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [properties, visits, f.society]);
+
+  // if the society changes and the chosen unit no longer belongs to it, clear it
+  useEffect(() => {
+    if (f.society && f.unit && !units.includes(f.unit)) setF((p) => ({ ...p, unit: '' }));
+  }, [units, f.society, f.unit]);
 
   const togglePill = (key, v) => setF((p) => ({ ...p, [key]: p[key].includes(v) ? p[key].filter((x) => x !== v) : [...p[key], v] }));
   const setDate = (a, b) => setF((p) => ({ ...p, visitFrom: ymd(a), visitTo: ymd(b) }));
@@ -58,6 +77,43 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
   );
   const lbl = { fontSize: 10.5, color: 'var(--mut2)', textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 700, marginBottom: 6, display: 'block' };
 
+  // custom cascading single-select for Unit (options scoped to chosen society)
+  const UnitSelect = () => {
+    const [open, setOpen] = useState(false);
+    const [q, setQ] = useState('');
+    const ref = useRef(null);
+    useEffect(() => {
+      if (!open) return;
+      const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+      document.addEventListener('mousedown', h);
+      return () => document.removeEventListener('mousedown', h);
+    }, [open]);
+    const shown = q ? units.filter((u) => u.toLowerCase().includes(q.toLowerCase())) : units;
+    const pickUnit = (u) => { setF((p) => ({ ...p, unit: u })); setOpen(false); setQ(''); };
+    return (
+      <div className="flt-unit" ref={ref}>
+        <button type="button" className={'flt-unit-btn rx-inp' + (f.unit ? ' has' : '')} onClick={() => setOpen((o) => !o)}>
+          <span className="flt-unit-val">{f.unit || 'Any unit'}</span>
+          <span className="flt-unit-caret">▾</span>
+        </button>
+        {open && (
+          <div className="flt-unit-pop">
+            <input className="flt-unit-search" autoFocus placeholder="Search unit…" value={q} onChange={(e) => setQ(e.target.value)} />
+            {!f.society && <div className="flt-unit-hint">Pick a society first to narrow units</div>}
+            <div className="flt-unit-list">
+              <button type="button" className={'flt-unit-opt' + (!f.unit ? ' on' : '')} onClick={() => pickUnit('')}>Any unit</button>
+              {shown.slice(0, 400).map((u) => (
+                <button key={u} type="button" className={'flt-unit-opt' + (u === f.unit ? ' on' : '')} onClick={() => pickUnit(u)}>{u}</button>
+              ))}
+              {shown.length > 400 && <div className="flt-unit-more">+{shown.length - 400} more — refine search</div>}
+              {shown.length === 0 && <div className="flt-unit-more">No units{f.society ? ' for this society' : ''}</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="rx-modal-bg" style={{ zIndex: 230 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="rx-modal" style={{ width: 'min(880px, 95vw)' }} role="dialog" aria-modal="true">
@@ -70,9 +126,7 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
             </div>
             <div>
               <label style={lbl}>Unit no.</label>
-              <input className="rx-inp" style={{ width: '100%' }} list="flt-unit" placeholder="Type or pick unit — e.g. 203…"
-                     value={f.unit} onChange={(e) => setF((p) => ({ ...p, unit: e.target.value }))} />
-              <datalist id="flt-unit">{units.map((s) => <option key={s} value={s} />)}</datalist>
+              <UnitSelect />
             </div>
             <div>
               <label style={lbl}>Society</label>

@@ -71,22 +71,34 @@ function stageBucket(sg) {
   return null;
 }
 
+// ---- per-UNIT visit matching (fixes the society-wide-count bug) -------------
+// home_id is the authoritative join (the sheet sync sets it on both visits AND
+// properties); fall back to society + unit token-set only when a property has no
+// home_id mapped (~4%). Build the index once, then visitsForProperty is O(1).
+export function indexVisitsByProperty(visits = []) {
+  const byHome = {}; const bySoc = {};
+  visits.forEach((v) => {
+    const h = String(v.home_id || '').trim();
+    if (h) (byHome[h] = byHome[h] || []).push(v);
+    const s = normSoc(v.society_name);
+    if (s) (bySoc[s] = bySoc[s] || []).push(v);
+  });
+  return { byHome, bySoc };
+}
+export function visitsForProperty(p, idx) {
+  const h = String(p.home_id || '').trim();
+  if (h) return idx.byHome[h] || [];           // exact unit (or genuinely 0 — never society-wide)
+  const uk = unitKey(unitNoOf(p));
+  if (!uk) return [];
+  return (idx.bySoc[normSoc(p.society_name)] || []).filter((v) => visitUnitKey(v) === uk);
+}
+
 export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}) {
   const w = weekWindows();
-  // index visits by society + unit once (skip blank units so they don't collide on SOC#)
-  const vidx = {};
-  visits.forEach((v) => {
-    if (!v.society_name) return;
-    const uk = visitUnitKey(v);
-    if (!uk) return;
-    const k = `${normSoc(v.society_name)}#${uk}`;
-    (vidx[k] = vidx[k] || []).push(v);
-  });
+  const idx = indexVisitsByProperty(visits);
   return properties.map((p) => {
     const unit = unitNoOf(p);
-    const uk = unitKey(unit);
-    const key = uk ? `${normSoc(p.society_name)}#${uk}` : null;   // no parseable unit → no match
-    const vs = key ? (vidx[key] || []) : [];
+    const vs = visitsForProperty(p, idx);
     const c = {
       total: vs.length, lastWeek: 0, prevWeek: 0, hot: 0, warm: 0, cold: 0,
       revisit: 0, negotiation: 0, booking: 0, not_interested: 0, need_more: 0, future_prospect: 0,

@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { propertiesForUser } from '../lib/properties.js';
 import { visitStatus, visitStage } from '../lib/visits.js';
+import { parsePrice } from '../lib/legacy.js';
+import { indexVisitsByProperty, visitsForProperty } from '../lib/propertyStatus.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import PropertyModal from '../components/PropertyModal.jsx';
 
@@ -14,9 +16,11 @@ function fmtCommission(c) {
     .replace('Registry', 'Reg.');
 }
 
-// per-property derived visit counts (matched by society_name, like legacy)
-function propCounts(visits, p) {
-  const propVisits = visits.filter((v) => v.society_name === p.society_name);
+// per-UNIT derived visit counts — matched via the propertyStatus index (home_id
+// exact, society+unit fallback). Counting by society_name was the bug: every unit
+// of a society showed identical totals.
+function propCounts(p, idx) {
+  const propVisits = visitsForProperty(p, idx);
   return {
     propVisits,
     total: propVisits.length,
@@ -27,6 +31,22 @@ function propCounts(visits, p) {
   };
 }
 
+// sortable columns — text | price | num (matches VisitsView's onSort pattern)
+const PROP_COLS = [
+  { k: 'property_name', label: 'Property · Unit', type: 'text' },
+  { k: 'society_name', label: 'Society / MM', type: 'text' },
+  { k: 'city_name', label: 'City', type: 'text' },
+  { k: 'config', label: 'Config · Area', type: 'text' },
+  { k: 'listing_status', label: 'Status', type: 'text' },
+  { k: 'listing_price', label: 'Price', type: 'price' },
+  { k: 'total', label: 'Visits', type: 'num', center: true },
+  { k: 'hot', label: 'Hot', type: 'num', center: true },
+  { k: 'warm', label: 'Warm', type: 'num', center: true },
+  { k: 'upcoming', label: 'Upcoming', type: 'num', center: true },
+  { k: 'booking', label: 'Booking', type: 'num', center: true },
+  { k: 'sales_manager', label: 'PM', type: 'text' },
+];
+
 export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
   const me = seed.current_user || {};
   const visits = seed.visits || [];
@@ -34,12 +54,23 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
 
   const all = useMemo(() => propertiesForUser(seed.properties || [], me, seed.pm_by_property || {}), [seed]); // eslint-disable-line
 
+  // build the per-unit visit index once; reused by every row
+  const idx = useMemo(() => indexVisitsByProperty(visits), [visits]);
+
   const [city, setCity] = useState('all');         // state.cityFilter
   const [propFilter, setPropFilter] = useState('all'); // state.propFilter
   const [open, setOpen] = useState(null);          // state.openProperty (the property obj)
+  const [sortField, setSortField] = useState('total'); // default sort by Visits desc
+  const [sortDir, setSortDir] = useState('desc');
 
-  // filter pipeline — exact order from legacy renderPropertiesView
-  const rows = useMemo(() => {
+  function onSort(k) {
+    if (sortField === k) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortField(k); setSortDir('desc'); }
+  }
+
+  // filter pipeline — exact order from legacy renderPropertiesView, then attach
+  // per-unit counts so the table, cards and sort all read the same numbers.
+  const filtered = useMemo(() => {
     let list = all;
     if (city !== 'all') list = list.filter((p) => p.city_name === city);
     const s = (search || '').trim().toLowerCase();
@@ -51,8 +82,24 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
         (p.sales_manager || '').toLowerCase().includes(s));
     }
     if (propFilter !== 'all') list = list.filter((p) => p.listing_status === propFilter);
-    return list;
-  }, [all, city, search, propFilter]);
+    return list.map((p) => ({ p, ...propCounts(p, idx) }));
+  }, [all, city, search, propFilter, idx]);
+
+  const rows = useMemo(() => {
+    const col = PROP_COLS.find((c) => c.k === sortField);
+    if (!col) return filtered;
+    const sgn = sortDir === 'asc' ? 1 : -1;
+    const val = (r) => {
+      if (col.type === 'num') return r[sortField] || 0;
+      if (col.type === 'price') return parsePrice(r.p.listing_price);
+      if (sortField === 'config') return (r.p.configuration || '').toLowerCase();
+      return (r.p[sortField] || '').toString().toLowerCase();
+    };
+    return filtered.slice().sort((a, b) => {
+      const x = val(a); const y = val(b);
+      return (x > y ? 1 : x < y ? -1 : 0) * sgn;
+    });
+  }, [filtered, sortField, sortDir]);
 
   return (
     <div className="view rx-fade" id="view-properties">
@@ -84,30 +131,32 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
 
       <div className="prop-tbl-wrap">
         {isMobile ? (
-          <PropertiesMobile rows={rows} visits={visits} onOpen={setOpen} />
+          <PropertiesMobile rows={rows} onOpen={setOpen} />
         ) : (
           <table className="prop-t">
             <thead>
               <tr>
                 <th></th>
-                <th>Property · Unit</th>
-                <th>Society / MM</th>
-                <th>City</th>
-                <th>Config · Area</th>
-                <th>Status</th>
-                <th>Price</th>
-                <th style={{ textAlign: 'center' }}>Visits</th>
-                <th style={{ textAlign: 'center' }}>Hot</th>
-                <th style={{ textAlign: 'center' }}>Warm</th>
-                <th style={{ textAlign: 'center' }}>Upcoming</th>
-                <th style={{ textAlign: 'center' }}>Booking</th>
-                <th>PM</th>
+                {PROP_COLS.map((c) => {
+                  const isSorted = sortField === c.k;
+                  const arrow = isSorted ? (sortDir === 'asc' ? '↑' : '↓') : '';
+                  return (
+                    <th
+                      key={c.k}
+                      className="sort"
+                      style={{ cursor: 'pointer', userSelect: 'none', ...(c.center ? { textAlign: 'center' } : null) }}
+                      onClick={() => onSort(c.k)}
+                    >
+                      {c.label}
+                      {arrow ? <span className="sI" style={{ color: 'var(--mut2)', marginLeft: 2, fontSize: 9 }}> {arrow}</span> : null}
+                    </th>
+                  );
+                })}
                 <th>Commission</th>
               </tr>
             </thead>
             <tbody>
-              {rows.length ? rows.map((p, i) => {
-                const { total, hot, warm, upcoming, booking } = propCounts(visits, p);
+              {rows.length ? rows.map(({ p, total, hot, warm, upcoming, booking }, i) => {
                 const isReady = p.listing_status === 'Ready';
                 return (
                   <tr
@@ -164,14 +213,13 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
   );
 }
 
-function PropertiesMobile({ rows, visits, onOpen }) {
+function PropertiesMobile({ rows, onOpen }) {
   if (!rows.length) {
     return <div className="empty"><div className="emoji">🏠</div><div className="t">No properties</div></div>;
   }
   return (
     <div className="m-card-list">
-      {rows.map((p, i) => {
-        const { total, hot, warm, upcoming, booking } = propCounts(visits, p);
+      {rows.map(({ p, total, hot, warm, upcoming, booking }, i) => {
         const isReady = p.listing_status === 'Ready';
         return (
           <div key={p.property_name || i} className="m-card" data-prop={p.property_name} onClick={() => onOpen(p)}>
