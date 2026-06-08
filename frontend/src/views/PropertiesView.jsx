@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { propertiesForUser } from '../lib/properties.js';
 import { visitStatus, visitStage } from '../lib/visits.js';
 import { parsePrice } from '../lib/legacy.js';
@@ -7,6 +7,49 @@ import useIsMobile from '../lib/useIsMobile.js';
 import PropertyModal from '../components/PropertyModal.jsx';
 
 const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
+
+// reusable multi-select dropdown — same pattern/classes (an-ms) as Analytics & Snapshot
+function MultiSelect({ label, options, value = [], onChange }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  const opts = options.map((x) => (typeof x === 'string' ? { value: x, label: x } : x));
+  const shown = q ? opts.filter((o) => o.label.toLowerCase().includes(q.toLowerCase())) : opts;
+  const toggle = (val) => onChange(value.includes(val) ? value.filter((x) => x !== val) : [...value, val]);
+  return (
+    <div className="an-ms" ref={ref}>
+      <button type="button" className={'an-ms-btn' + (value.length ? ' has' : '')} onClick={() => setOpen((o) => !o)}>
+        {label}{value.length ? <span className="an-ms-count">{value.length}</span> : null}<span className="an-ms-caret">▾</span>
+      </button>
+      {open && (
+        <div className="an-ms-pop">
+          <input className="an-ms-search" autoFocus placeholder={`Search ${label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="an-ms-actions">
+            <button type="button" onClick={() => onChange(shown.map((o) => o.value))}>All</button>
+            <button type="button" onClick={() => onChange([])}>Clear</button>
+            <span className="an-ms-n">{value.length} selected</span>
+          </div>
+          <div className="an-ms-list">
+            {shown.slice(0, 400).map((o) => (
+              <label key={o.value} className="an-ms-opt">
+                <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
+                <span>{o.label}</span>
+              </label>
+            ))}
+            {shown.length > 400 && <div className="an-ms-more">+{shown.length - 400} more — refine search</div>}
+            {shown.length === 0 && <div className="an-ms-more">No matches</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // commission normalization — verbatim from legacy renderPropertiesView
 function fmtCommission(c) {
@@ -58,17 +101,43 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
   const idx = useMemo(() => indexVisitsByProperty(visits), [visits]);
 
   const [city, setCity] = useState('all');         // state.cityFilter
-  const [propFilter, setPropFilter] = useState('all'); // state.propFilter
   const [open, setOpen] = useState(null);          // state.openProperty (the property obj)
   const [sortField, setSortField] = useState('total'); // default sort by Visits desc
   const [sortDir, setSortDir] = useState('desc');
+
+  // ----- advanced filters (the new Filters panel) -----
+  const [showFilters, setShowFilters] = useState(false);
+  const [fStatus, setFStatus] = useState([]);      // listing_status multi (Ready / Coming Soon)
+  const [fConfigs, setFConfigs] = useState([]);    // configuration multi (BHK)
+  const [fRegions, setFRegions] = useState([]);    // micro_market multi
+  const [fSocieties, setFSocieties] = useState([]); // society_name multi
+  const [fPMs, setFPMs] = useState([]);            // sales_manager multi
+  const [priceMin, setPriceMin] = useState('');    // ₹ Cr text
+  const [priceMax, setPriceMax] = useState('');    // ₹ Cr text
+
+  // price bounds: inputs are in CRORES → ₹ (e.g. "1.5" → 15,000,000)
+  const minRs = useMemo(() => { const n = parseFloat(priceMin); return Number.isFinite(n) && n > 0 ? n * 1e7 : null; }, [priceMin]);
+  const maxRs = useMemo(() => { const n = parseFloat(priceMax); return Number.isFinite(n) && n > 0 ? n * 1e7 : null; }, [priceMax]);
+
+  // distinct option lists, derived from the user-scoped property set (alpha sorted)
+  const distinct = (getv) => [...new Set(all.map((p) => (getv(p) || '').toString().trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  const statusOpts = useMemo(() => distinct((p) => p.listing_status), [all]);   // eslint-disable-line
+  const configOpts = useMemo(() => distinct((p) => p.configuration), [all]);    // eslint-disable-line
+  const regionOpts = useMemo(() => distinct((p) => p.micro_market), [all]);     // eslint-disable-line
+  const societyOpts = useMemo(() => distinct((p) => p.society_name), [all]);    // eslint-disable-line
+  const pmOpts = useMemo(() => distinct((p) => p.sales_manager), [all]);        // eslint-disable-line
+
+  const activeCount = fStatus.length + fConfigs.length + fRegions.length + fSocieties.length + fPMs.length
+    + (minRs != null ? 1 : 0) + (maxRs != null ? 1 : 0);
+  const clearFilters = () => { setFStatus([]); setFConfigs([]); setFRegions([]); setFSocieties([]); setFPMs([]); setPriceMin(''); setPriceMax(''); };
 
   function onSort(k) {
     if (sortField === k) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortField(k); setSortDir('desc'); }
   }
 
-  // filter pipeline — exact order from legacy renderPropertiesView, then attach
+  // filter pipeline — city + search (legacy) then the advanced filters, then attach
   // per-unit counts so the table, cards and sort all read the same numbers.
   const filtered = useMemo(() => {
     let list = all;
@@ -81,9 +150,21 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
         (p.micro_market || '').toLowerCase().includes(s) ||
         (p.sales_manager || '').toLowerCase().includes(s));
     }
-    if (propFilter !== 'all') list = list.filter((p) => p.listing_status === propFilter);
+    if (fStatus.length) list = list.filter((p) => fStatus.includes((p.listing_status || '').trim()));
+    if (fConfigs.length) list = list.filter((p) => fConfigs.includes((p.configuration || '').trim()));
+    if (fRegions.length) list = list.filter((p) => fRegions.includes((p.micro_market || '').trim()));
+    if (fSocieties.length) list = list.filter((p) => fSocieties.includes((p.society_name || '').trim()));
+    if (fPMs.length) list = list.filter((p) => fPMs.includes((p.sales_manager || '').trim()));
+    if (minRs != null || maxRs != null) {
+      list = list.filter((p) => {
+        const v = parsePrice(p.listing_price);
+        if (minRs != null && v < minRs) return false;
+        if (maxRs != null && v > maxRs) return false;
+        return true;
+      });
+    }
     return list.map((p) => ({ p, ...propCounts(p, idx) }));
-  }, [all, city, search, propFilter, idx]);
+  }, [all, city, search, fStatus, fConfigs, fRegions, fSocieties, fPMs, minRs, maxRs, idx]);
 
   const rows = useMemo(() => {
     const col = PROP_COLS.find((c) => c.k === sortField);
@@ -111,23 +192,49 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
         ))}
       </div>
 
-      {/* list-head: count label (left) + propFilter select (right) */}
+      {/* list-head: count label (left) + Filters toggle (right) */}
       <div className="list-head">
-        <span id="propCountLabel">{rows.length} properties</span>
+        <span id="propCountLabel">{rows.length} properties{activeCount ? ` · ${activeCount} filter${activeCount > 1 ? 's' : ''}` : ''}</span>
         <div className="pager">
-          <span style={{ color: 'var(--mut)' }}>Filter:</span>
-          <select
-            id="propFilter"
-            style={{ padding: '5px 8px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, background: 'var(--panel)' }}
-            value={propFilter}
-            onChange={(e) => setPropFilter(e.target.value)}
+          <button
+            type="button"
+            className={'an-ms-btn' + (activeCount ? ' has' : '')}
+            onClick={() => setShowFilters((o) => !o)}
+            title="Filter properties by status, config, region, society, PM, price"
           >
-            <option value="all">All</option>
-            <option value="Ready">Ready</option>
-            <option value="Coming Soon">Coming Soon</option>
-          </select>
+            ⚙ Filters{activeCount ? <span className="an-ms-count">{activeCount}</span> : null}<span className="an-ms-caret">{showFilters ? '▴' : '▾'}</span>
+          </button>
         </div>
       </div>
+
+      {showFilters && (
+        <div className="snap-filters">
+          <div className="snap-filters-row">
+            <span className="snap-filters-lbl">Filter properties</span>
+            <MultiSelect label="Status" options={statusOpts} value={fStatus} onChange={setFStatus} />
+            <MultiSelect label="Config / BHK" options={configOpts} value={fConfigs} onChange={setFConfigs} />
+            <MultiSelect label="Region / MM" options={regionOpts} value={fRegions} onChange={setFRegions} />
+            <MultiSelect label="Society" options={societyOpts} value={fSocieties} onChange={setFSocieties} />
+            <MultiSelect label="PM" options={pmOpts} value={fPMs} onChange={setFPMs} />
+            <div className="snap-price">
+              <span className="snap-price-lbl">Price (₹ Cr)</span>
+              <input type="number" inputMode="decimal" min="0" step="0.25" placeholder="1.5"
+                     className="snap-price-in" value={priceMin} onChange={(e) => setPriceMin(e.target.value)} />
+              <span className="snap-price-dash">–</span>
+              <input type="number" inputMode="decimal" min="0" step="0.25" placeholder="2"
+                     className="snap-price-in" value={priceMax} onChange={(e) => setPriceMax(e.target.value)} />
+            </div>
+            {activeCount ? (
+              <button type="button" className="an-chip clear" onClick={clearFilters}>Clear filters ✕</button>
+            ) : null}
+          </div>
+          <div className="snap-filters-row">
+            <span className={'snap-match' + (rows.length ? '' : ' zero')}>
+              <strong>{rows.length}</strong> {rows.length === 1 ? 'property' : 'properties'} match
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="prop-tbl-wrap">
         {isMobile ? (
