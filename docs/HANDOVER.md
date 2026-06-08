@@ -193,6 +193,7 @@ all                    (pseudo-stage for "All Leads" tab in broker popup)
 
 ---
 
+
 ## 7. Every feature — what it is, where it lives
 
 ### Visit view (`#view-visits`)
