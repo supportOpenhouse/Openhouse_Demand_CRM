@@ -291,6 +291,19 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   **Deploy state:** migrations **005 + 007** and the one-time dead/FU cleanups are **applied to the prod DB**;
   the backend code (`sheet_sync.py`, `main.py`, `seed_snapshot.py`) and **all** frontend changes still need a
   deploy (Render push + owner-token `vercel deploy`). Until then, prod runs old code over the new DB.
+- **2026-06-09 (Claude session, cont. — frontend only, NOT yet deployed):**
+  **(F) Date format standardised to dd/mm/yyyy across the app.** Root cause of "Windows shows mm/dd, Mac
+  shows dd/mm": every formatter used `toLocaleDateString('en-IN', …)`, and the day-vs-month *order* is
+  locale-decided — Windows without full `en-IN` data fell back to US (month-first). `lib/format.js`
+  `fmtDate`/`fmtDateTime` are now **built manually** (no `toLocale*`) → identical dd/mm/yyyy on every OS;
+  added `fmtMonth`/`MONTHS`. Replaced all locale date calls in `SnapshotView` + `BrokerModal`. (Remaining
+  `toLocaleString('en-IN')` are number/₹ grouping only — not the date bug.) **Caveat:** native
+  `<input type="date">` / `datetime-local` pickers (Filters date range, Next-FU, revisit/negotiation) render
+  in the **OS locale** and can't be overridden by the app — that's a browser limitation, not our code.
+  **(G) Home: live "Gold + Silver visits this month" counter** — a hero banner with an easeOutCubic count-up
+  (`CountUp`), a pulsing ● LIVE badge and a moving shimmer (`.home-hero` in `app.css`). Counts current-month
+  visits whose CP is tier T1/T2, with a Gold/Silver split; scoped per viewer (Admin = org-wide; e.g. June
+  2026 = 236 → Gold 152 + Silver 84). **Deploy: frontend only (`vercel deploy`).**
 
 ---
 

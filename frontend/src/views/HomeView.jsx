@@ -1,8 +1,25 @@
-import { useMemo } from 'react';
-import { fmtDateTime, fmtDay, initials, daysBetween } from '../lib/format.js';
+import { useEffect, useMemo, useState } from 'react';
+import { TODAY, ymd, fmtDateTime, fmtDay, fmtMonth, initials, daysBetween } from '../lib/format.js';
 import { activityForVisit, scopeVisits } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import { TEAM_PILL } from '../lib/legacy.js';
+
+// count-up animation (easeOutCubic) — the "live" number ticks up on mount
+function CountUp({ value, duration = 1400 }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let raf, start;
+    const tick = (t) => {
+      if (start == null) start = t;
+      const p = Math.min(1, (t - start) / duration);
+      setN(Math.round(value * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return <>{n.toLocaleString('en-IN')}</>;
+}
 
 // Activity types shown on the Home board, kept visually distinct (not one list).
 const TYPES = [
@@ -58,10 +75,30 @@ export default function HomeView({ seed, onOpenBroker }) {
   const ubs = useMemo(() => usersBySlug(seed), [seed]);
   const isAdminTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
 
+  const brokersByCode = useMemo(() => {
+    const m = {};
+    (seed.brokers || []).forEach((b) => { m[b.cp_code] = b; });
+    return m;
+  }, [seed]);
+
   const scoped = useMemo(
     () => scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}),
     [seed], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // this month's visits brought by Gold (T1) + Silver (T2) channel partners
+  const monthKey = ymd(TODAY).slice(0, 7);             // 'YYYY-MM'
+  const gs = useMemo(() => {
+    let gold = 0, silver = 0;
+    scoped.forEach((v) => {
+      const d = v.visit_date || v.selected_date;
+      if (!d || String(d).slice(0, 7) !== monthKey) return;
+      const tier = brokersByCode[v.cp_code]?.tier;
+      if (tier === 'T1') gold += 1;
+      else if (tier === 'T2') silver += 1;
+    });
+    return { gold, silver, total: gold + silver };
+  }, [scoped, brokersByCode, monthKey]);
 
   // every scoped visit with a Today/Tomorrow activity → a flat item list
   const items = useMemo(() => {
@@ -100,6 +137,17 @@ export default function HomeView({ seed, onOpenBroker }) {
     <div className="view rx-fade" id="view-home">
       <div className="list-head">
         <span>🏠 {isAdminTL ? 'Team activities' : 'Your activities'} · Today & Tomorrow</span>
+      </div>
+
+      {/* live monthly Gold + Silver visit counter */}
+      <div className="home-hero">
+        <div className="hh-badge"><span className="hh-dot" /> LIVE</div>
+        <div className="hh-label">{fmtMonth(TODAY)} {TODAY.getFullYear()} · visits from Gold + Silver CPs</div>
+        <div className="hh-num"><CountUp value={gs.total} /></div>
+        <div className="hh-break">
+          <span className="hh-pill gold">🥇 Gold <b>{gs.gold.toLocaleString('en-IN')}</b></span>
+          <span className="hh-pill silver">🥈 Silver <b>{gs.silver.toLocaleString('en-IN')}</b></span>
+        </div>
       </div>
 
       {/* summary tiles */}

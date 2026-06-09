@@ -15,19 +15,33 @@ export function daysBetween(d) {
   return Math.round((startOfDay(TODAY) - startOfDay(x)) / 86400000); // +ve = in the past
 }
 
+// All date formatting below is built MANUALLY (no toLocale*) so it's identical on
+// every OS/browser. Locale formatters let the OS pick day-vs-month order, which made
+// Windows show mm/dd and Mac dd/mm — we force day-first dd/mm/yyyy everywhere.
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad2 = (n) => String(n).padStart(2, '0');
+export function fmtMonth(d) {
+  const x = d instanceof Date ? d : new Date(d);
+  return isNaN(x) ? '' : MONTHS[x.getMonth()];
+}
+
+// dd/mm/yyyy — deterministic, day-first.
 export function fmtDate(d) {
   if (!d) return '—';
   const x = d instanceof Date ? d : new Date(d);
   if (isNaN(x)) return d;
-  return x.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return `${pad2(x.getDate())}/${pad2(x.getMonth() + 1)}/${x.getFullYear()}`;
 }
 
-// date + time, e.g. "14 Jun, 3:00 PM" — for scheduled revisit / negotiation meetings
+// dd/mm/yyyy, h:mm AM/PM — for scheduled revisit / negotiation meetings.
 export function fmtDateTime(d) {
   if (!d) return '—';
   const x = d instanceof Date ? d : new Date(d);
   if (isNaN(x)) return d;
-  return x.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+  let h = x.getHours();
+  const ap = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${fmtDate(x)}, ${h}:${pad2(x.getMinutes())} ${ap}`;
 }
 
 export function fmtDay(d) {

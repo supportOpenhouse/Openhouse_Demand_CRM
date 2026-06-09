@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect, useCallback, forwardRef } from 'react';
-import { TODAY, ymd } from '../lib/format.js';
+import { TODAY, ymd, fmtDate } from '../lib/format.js';
 import { parsePrice, fmtPrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
 
@@ -35,7 +35,6 @@ function groupPropertiesByCity(properties) {
   return result;
 }
 
-const enIN = (opts) => TODAY.toLocaleDateString('en-IN', opts);
 
 // ---- reusable multi-select dropdown (dependency-free) — same pattern/classes as AnalyticsView ----
 function MultiSelect({ label, options, value = [], onChange, width }) {
@@ -170,7 +169,7 @@ export default function SnapshotView({ seed }) {
   /* ----------------------------- text share ----------------------------- */
   // build a WhatsApp-ready text block from any property list + a headline label.
   const buildShareText = useCallback((props, headline, sub) => {
-    let body = `🏠 *${headline}*\n${sub ? sub + '\n' : ''}Updated ${enIN({ day: 'numeric', month: 'short', year: 'numeric' })}\n\n`;
+    let body = `🏠 *${headline}*\n${sub ? sub + '\n' : ''}Updated ${fmtDate(TODAY)}\n\n`;
     const cities = CITY_ORDER.filter((c) => props.some((p) => p.city_name === c));
     // include any non-standard cities at the end, alpha
     [...new Set(props.map((p) => p.city_name))].sort().forEach((c) => { if (!cities.includes(c)) cities.push(c); });
@@ -488,7 +487,7 @@ function ImageModal({ img, onClose, children }) {
     const a = document.createElement('a');
     a.href = img.dataUrl; a.download = filename; a.click();
     setTimeout(() => {
-      const txt = `${img.title} · ${TODAY.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\n\nAttached image has the latest unit list. Ping me for any visit / pricing detail.`;
+      const txt = `${img.title} · ${fmtDate(TODAY)}\n\nAttached image has the latest unit list. Ping me for any visit / pricing detail.`;
       window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
       toast('Image downloaded — attach it in WhatsApp', 'good');
     }, 400);
@@ -553,7 +552,7 @@ const Poster = forwardRef(function Poster({ props = [], title }, ref) {
             <div className="phs">{title || cities.join(' · ')}</div>
           </div>
           <div className="phd">
-            {TODAY.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            {fmtDate(TODAY)}
             <br />{props.length} units · {ready} ready
           </div>
         </div>
@@ -619,7 +618,7 @@ const Poster = forwardRef(function Poster({ props = [], title }, ref) {
         })}
 
         <div className="pfoot">
-          Reach out to your OpenHouse RM for site visits, virtual tour or pricing · Updated {TODAY.toLocaleDateString('en-IN')}
+          Reach out to your OpenHouse RM for site visits, virtual tour or pricing · Updated {fmtDate(TODAY)}
         </div>
       </div>
     );

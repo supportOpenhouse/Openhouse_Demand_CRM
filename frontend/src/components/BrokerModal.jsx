@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { TODAY, ymd, fmtDate, fmtDay, initials } from '../lib/format.js';
+import { TODAY, ymd, fmtDate, fmtDay, fmtMonth, initials } from '../lib/format.js';
 import {
   STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus,
 } from '../lib/visits.js';
@@ -811,7 +811,7 @@ function EngagementTab({ broker, engagements, ubs, draft, setDraft, onSave, busy
 function SidePanel({ broker: b, visits, properties, ownerId, ubs, users, isAdmin, busy, onChangeOwner, onChangeTier, onClose }) {
   const monthlyVisits = Array(6).fill(0);
   const monthLabels = [];
-  for (let i = 5; i >= 0; i--) { const d = new Date(TODAY); d.setMonth(d.getMonth() - i); monthLabels.push(d.toLocaleDateString('en-IN', { month: 'short' })); }
+  for (let i = 5; i >= 0; i--) { const d = new Date(TODAY); d.setMonth(d.getMonth() - i); monthLabels.push(fmtMonth(d)); }
   visits.forEach((v) => {
     if (!v.visit_date) return;
     const dv = new Date(v.visit_date);
