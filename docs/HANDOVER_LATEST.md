@@ -261,6 +261,36 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   follow-up date, history enriched (**migration 006** — expand/idempotent, applied to prod). Validated
   L1/L2/L3 across Admin/TL/KAM/Ground + render smoke + a live engagement save round-trip; deployed (backend
   push→Render; frontend owner-token `vercel deploy`).
+- **2026-06-09 (Claude session — DB changes APPLIED to prod; backend + frontend code NOT yet deployed):**
+  Five-part batch.
+  **(A) Old-lead / dead hardening (DB applied):** `sheet_sync.sync_inactive_leads()` now runs **last** in
+  `run_all()` and re-derives old/dead from `all_properties` *after* the visit upsert, so the 15-min sheet
+  sync can no longer revert an unworked dead lead's `lead_status` (root cause of the "VST8807 shows Not
+  Updated" report). It also clears `next_followup_date`/`revisit_date` on dead leads. `nextFuFor` returns
+  null for dead leads (Next-FU column → "No FU", excluded from the overdue filter). Selecting **Dead** in
+  either follow-up form disables the Next-FU date; `/api/followups` also forces FU / revisit / negotiation
+  dates to null when `buyer_status='dead'`, server-side. One-time DB cleanup zeroed 64 dead-with-FU rows;
+  all 5,685 old leads verified dead + FU-free.
+  **(B) Follow-up filter repurposed (Visits + Channel Partners):** was "last FU taken" → now **next-FU /
+  pending work** — `All / 🚨 Overdue / Due Today / Due Tomorrow / Due This Week / ⚠️ No next-FU set`
+  (`FU_PRESETS` + `matchFuFilter` in `lib/visits.js`, replacing `LAST_FU_PRESETS`/`matchLastFuFilter`).
+  Operates on `next_followup_date`; **excludes Upcoming/Cancelled (not-completed) and Dead** visits. CpView
+  matches a CP if any of its visits matches (`cpMatchesFu`).
+  **(C) "Next Activity" column** at the end of the Visits table (sortable, desktop + mobile): shows the
+  scheduled **revisit (↻)** or **negotiation meeting (🤝)** date+time with a hover tooltip
+  (`nextActivityFor` + `fmtDateTime`); replaces the old "Revisit" column.
+  **(D) Negotiation meeting + new stage (migration 007 — APPLIED to prod):** picking **Negotiation** in a
+  follow-up now asks for a meeting date (mirrors Revisit Scheduled); new stage **After Negotiation FU**,
+  auto-applied once the date passes (`visitStage`). New `negotiation_date` column on `followups` + `visits`,
+  projection trigger updated, `/api/followups` validates + stores it, seed exposes `_negotiation_date`.
+  **(E) New "Home" tab — now the DEFAULT landing view** (`HomeView.jsx`, `App.jsx` NAV): a Today / Tomorrow
+  board split into **Revisits / Negotiation Meetings / Follow-ups Due** (distinct groups, not one list).
+  **Admin/TL see everyone grouped by person; KAM/Ground see their own** (scoped via `scopeVisits`).
+  **Migration-number note:** the negotiation migration was renumbered **006 → `007_negotiation_date.sql`** to
+  avoid colliding with Saransh's `006_engagement_disposition_followup.sql` (both had been "006").
+  **Deploy state:** migrations **005 + 007** and the one-time dead/FU cleanups are **applied to the prod DB**;
+  the backend code (`sheet_sync.py`, `main.py`, `seed_snapshot.py`) and **all** frontend changes still need a
+  deploy (Render push + owner-token `vercel deploy`). Until then, prod runs old code over the new DB.
 
 ---
 

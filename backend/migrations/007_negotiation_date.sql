@@ -1,5 +1,5 @@
 -- ============================================================================
--- 006 · Negotiation meeting date + "After Negotiation FU" stage
+-- 007 · Negotiation meeting date + "After Negotiation FU" stage
 -- ============================================================================
 -- Mirrors the Revisit Scheduled flow: when a follow-up is logged with stage
 -- 'negotiation', the user schedules a negotiation-meeting date & time. We store
