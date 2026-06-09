@@ -13,18 +13,16 @@ export const STATUSES = [
   { k: 'unc',  label: 'Not Updated', cls: 'st-unc' },
 ];
 
-// "Last followup taken" presets — the daily-triage filter from the legacy app.
-export const LAST_FU_PRESETS = [
-  { k: 'all',       label: 'All' },
-  { k: 'overdue',   label: '🚨 Overdue' },
-  { k: 'not_taken', label: '⚠️ Not taken yet', cls: 'pr-tl' },
-  { k: 'today',     label: 'Today' },
-  { k: 'yesterday', label: 'Yesterday' },
-  { k: 'last3',     label: 'Last 3 days' },
-  { k: 'last7',     label: 'Last 7 days' },
-  { k: '2w',        label: '2 weeks ago' },
-  { k: '3w',        label: '3 weeks ago' },
-  { k: 'older',     label: 'Older' },
+// Follow-up filter presets — now driven by the NEXT follow-up (pending work),
+// not the last one taken. "Due Today" = your follow-ups due today, etc. These
+// only apply to COMPLETED visits (Upcoming/Cancelled have no pending FU).
+export const FU_PRESETS = [
+  { k: 'all',      label: 'All' },
+  { k: 'overdue',  label: '🚨 Overdue' },
+  { k: 'today',    label: 'Due Today' },
+  { k: 'tomorrow', label: 'Due Tomorrow' },
+  { k: 'week',     label: 'Due This Week' },
+  { k: 'no_fu',    label: '⚠️ No next-FU set', cls: 'pr-tl' },
 ];
 
 // next scheduled FU (in-session save) → else the latest taken date
@@ -39,24 +37,29 @@ export function nextFuFor(v) {
 export function lastFollowupTaken(v) {
   return v.latest_followup_date || null;
 }
-export function matchLastFuFilter(lfDate, key, v) {
+
+// A visit is "completed" (has happened) → a follow-up can be pending on it.
+// Upcoming/Cancelled visits aren't completed, so they never count as pending work.
+export function isVisitCompleted(v) {
+  return !['upcoming', 'cancelled'].includes(visitStage(v));
+}
+
+// Pending-work follow-up filter, per visit. Operates on the NEXT follow-up date.
+export function matchFuFilter(v, key) {
   if (key === 'all') return true;
-  if (key === 'overdue') {              // next FU is in the past, regardless of last taken
-    const next = v ? nextFuFor(v) : null;
-    return !!next && daysBetween(next) > 0;
-  }
-  if (key === 'not_taken') return !lfDate;
-  if (!lfDate) return false;
-  const d = daysBetween(lfDate);
+  // dead leads & not-yet-completed visits carry no pending follow-up
+  if (visitStatus(v) === 'dead') return false;
+  if (!isVisitCompleted(v)) return false;
+  const next = nextFuFor(v);
+  if (key === 'no_fu') return !next;          // completed, nothing scheduled → needs action
+  if (!next) return false;
+  const d = daysBetween(next);                // +ve = past, 0 = today, -ve = future
   if (d == null) return false;
-  if (key === 'today') return d === 0;
-  if (key === 'yesterday') return d === 1;
-  if (key === 'last3') return d >= 0 && d <= 3;
-  if (key === 'last7') return d >= 0 && d <= 7;
-  if (key === '2w') return d >= 8 && d <= 14;
-  if (key === '3w') return d >= 15 && d <= 21;
-  if (key === 'older') return d > 21;
-  return true;
+  if (key === 'overdue')  return d > 0;
+  if (key === 'today')    return d === 0;
+  if (key === 'tomorrow') return d === -1;
+  if (key === 'week')     return d <= 0 && d >= -7;   // today → next 7 days
+  return false;
 }
 
 // Priority flags (TL ask & nudges), ported from the legacy app.
@@ -75,6 +78,7 @@ export const STAGES = [
   { k: 'revisit_scheduled', label: 'Revisit Scheduled', cls: 'sg-rev' },
   { k: 'after_revisit_fu',  label: 'After Revisit FU', cls: 'sg-avfu' },
   { k: 'negotiation',       label: 'Negotiation',      cls: 'sg-nego' },
+  { k: 'after_negotiation_fu', label: 'After Negotiation FU', cls: 'sg-avfu' },
   { k: 'booking',           label: 'Booking',          cls: 'sg-book' },
   { k: 'ats',               label: 'ATS',              cls: 'sg-ats' },
   { k: 'future_prospect',   label: 'Future Prospect',  cls: 'sg-fp' },
@@ -91,6 +95,8 @@ export function visitStage(v) {
       if (v._revisit_date && v._revisit_date < ymd(TODAY)) return 'after_revisit_fu';
       return 'revisit_scheduled';
     }
+    // once the negotiation-meeting date passes, the visit auto-moves to After Negotiation FU
+    if (v._stage === 'negotiation' && v._negotiation_date && v._negotiation_date < ymd(TODAY)) return 'after_negotiation_fu';
     return v._stage;
   }
   const s = (v.status || '').toLowerCase();
@@ -107,9 +113,36 @@ export function visitStage(v) {
   return 'avfu';
 }
 
+// Next scheduled in-person activity (revisit or negotiation meeting) — drives the
+// Visits "Next Activity" column and the Home view. Returns {date, kind, label} | null.
+export function nextActivityFor(v) {
+  const sg = visitStage(v);
+  if (v._revisit_date && (sg === 'revisit_scheduled' || sg === 'after_revisit_fu'))
+    return { date: v._revisit_date, kind: 'revisit', label: 'Revisit date & time' };
+  if (v._negotiation_date && (sg === 'negotiation' || sg === 'after_negotiation_fu'))
+    return { date: v._negotiation_date, kind: 'negotiation', label: 'Negotiation meeting date & time' };
+  // fall back to whichever scheduled date exists, so the column isn't blank after a stage shift
+  if (v._revisit_date) return { date: v._revisit_date, kind: 'revisit', label: 'Revisit date & time' };
+  if (v._negotiation_date) return { date: v._negotiation_date, kind: 'negotiation', label: 'Negotiation meeting date & time' };
+  return null;
+}
+
 export function visitStatus(v) {
   const ls = (v.lead_status || '').toLowerCase();
   return ['hot', 'warm', 'cold', 'dead', 'future_prospect'].includes(ls) ? ls : 'unc';
+}
+
+// The single actionable task for a visit, used by the Home view: a scheduled
+// revisit, a negotiation meeting, or a due follow-up — whichever applies.
+// Returns { type:'revisit'|'negotiation'|'followup', date } | null.
+export function activityForVisit(v) {
+  const sg = visitStage(v);
+  if (sg === 'revisit_scheduled' && v._revisit_date) return { type: 'revisit', date: v._revisit_date };
+  if (sg === 'negotiation' && v._negotiation_date) return { type: 'negotiation', date: v._negotiation_date };
+  if (visitStatus(v) === 'dead') return null;
+  const next = nextFuFor(v);
+  if (next && isVisitCompleted(v)) return { type: 'followup', date: next };
+  return null;
 }
 
 // ---- #6 Old Leads: visits whose unit is no longer live inventory (Sold /

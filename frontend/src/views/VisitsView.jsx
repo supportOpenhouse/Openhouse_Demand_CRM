@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useDeferredValue } from 'react';
-import { fmtDate, fmtDay, daysBetween } from '../lib/format.js';
+import { fmtDate, fmtDay, fmtDateTime, daysBetween } from '../lib/format.js';
 import {
-  STAGES, STAGE_BY_KEY, STATUSES, LAST_FU_PRESETS,
-  visitStage, visitStatus, nextFuFor, matchLastFuFilter, scopeVisits, isOldLead, visitUnitText,
+  STAGES, STAGE_BY_KEY, STATUSES, FU_PRESETS,
+  visitStage, visitStatus, nextFuFor, nextActivityFor, matchFuFilter, scopeVisits, isOldLead, visitUnitText,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -51,9 +51,9 @@ const VISIT_COLS = [
   { k: 'stage', label: 'Stage', sort: false },
   { k: 'nextFu', label: 'Next FU', sort: true },
   { k: 'lastFu', label: 'Last FU', sort: true },
-  { k: 'revisit', label: 'Revisit', sort: true },
   { k: 'priority', label: '⚑', sort: false },
   { k: 'price', label: 'Price', sort: false },
+  { k: 'nextActivity', label: 'Next Activity', sort: true },
 ];
 
 export default function VisitsView({ seed, onOpenBroker, search = '', filters = {} }) {
@@ -150,17 +150,17 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
 
   const lastFuCounts = useMemo(() => {
     const c = {};
-    LAST_FU_PRESETS.forEach((p) => {
-      c[p.k] = lastFuBase.filter((v) => matchLastFuFilter(lastFollowupTakenForVisit(v, fuByVisit), p.k, v)).length;
+    FU_PRESETS.forEach((p) => {
+      c[p.k] = lastFuBase.filter((v) => matchFuFilter(v, p.k)).length;
     });
     return c;
   }, [lastFuBase]);
 
-  // priority base = last-FU base + lastFu filter (multi-select; match ANY chosen bucket)
+  // priority base = last-FU base + FU-due filter (multi-select; match ANY chosen bucket)
   const priorityBase = useMemo(() => lastFuBase.filter((v) => {
-    if (lastFus.length && !lastFus.some((kk) => matchLastFuFilter(lastFollowupTakenForVisit(v, fuByVisit), kk, v))) return false;
+    if (lastFus.length && !lastFus.some((kk) => matchFuFilter(v, kk))) return false;
     return true;
-  }), [lastFuBase, lastFus, fuByVisit]);
+  }), [lastFuBase, lastFus]);
 
   const priorityCounts = useMemo(() => ({
     all: priorityBase.length,
@@ -187,7 +187,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     }
     if (statuses.length && !statuses.includes(visitStatus(v))) return false;
     if (stages.length && !stages.some((s) => stagePass(visitStage(v), s))) return false;
-    if (lastFus.length && !lastFus.some((kk) => matchLastFuFilter(lastFollowupTakenForVisit(v, fuByVisit), kk, v))) return false;
+    if (lastFus.length && !lastFus.some((kk) => matchFuFilter(v, kk))) return false;
     if (priorities.length && !((priorities.includes('nudged') && isVisitNudged(v, nudgesByVisit)) || (priorities.includes('tl_ask') && isVisitTlAsk(v, teamTasks)))) return false;
     // --- advanced filters (topbar Filters modal) ---
     const F = filters || {};
@@ -244,7 +244,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
         case 'source': return v.source || '';
         case 'nextFu': return nextFuFor(v) || '9999-12-31';
         case 'lastFu': return lastFollowupTakenForVisit(v, fuByVisit) || '0000-00-00';
-        case 'revisit': return v._revisit_date || '0000-00-00';
+        case 'nextActivity': return nextActivityFor(v)?.date || '0000-00-00';
         default: return '';
       }
     };
@@ -355,8 +355,8 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
         onChange={setStages}
       />
       <ChipBar multi
-        label={'Last followup taken · default "Not taken" focuses on remaining work'}
-        options={LAST_FU_PRESETS}
+        label={'Follow-up due · your pending work (next follow-up, completed visits only)'}
+        options={FU_PRESETS}
         counts={lastFuCounts}
         value={lastFus}
         onChange={setLastFus}
@@ -460,6 +460,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                 const owner = ownerFor(v);
                 const nfc = nextFuClass(nextFuFor(v));
                 const lfd = lastFollowupTakenForVisit(v, fuByVisit);
+                const na = nextActivityFor(v);
                 const nudged = isVisitNudged(v, nudgesByVisit);
                 const tlAsk = isVisitTlAsk(v, teamTasks);
                 const checked = selected.has(v.id);
@@ -518,15 +519,18 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                       ) : 'Not taken'}
                     </td>
                     <td>
-                      {v._revisit_date
-                        ? <span className="fu-chip later" title="Revisit scheduled"><span className="d" />↻ {fmtDate(v._revisit_date)}</span>
-                        : <span className="muted" style={{ fontSize: '11px' }}>—</span>}
-                    </td>
-                    <td>
                       {nudged ? <span className="prio-tag nudge">🔔 Nudge</span> : null}
                       {tlAsk ? <span className="prio-tag tl">{nudged ? ' ' : ''}📌 TL</span> : null}
                     </td>
                     <td style={{ fontWeight: 600, color: 'var(--accDark)' }}>{price ? fmtPrice(price) : '—'}</td>
+                    <td>
+                      {na
+                        ? <span className={'fu-chip ' + (na.kind === 'negotiation' ? 'nego' : 'later')}
+                                title={`${na.label}: ${fmtDateTime(na.date)}`}>
+                            <span className="d" />{na.kind === 'negotiation' ? '🤝' : '↻'} {fmtDateTime(na.date)}
+                          </span>
+                        : <span className="muted" style={{ fontSize: '11px' }}>—</span>}
+                    </td>
                   </tr>
                 );
               })}
@@ -595,7 +599,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                     {lfd
                       ? <span className="fu-chip later"><span className="d" />Last FU: {fmtDay(lfd)}</span>
                       : <span className="fu-chip overdue"><span className="d" />FU not taken</span>}
-                    {v._revisit_date ? <span className="fu-chip later"><span className="d" />↻ Revisit: {fmtDate(v._revisit_date)}</span> : null}
+                    {(() => { const na = nextActivityFor(v); return na ? <span className={'fu-chip ' + (na.kind === 'negotiation' ? 'nego' : 'later')}><span className="d" />{na.kind === 'negotiation' ? '🤝 Negotiation' : '↻ Revisit'}: {fmtDateTime(na.date)}</span> : null; })()}
                     {nudged ? <span className="prio-tag nudge">🔔 Nudge</span> : null}
                     {tlAsk ? <span className="prio-tag tl">📌 TL Ask</span> : null}
                   </div>

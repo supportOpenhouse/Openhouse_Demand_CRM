@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { fmtDate, fmtDay } from '../lib/format.js';
 import { usersBySlug, ownedCpCodes, buildCpIndex, TIERS, TIER_META, sortInTier } from '../lib/brokers.js';
-import { LAST_FU_PRESETS, matchLastFuFilter } from '../lib/visits.js';
+import { FU_PRESETS, matchFuFilter } from '../lib/visits.js';
 import { TEAM_PILL, lastFollowupTakenForCp, buildFuByVisit, isCpNudged, isCpTlAsk } from '../lib/legacy.js';
 import ChipBar from '../components/ChipBar.jsx';
 import useIsMobile from '../lib/useIsMobile.js';
@@ -72,7 +72,8 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
 
   // overlay seed.followups into per-CP last-FU (matches legacy store.followupLog).
   const fuByVisit = useMemo(() => buildFuByVisit(seed.followups || []), [seed]);
-  // Per-CP last-FU date (matchLastFuFilter input). Memoized over the whole universe.
+  // Per-CP last-FU date — now used for the "Last FU" column display + sort only
+  // (the follow-up filter is next-FU based via cpMatchesFu). Memoized over universe.
   const lfForCp = useMemo(() => {
     const m = {};
     universe.forEach((b) => { m[b.cp_code] = lastFollowupTakenForCp(b.cp_code, visitsByCp[b.cp_code] || [], fuByVisit); });
@@ -92,11 +93,14 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
   // City-scoped base list — drives the chip counts (independent, do not cascade — spec #5/#6).
   const baseCity = useMemo(() => universe.filter((b) => city === 'all' || b.city === city), [universe, city]);
 
+  // CP-level pending-work filter: a CP matches a bucket if ANY of its visits does
+  // (next-FU based; Upcoming/Cancelled visits excluded by matchFuFilter itself).
+  const cpMatchesFu = (cp, key) => key === 'all' || (visitsByCp[cp] || []).some((v) => matchFuFilter(v, key));
   const lastFuCounts = useMemo(() => {
     const c = {};
-    LAST_FU_PRESETS.forEach((p) => { c[p.k] = baseCity.filter((b) => matchLastFuFilter(lfForCp[b.cp_code], p.k)).length; });
+    FU_PRESETS.forEach((p) => { c[p.k] = baseCity.filter((b) => cpMatchesFu(b.cp_code, p.k)).length; });
     return c;
-  }, [baseCity, lfForCp]);
+  }, [baseCity, visitsByCp]); // eslint-disable-line react-hooks/exhaustive-deps
   const priorityCounts = useMemo(() => ({
     all: baseCity.length,
     nudged: baseCity.filter((b) => nudgedForCp[b.cp_code]).length,
@@ -114,11 +118,11 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
       if (!((b.name || '').toLowerCase().includes(s) || (b.cp_code || '').toLowerCase().includes(s)
         || (b.company_name || '').toLowerCase().includes(s) || (b.phone_number || '').includes(s))) return false;
     }
-    if (lastFu !== 'all' && !matchLastFuFilter(lfForCp[b.cp_code], lastFu)) return false;
+    if (lastFu !== 'all' && !cpMatchesFu(b.cp_code, lastFu)) return false;
     if (priority === 'nudged' && !nudgedForCp[b.cp_code]) return false;
     if (priority === 'tl_ask' && !tlAskForCp[b.cp_code]) return false;
     return true;
-  }), [universe, city, owner, unit, dq, lastFu, priority, cpIndex, cpOwner, lfForCp, nudgedForCp, tlAskForCp]);
+  }), [universe, city, owner, unit, dq, lastFu, priority, cpIndex, cpOwner, visitsByCp, nudgedForCp, tlAskForCp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo(() => {
     const g = { T1: [], T2: [], T3: [], T4: [] };
@@ -288,8 +292,8 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
 
   return (
     <div className="rx-fade">
-      <ChipBar label="Last followup taken with this CP"
-               options={LAST_FU_PRESETS} showDots={false}
+      <ChipBar label="Follow-up due · CPs with pending next-FU on completed visits"
+               options={FU_PRESETS} showDots={false}
                counts={lastFuCounts} value={lastFu} onChange={setLastFu} />
       <ChipBar label="Priority · TL ask & nudges"
                options={PRIORITY_OPTS}

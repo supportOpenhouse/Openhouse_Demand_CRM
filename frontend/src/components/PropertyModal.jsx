@@ -526,6 +526,7 @@ function FollowupForm({ v, draft, onPatch, onSaved }) {
   async function save() {
     if (!(draft.note || '').trim()) { toast('Note is required', 'bad'); return; }
     if (!isDead && draft.stage === 'revisit_scheduled' && !draft.revisit_date) { toast('Revisit Scheduled needs a revisit date', 'bad'); return; }
+    if (!isDead && draft.stage === 'negotiation' && !draft.negotiation_date) { toast('Negotiation needs a meeting date', 'bad'); return; }
     setSaving(true);
     try {
       await saveFollowup({
@@ -535,6 +536,7 @@ function FollowupForm({ v, draft, onPatch, onSaved }) {
         note: (draft.note || '').trim(),
         next_followup_date: isDead ? null : (draft.next_date || null),
         revisit_date: isDead ? null : (draft.revisit_date || null),
+        negotiation_date: isDead ? null : (draft.negotiation_date || null),
       });
       toast('Follow-up logged', 'good');
       onSaved?.();
@@ -571,6 +573,15 @@ function FollowupForm({ v, draft, onPatch, onSaved }) {
           <label style={{ color: '#1E40AF' }}>Revisit date &amp; time <span style={{ color: 'var(--bad)', fontWeight: 700 }}>*</span></label>
           <input type="datetime-local" value={draft.revisit_date || ''} onChange={(e) => onPatch({ revisit_date: e.target.value })}
                  style={{ padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 7, background: '#fff', fontSize: 13, width: 240, maxWidth: '100%' }} />
+        </div>
+      ) : null}
+
+      {draft.stage === 'negotiation' ? (
+        <div className="fu-grp" style={{ background: 'var(--blueBg)', border: '1px solid #93C5FD', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+          <label style={{ color: '#1E40AF' }}>Negotiation meeting date &amp; time <span style={{ color: 'var(--bad)', fontWeight: 700 }}>*</span></label>
+          <input type="datetime-local" value={draft.negotiation_date || ''} onChange={(e) => onPatch({ negotiation_date: e.target.value })}
+                 style={{ padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 7, background: '#fff', fontSize: 13, width: 240, maxWidth: '100%' }} />
+          <div style={{ fontSize: 11, color: '#1E40AF', marginTop: 4 }}>Once this date passes, the visit auto-moves to "After Negotiation FU".</div>
         </div>
       ) : null}
 

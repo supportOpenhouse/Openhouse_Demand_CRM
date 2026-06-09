@@ -201,7 +201,7 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.furnishing_status, v.listing_status, v.sales_feedback, v.buyer_feedback,
           v.all_feedback, v.reminder_status, v.profession, v.intent, v.metadata,
           v.lead_status, v.current_stage, v.latest_followup_at, v.latest_followup_note,
-          v.latest_followup_date, v.next_followup_date, v.revisit_date,
+          v.latest_followup_date, v.next_followup_date, v.revisit_date, v.negotiation_date,
           v.created_at, v.updated_at, v.home_id, v.is_old_lead
           FROM visits v
          ORDER BY COALESCE(v.visit_date, v.selected_date) DESC NULLS LAST, v.created_at DESC
@@ -315,6 +315,8 @@ async def build(conn: asyncpg.Connection) -> dict:
             visit["_next_followup_date"] = _date_str(r["next_followup_date"])
         if r["revisit_date"]:
             visit["_revisit_date"] = r["revisit_date"].isoformat() if isinstance(r["revisit_date"], (dt.date, dt.datetime)) else str(r["revisit_date"])
+        if r["negotiation_date"]:
+            visit["_negotiation_date"] = r["negotiation_date"].isoformat() if isinstance(r["negotiation_date"], (dt.date, dt.datetime)) else str(r["negotiation_date"])
         by = fu_author.get(r["visit_code"])
         if by:
             visit["latest_followup_by"] = by   # owner slug; frontend resolves to name

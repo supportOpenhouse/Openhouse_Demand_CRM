@@ -277,12 +277,14 @@ class FollowupBody(BaseModel):
     note: str = Field(..., min_length=1, description="Mandatory free text")
     next_followup_date: Optional[str] = None
     revisit_date: Optional[str] = None
+    negotiation_date: Optional[str] = None
 
 
 VALID_BUYER_STATUSES = {"hot", "warm", "cold", "dead", "future_prospect", "unc"}
 VALID_STAGES = {
     "upcoming", "avfu", "revisit_scheduled", "after_revisit_fu", "negotiation",
-    "booking", "ats", "future_prospect", "not_interested", "need_more", "cancelled",
+    "after_negotiation_fu", "booking", "ats", "future_prospect", "not_interested",
+    "need_more", "cancelled",
 }
 
 
@@ -297,6 +299,8 @@ async def save_followup(body: FollowupBody, user: dict = Depends(auth.current_us
     is_dead = body.buyer_status == "dead"
     if not is_dead and body.stage == "revisit_scheduled" and not body.revisit_date:
         raise HTTPException(400, "revisit_scheduled requires revisit_date")
+    if not is_dead and body.stage == "negotiation" and not body.negotiation_date:
+        raise HTTPException(400, "negotiation requires negotiation_date")
     if not body.note.strip():
         raise HTTPException(400, "Note is mandatory")
 
@@ -318,13 +322,15 @@ async def save_followup(body: FollowupBody, user: dict = Depends(auth.current_us
             """
             INSERT INTO followups (
               visit_id, by_user_id, buyer_status, stage, note,
-              next_followup_date, revisit_date, previous_stage, previous_status, source
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'app')
+              next_followup_date, revisit_date, negotiation_date,
+              previous_stage, previous_status, source
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'app')
             RETURNING id, created_at
             """,
             visit["id"], user["id"], body.buyer_status, body.stage, body.note.strip(),
             None if is_dead else _date_or_none(body.next_followup_date),
             None if is_dead else _ts_or_none(body.revisit_date),
+            None if is_dead else _ts_or_none(body.negotiation_date),
             prev["current_stage"], prev["current_status"],
         )
 

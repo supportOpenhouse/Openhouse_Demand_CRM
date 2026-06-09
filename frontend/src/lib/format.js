@@ -22,6 +22,14 @@ export function fmtDate(d) {
   return x.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
+// date + time, e.g. "14 Jun, 3:00 PM" — for scheduled revisit / negotiation meetings
+export function fmtDateTime(d) {
+  if (!d) return '—';
+  const x = d instanceof Date ? d : new Date(d);
+  if (isNaN(x)) return d;
+  return x.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
 export function fmtDay(d) {
   if (!d) return '—';
   const dd = daysBetween(d);

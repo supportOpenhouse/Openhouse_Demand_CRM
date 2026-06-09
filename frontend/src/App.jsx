@@ -3,6 +3,7 @@ import { loadSeed } from './api.js';
 import Toast from './components/Toast.jsx';
 import AppSkeleton from './components/AppSkeleton.jsx';
 import Logo from './components/Logo.jsx';
+import HomeView from './views/HomeView.jsx';
 import VisitsView from './views/VisitsView.jsx';
 import CpView from './views/CpView.jsx';
 import PropertiesView from './views/PropertiesView.jsx';
@@ -18,6 +19,7 @@ import { TEAM_PILL } from './lib/legacy.js';
 const SEARCH_VIEWS = new Set(['visits', 'cps', 'properties']);
 
 const NAV = [
+  { k: 'home',          icon: '🏠', label: 'Home' },
   { k: 'visits',        icon: '📋', label: 'Visits' },
   { k: 'cps',           icon: '🤝', label: 'Channel Partners' },
   { k: 'properties',    icon: '🏠', label: 'Properties' },
@@ -34,7 +36,7 @@ function initials(name = '') {
 export default function App() {
   const [seed, setSeed] = useState(null);
   const [error, setError] = useState(null);
-  const [view, setView] = useState('visits');
+  const [view, setView] = useState('home');
   const [openCp, setOpenCp] = useState(null);   // broker popup, openable from any view
   const [busy, setBusy] = useState(false);       // re-fetch in flight → top progress bar
   const [navCollapsed, setNavCollapsed] = useState(() => {
@@ -181,7 +183,9 @@ export default function App() {
             <div key={view} className="rx-view">
               <h2 style={{ margin: '2px 0 12px', letterSpacing: '-.3px' }}>{active?.label}</h2>
               <ErrorBoundary resetKey={view}>
-              {view === 'visits' ? (
+              {view === 'home' ? (
+                <HomeView seed={vseed} onOpenBroker={setOpenCp} />
+              ) : view === 'visits' ? (
                 <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} />
               ) : view === 'cps' ? (
                 <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} />
