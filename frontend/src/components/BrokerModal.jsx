@@ -172,9 +172,12 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
         negotiation_date: isDead ? null : (draft.negotiation_date || null),
       });
       setFuDrafts((prev) => { const n = { ...prev }; delete n[vid]; return n; });
+      // "Save & close" collapses just this visit's follow-up form and keeps the CP
+      // modal open, so the user can move to the next visit without re-opening the CP.
+      // (Closing the whole CP stays available via the × button.)
+      if (act === 'save-close') setExpanded((prev) => { const n = new Set(prev); n.delete(String(vid)); return n; });
       toast('Followup saved', 'good');
       await reloadSeed();
-      if (act === 'save-close') onClose();
     } catch (e) { toast('Save failed: ' + String(e.message || e).slice(0, 120), 'bad'); }
     finally { setBusy(false); }
   }
