@@ -304,6 +304,21 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   (`CountUp`), a pulsing ● LIVE badge and a moving shimmer (`.home-hero` in `app.css`). Counts current-month
   visits whose CP is tier T1/T2, with a Gold/Silver split; scoped per viewer (Admin = org-wide; e.g. June
   2026 = 236 → Gold 152 + Silver 84). **Deploy: frontend only (`vercel deploy`).**
+- **2026-06-09 (Claude session, cont. — "Anuj Kumar sees nothing" fix; DB updated):** Root cause = the
+  inventory sheet records some PMs by **first name only** ("Anuj") but everything matched on **full name**
+  ("Anuj Kumar"), so a Ground PM with no full-name rows saw 0 visits / 0 properties. Two-part fix:
+  **(1) Scoping** — `seed_snapshot.scope_for_user` (Ground branch) and frontend `scopeVisits` now match a PM's
+  visits/properties by **full name OR first name** (`_is_pm` / `isPm`). **(2) Assignment** —
+  `sheet_sync.sync_properties` PM lookup now resolves `sales_manager` by full name, falling back to a
+  **first name only when it's unambiguous** (exactly one user), via an in-memory resolver built once per run
+  (replaces the per-row exact-name `fetchrow`). Ran `sync_properties` against prod: `pm_changes=11`, Anuj now
+  holds **6 active `property_assignments`** (Highend Paradise A-208/A-808, Ascent Savy Ville De C-810, Uninav
+  Heights E-1206A, KW Srishti E-905, AR Reflections T-1104); scoped seed → **32 visits · 6 properties**.
+  Note: assignment rows are now in the prod DB, so **even the currently-deployed (old) code scopes Anuj
+  correctly** (it reads `pm_by_property`), and the old cron won't revert them (unresolvable first names are
+  skipped, not cleared). Deploying `seed_snapshot.py` + `sheet_sync.py` makes first-name resolution durable
+  going forward + gives full RM-visit coverage. Safety: "Anuj" → exactly 1 user (no collision); the resolver
+  refuses ambiguous first names.
 
 ---
 

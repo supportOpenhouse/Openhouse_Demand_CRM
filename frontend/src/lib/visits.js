@@ -182,12 +182,15 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
   if (me.team === 'KAM') return visits.filter((v) => cpOwner[v.cp_code] === me.id);
   if (me.team === 'Ground') {
     // PM's properties via the authoritative assignment (pm_by_property → slug), with the
-    // sheet-name match as fallback (sheet stores some PMs by first name only).
+    // sheet-name match as fallback. The sheet stores some PMs by FIRST NAME only
+    // ("Anuj" vs "Anuj Kumar"), so match full name OR first name.
+    const first = (me.name || '').split(' ')[0];
+    const isPm = (sm) => !!sm && (sm === me.name || (first && sm === first));
     const socs = new Set(properties
-      .filter((p) => pmByProperty[p.property_name] === me.slug || p.sales_manager === me.name)
+      .filter((p) => pmByProperty[p.property_name] === me.slug || isPm(p.sales_manager))
       .map((p) => p.society_name));
     // also: visits the PM personally ran (they are the RM), even at others' properties.
-    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || v.sales_manager === me.name);
+    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || isPm(v.sales_manager));
   }
   return [];
 }

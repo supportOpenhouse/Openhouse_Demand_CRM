@@ -87,19 +87,22 @@ def scope_for_user(snap: dict, user: dict) -> dict:
     if team == "Ground":
         # Scope by the AUTHORITATIVE assignment (pm_by_property / property_assignments),
         # not the inventory sheet's `sales_manager` text. The sheet stores some PMs by
-        # first name only (e.g. "Ayush" vs user "Ayush Ojha"), so a full-name string
-        # match silently hid all their properties. Keep the name-match as a fallback so
-        # nothing already-working regresses.
+        # FIRST NAME only ("Anuj" vs user "Anuj Kumar", "Ayush" vs "Ayush Ojha"), so an
+        # exact full-name match silently hid their visits/properties (e.g. Anuj saw 0).
+        # Match full name OR first name as the fallback.
+        first = name.split(" ", 1)[0] if name else ""
+        def _is_pm(sm):
+            return bool(sm) and (sm == name or (first != "" and sm == first))
         pm_by_property = snap.get("pm_by_property", {})
         my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
         my_socs = {p["society_name"] for p in properties
-                   if p["property_name"] in my_props or p["sales_manager"] == name}
+                   if p["property_name"] in my_props or _is_pm(p["sales_manager"])}
         codes = set()
         for b in brokers:
             if cp_owner.get(b["cp_code"]) == slug or b.get("added_by") == name:
                 codes.add(b["cp_code"])
         for v in visits:
-            if (v["society_name"] in my_socs or v["sales_manager"] == name) and v["cp_code"]:
+            if (v["society_name"] in my_socs or _is_pm(v["sales_manager"])) and v["cp_code"]:
                 codes.add(v["cp_code"])
         keep_brokers(codes)
         snap["properties"] = [p for p in properties if p["society_name"] in my_socs]
@@ -107,7 +110,7 @@ def scope_for_user(snap: dict, user: dict) -> dict:
         # the property is managed by someone else and the CP isn't theirs (e.g. VST8592).
         snap["visits"] = [v for v in visits
                           if v["society_name"] in my_socs or cp_owner.get(v["cp_code"]) == slug
-                          or v["sales_manager"] == name]
+                          or _is_pm(v["sales_manager"])]
         _scope_personal(snap, slug)
         return snap
 

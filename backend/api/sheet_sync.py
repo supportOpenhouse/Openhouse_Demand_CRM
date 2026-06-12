@@ -476,6 +476,33 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
     errors: list = []
     pm_changes = 0
 
+    # PM resolver: the sheet stores some PMs by FULL name ("Aditya Bhasker") and some
+    # by FIRST name only ("Anuj" → user "Anuj Kumar"). Exact full name wins; a first
+    # name maps only when it's UNAMBIGUOUS (exactly one user) so we never assign to the
+    # wrong person on a collision. Built once here, not per-row.
+    _user_rows = await conn.fetch("SELECT id, name FROM users")
+    _by_full: dict = {}
+    _first_count: dict = {}
+    _first_id: dict = {}
+    for _u in _user_rows:
+        _nm = (_u["name"] or "").strip()
+        if not _nm:
+            continue
+        _by_full[_nm.lower()] = _u["id"]
+        _fn = _nm.split(" ", 1)[0].lower()
+        _first_count[_fn] = _first_count.get(_fn, 0) + 1
+        _first_id[_fn] = _u["id"]
+
+    def resolve_pm(pm_name):
+        key = (pm_name or "").strip().lower()
+        if not key:
+            return None
+        if key in _by_full:
+            return _by_full[key]
+        if _first_count.get(key) == 1:      # unambiguous first-name
+            return _first_id[key]
+        return None
+
     for r in body:
         if not r or not _safe(r[0]):
             continue
@@ -536,30 +563,26 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                 g(r, "sales_manager_contact") or None,
             )
             ins += 1 if not row else 0  # rough; ON CONFLICT path returns same shape
-            # PM assignment refresh
-            pm_name = g(r, "sales_manager")
-            if pm_name:
-                pm_user = await conn.fetchrow(
-                    "SELECT id FROM users WHERE lower(name) = lower($1) LIMIT 1", pm_name
+            # PM assignment refresh (full name, or unambiguous first name)
+            pm_user_id = resolve_pm(g(r, "sales_manager"))
+            if pm_user_id:
+                current = await conn.fetchrow(
+                    "SELECT pm_user_id FROM property_assignments "
+                    "WHERE property_id = $1 AND effective_to IS NULL",
+                    row["id"],
                 )
-                if pm_user:
-                    current = await conn.fetchrow(
-                        "SELECT pm_user_id FROM property_assignments "
+                if not current or current["pm_user_id"] != pm_user_id:
+                    await conn.execute(
+                        "UPDATE property_assignments SET effective_to = now() "
                         "WHERE property_id = $1 AND effective_to IS NULL",
                         row["id"],
                     )
-                    if not current or current["pm_user_id"] != pm_user["id"]:
-                        await conn.execute(
-                            "UPDATE property_assignments SET effective_to = now() "
-                            "WHERE property_id = $1 AND effective_to IS NULL",
-                            row["id"],
-                        )
-                        await conn.execute(
-                            "INSERT INTO property_assignments (property_id, pm_user_id) "
-                            "VALUES ($1, $2)",
-                            row["id"], pm_user["id"],
-                        )
-                        pm_changes += 1
+                    await conn.execute(
+                        "INSERT INTO property_assignments (property_id, pm_user_id) "
+                        "VALUES ($1, $2)",
+                        row["id"], pm_user_id,
+                    )
+                    pm_changes += 1
         except Exception as e:
             failed += 1
             if len(errors) < 20:
