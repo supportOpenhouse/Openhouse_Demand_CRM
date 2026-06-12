@@ -335,6 +335,19 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   object handed to the modal never carried it. Fix: add `phone` to that SELECT + the user projection.
   Verified: 4 users (Adiksha, Ajitesh, Mayank Chauhan, Mukul) already had phones sitting in the DB — they'll
   now show. **Backend-only; needs the Render deploy** (data was never lost). No frontend change.
+- **2026-06-09 (Claude session, cont. — PHONE as the join key, not names):** Names are unreliable (spelling,
+  first-vs-full), so PM matching now keys on **phone**. `sheet_sync.sync_properties` resolves a property's PM
+  by `sales_manager_contact` (last-10-digits → `users.phone`) FIRST, falling back to full / unambiguous-first
+  name only when there's no phone hit. Verified: the inventory PM phones match users **19/19**; re-running
+  gave `pm_changes=0` (phone agrees with the already-correct names — no breakage) and **0 properties left
+  unresolved**; Anuj's 6 intact. `users.phone` is now 27/36 active users (Saransh updated them). **Limitation:
+  the visitors sheet has NO RM-phone column** (a visit only has `sales_manager` *name*: cols are
+  sales_manager / broker_contact / broker_alt_contact / buyer_contact), so **visit-RM** matching (Ground
+  PM seeing visits they ran + the edit-permission check) still uses name (full/first). To make visits phone-
+  keyed too, add a `sales_manager_contact` column to the `visitors_data` sheet and mirror this resolver in
+  `sync_visits`. **Deploy `sheet_sync.py` to Render** so the cron keeps using phone (assignment rows already
+  in the DB work on current prod via `pm_by_property`; a name/phone conflict could otherwise be reverted by
+  the old cron — none exist today).
 
 ---
 

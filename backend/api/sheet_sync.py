@@ -476,15 +476,23 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
     errors: list = []
     pm_changes = 0
 
-    # PM resolver: the sheet stores some PMs by FULL name ("Aditya Bhasker") and some
-    # by FIRST name only ("Anuj" → user "Anuj Kumar"). Exact full name wins; a first
-    # name maps only when it's UNAMBIGUOUS (exactly one user) so we never assign to the
-    # wrong person on a collision. Built once here, not per-row.
-    _user_rows = await conn.fetch("SELECT id, name FROM users")
+    # PM resolver. PHONE IS THE PRIMARY KEY (sheet column `sales_manager_contact`),
+    # because names are unreliable (spelling, first-vs-full). The inventory sheet's
+    # PM phone matches users.phone 1:1, so we resolve by last-10-digits first and only
+    # fall back to name (full, then unambiguous first name) when there's no phone match.
+    def _last10(s):
+        d = "".join(ch for ch in (s or "") if ch.isdigit())
+        return d[-10:] if len(d) >= 10 else ""
+
+    _user_rows = await conn.fetch("SELECT id, name, phone FROM users WHERE active")
+    _by_phone: dict = {}
     _by_full: dict = {}
     _first_count: dict = {}
     _first_id: dict = {}
     for _u in _user_rows:
+        ph = _last10(_u["phone"])
+        if ph:
+            _by_phone[ph] = _u["id"]
         _nm = (_u["name"] or "").strip()
         if not _nm:
             continue
@@ -493,13 +501,16 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
         _first_count[_fn] = _first_count.get(_fn, 0) + 1
         _first_id[_fn] = _u["id"]
 
-    def resolve_pm(pm_name):
+    def resolve_pm(pm_name, pm_contact):
+        ph = _last10(pm_contact)
+        if ph and ph in _by_phone:           # phone wins — robust to name spelling
+            return _by_phone[ph]
         key = (pm_name or "").strip().lower()
         if not key:
             return None
         if key in _by_full:
             return _by_full[key]
-        if _first_count.get(key) == 1:      # unambiguous first-name
+        if _first_count.get(key) == 1:       # unambiguous first-name fallback
             return _first_id[key]
         return None
 
@@ -563,8 +574,8 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                 g(r, "sales_manager_contact") or None,
             )
             ins += 1 if not row else 0  # rough; ON CONFLICT path returns same shape
-            # PM assignment refresh (full name, or unambiguous first name)
-            pm_user_id = resolve_pm(g(r, "sales_manager"))
+            # PM assignment refresh — phone first (sales_manager_contact), name fallback
+            pm_user_id = resolve_pm(g(r, "sales_manager"), g(r, "sales_manager_contact"))
             if pm_user_id:
                 current = await conn.fetchrow(
                     "SELECT pm_user_id FROM property_assignments "
