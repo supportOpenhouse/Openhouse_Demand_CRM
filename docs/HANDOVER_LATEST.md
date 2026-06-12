@@ -328,6 +328,13 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   `PropertyModal` `canEdit` updated to mirror it (adds `isMyVisit`; first-name aware for property + visit).
   **Deploy: this is a CODE permission change — needs the Render backend deploy to take effect** (unlike the
   Anuj assignment, it can't work on old code). Frontend `vercel deploy` for the PropertyModal parity.
+- **2026-06-09 (Claude session, cont. — "phone saves but is blank on reopen"):** Editing a team-member's
+  phone in UserModal showed "saved" but the field was empty next time. Cause: the **save persisted fine**
+  (`/api/users` POST + PATCH both write `users.phone`), but the **seed's users query omitted `phone`**
+  (`seed_snapshot.py` ~line 553 `SELECT slug,email,name,team,role,cities,active` — no phone), so the user
+  object handed to the modal never carried it. Fix: add `phone` to that SELECT + the user projection.
+  Verified: 4 users (Adiksha, Ajitesh, Mayank Chauhan, Mukul) already had phones sitting in the DB — they'll
+  now show. **Backend-only; needs the Render deploy** (data was never lost). No frontend change.
 
 ---
 

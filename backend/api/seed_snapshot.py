@@ -550,13 +550,14 @@ async def build(conn: asyncpg.Connection) -> dict:
     # --- full roster (DB is the source of truth; frontend merges over its
     # hardcoded USERS array so team/city/role edits show up without a code change) ---
     user_rows = await conn.fetch(
-        "SELECT slug, email, name, team, role, cities, active FROM users WHERE active ORDER BY name"
+        "SELECT slug, email, name, phone, team, role, cities, active FROM users WHERE active ORDER BY name"
     )
     users = [{
         "id": r["slug"],                 # frontend convention: id == slug
         "slug": r["slug"],
         "email": r["email"],
         "name": r["name"],
+        "phone": r["phone"] or "",       # so an edited phone shows on reopen (was dropped → "saved but blank")
         "team": r["team"],
         "role": r["role"],
         "cities": list(r["cities"] or []),
