@@ -348,6 +348,14 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   `sync_visits`. **Deploy `sheet_sync.py` to Render** so the cron keeps using phone (assignment rows already
   in the DB work on current prod via `pm_by_property`; a name/phone conflict could otherwise be reverted by
   the old cron — none exist today).
+- **2026-06-09 (Claude session, cont. — chip bubble counts ignored the Filters tab):** The Visits chip-bar
+  counts (Buyer Status / Stage / Follow-up-due / Priority) were computed from `cityBase`, which only applied
+  the city tab + lead-set — the **Filters-modal predicates** (society/unit/locality/BHK/tier/CP/RM/source/
+  date-range/next-FU) and the **search** were applied only in the final `filtered` row list. So with a
+  Filters-tab filter active the bubbles showed unfiltered totals (e.g. Status All = 1742) while the list
+  showed the filtered count (801). Fix: moved the modal predicates + search INTO `cityBase`, so every bubble
+  and the row list share one base and the counts match. The internal facet cascade (status→stage→FU→priority)
+  is unchanged. `VisitsView.jsx` only; **frontend deploy**.
 
 ---
 

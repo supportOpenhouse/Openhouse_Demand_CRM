@@ -114,15 +114,68 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   const tierFor = (v) => (brokersByCode[v.cp_code]?.tier) || 'T4';
 
   const oldCount = useMemo(() => scoped.filter(isOldLead).length, [scoped]);
-  // city + lead-set scoped base — drives status & stage chip counts. Default 'active'
-  // hides old leads (pre-1-May, never actioned), which also lightens the working set.
+  // deferred search keeps typing responsive (non-blocking recompute of the base)
+  const dq = useDeferredValue(search);
+  // The BASE set that drives BOTH the row list AND every chip "bubble" count:
+  // scoping + city tab + lead-set + the Filters-modal predicates + search. The modal
+  // filters live HERE (not just in `filtered`) so the bubble counts stay honest — they
+  // now reflect the Filters tab and match the visible row count.
   const cityBase = useMemo(() => scoped.filter((v) => {
+    // city tab + lead-set segment
     if (filters.cities?.length && !filters.cities.includes(v.city)) return false;
     const old = isOldLead(v);
     if (leadSet === 'active' && old) return false;
     if (leadSet === 'old' && !old) return false;
+    // top-bar search
+    if (dq.trim()) {
+      const s = dq.trim().toLowerCase();
+      const hit = (v.id || '').toLowerCase().includes(s)
+        || (v.society_name || '').toLowerCase().includes(s)
+        || (v.broker_name || '').toLowerCase().includes(s)
+        || (v.buyer_name || '').toLowerCase().includes(s)
+        || (v.cp_code || '').toLowerCase().includes(s)
+        || (v.broker_contact || '').includes(s)
+        || (v.buyer_contact || '').includes(s)
+        || (v.company_name || '').toLowerCase().includes(s)
+        || (v.sales_manager || '').toLowerCase().includes(s);
+      if (!hit) return false;
+    }
+    // advanced Filters-modal predicates (society / unit / locality / bhk / tier / cp / rm / source / dates / next-FU)
+    const F = filters || {};
+    if (F.unit) {
+      const target = flatNo(F.unit);
+      const vno = flatNo(v.unit_address_line1) || flatNo([v.unit_address_line1, v.unit_address_line2].filter(Boolean).join(' '));
+      if (target && vno !== target) return false;
+    }
+    if (F.society && v.society_name !== F.society) return false;
+    if (F.locality) {
+      const mms = propBySociety[v.society_name]?.mms;
+      if (!(mms && mms.has(F.locality)) && !(v.society_name || '').toLowerCase().includes(F.locality.toLowerCase())) return false;
+    }
+    if (F.bhk?.length) {
+      const bhks = propBySociety[v.society_name]?.bhks;
+      if (!bhks || !F.bhk.some((b) => bhks.has(b))) return false;
+    }
+    if (F.tier?.length) { const b = brokersByCode[v.cp_code]; if (!b || !F.tier.includes(b.tier)) return false; }
+    if (F.cp && v.cp_code !== F.cp) return false;
+    if (F.rm && v.sales_manager !== F.rm) return false;
+    if (F.source?.length && !F.source.includes(v.source)) return false;
+    if (F.visitFrom && !(v.visit_date && v.visit_date >= F.visitFrom)) return false;
+    if (F.visitTo && !(v.visit_date && v.visit_date <= F.visitTo)) return false;
+    if (F.followupDate?.length) {
+      const nf = nextFuFor(v);
+      let ok = F.followupDate.includes('none') && !nf;
+      if (nf != null) {
+        const d = daysBetween(nf);
+        if (F.followupDate.includes('overdue') && d > 0) ok = true;
+        if (F.followupDate.includes('today') && d === 0) ok = true;
+        if (F.followupDate.includes('tomorrow') && d === -1) ok = true;
+        if (F.followupDate.includes('week') && d <= 0 && d > -7) ok = true;
+      }
+      if (!ok) return false;
+    }
     return true;
-  }), [scoped, filters, leadSet]);
+  }), [scoped, filters, leadSet, dq, propBySociety, brokersByCode]);
 
   const statusCounts = useMemo(() => {
     const c = { all: cityBase.length, hot: 0, warm: 0, cold: 0, dead: 0, future_prospect: 0, unc: 0 };
@@ -168,65 +221,14 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     tl_ask: priorityBase.filter((v) => isVisitTlAsk(v, teamTasks)).length,
   }), [priorityBase, nudgesByVisit, teamTasks]);
 
-  // --- full filtered set (legacy filterVisits): search + status + stage + lastFu + priority + unit ---
-  // deferred search keeps typing responsive on slower machines (non-blocking recompute)
-  const dq = useDeferredValue(search);
+  // --- full filtered set = base (city/lead/modal/search) + the chip-bar selections ---
   const filtered = useMemo(() => cityBase.filter((v) => {
-    if (dq.trim()) {
-      const s = dq.trim().toLowerCase();
-      const hit = (v.id || '').toLowerCase().includes(s)
-        || (v.society_name || '').toLowerCase().includes(s)
-        || (v.broker_name || '').toLowerCase().includes(s)
-        || (v.buyer_name || '').toLowerCase().includes(s)
-        || (v.cp_code || '').toLowerCase().includes(s)
-        || (v.broker_contact || '').includes(s)
-        || (v.buyer_contact || '').includes(s)
-        || (v.company_name || '').toLowerCase().includes(s)
-        || (v.sales_manager || '').toLowerCase().includes(s);
-      if (!hit) return false;
-    }
     if (statuses.length && !statuses.includes(visitStatus(v))) return false;
     if (stages.length && !stages.some((s) => stagePass(visitStage(v), s))) return false;
     if (lastFus.length && !lastFus.some((kk) => matchFuFilter(v, kk))) return false;
     if (priorities.length && !((priorities.includes('nudged') && isVisitNudged(v, nudgesByVisit)) || (priorities.includes('tl_ask') && isVisitTlAsk(v, teamTasks)))) return false;
-    // --- advanced filters (topbar Filters modal) ---
-    const F = filters || {};
-    if (F.unit) {
-      // match on flat number only — the dropdown now yields "704" (tower-agnostic), and
-      // legacy saved values like "A-704" normalise to the same flat number too.
-      const target = flatNo(F.unit);
-      const vno = flatNo(v.unit_address_line1) || flatNo([v.unit_address_line1, v.unit_address_line2].filter(Boolean).join(' '));
-      if (target && vno !== target) return false;
-    }
-    if (F.society && v.society_name !== F.society) return false;
-    if (F.locality) {
-      const mms = propBySociety[v.society_name]?.mms;
-      if (!(mms && mms.has(F.locality)) && !(v.society_name || '').toLowerCase().includes(F.locality.toLowerCase())) return false;
-    }
-    if (F.bhk?.length) {
-      const bhks = propBySociety[v.society_name]?.bhks;
-      if (!bhks || !F.bhk.some((b) => bhks.has(b))) return false;
-    }
-    if (F.tier?.length) { const b = brokersByCode[v.cp_code]; if (!b || !F.tier.includes(b.tier)) return false; }
-    if (F.cp && v.cp_code !== F.cp) return false;
-    if (F.rm && v.sales_manager !== F.rm) return false;
-    if (F.source?.length && !F.source.includes(v.source)) return false;
-    if (F.visitFrom && !(v.visit_date && v.visit_date >= F.visitFrom)) return false;
-    if (F.visitTo && !(v.visit_date && v.visit_date <= F.visitTo)) return false;
-    if (F.followupDate?.length) {
-      const nf = nextFuFor(v);
-      let ok = F.followupDate.includes('none') && !nf;
-      if (nf != null) {
-        const d = daysBetween(nf);
-        if (F.followupDate.includes('overdue') && d > 0) ok = true;
-        if (F.followupDate.includes('today') && d === 0) ok = true;
-        if (F.followupDate.includes('tomorrow') && d === -1) ok = true;
-        if (F.followupDate.includes('week') && d <= 0 && d > -7) ok = true;
-      }
-      if (!ok) return false;
-    }
     return true;
-  }), [cityBase, dq, statuses, stages, lastFus, priorities, filters, propBySociety, brokersByCode, nudgesByVisit, teamTasks, fuByVisit]);
+  }), [cityBase, statuses, stages, lastFus, priorities, nudgesByVisit, teamTasks]);
 
   // --- sort (legacy sortVisits) ---
   const sorted = useMemo(() => {
