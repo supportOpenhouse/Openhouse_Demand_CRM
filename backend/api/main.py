@@ -892,7 +892,7 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
         return True
     row = await conn.fetchrow(
         """
-        SELECT v.broker_id, v.society_name,
+        SELECT v.broker_id, v.society_name, v.sales_manager,
                co.owner_user_id,
                EXISTS (
                  SELECT 1 FROM property_assignments pa
@@ -910,6 +910,13 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
     if not row:
         return False
     if row["owner_user_id"] == user["id"]:
+        return True
+    # The RM who actually ran the visit can edit it. The visits sheet records some
+    # RMs by FIRST name only ("Vinay" vs user "Vinay Kumar"), so match full OR first
+    # name — same rule the seed scoping uses to SHOW these visits to the RM.
+    sm = (row["sales_manager"] or "").strip()
+    nm = (user.get("name") or "").strip()
+    if sm and nm and (sm == nm or sm == nm.split(" ", 1)[0]):
         return True
     if user["team"] == "Ground" and row["at_my_property"]:
         return True

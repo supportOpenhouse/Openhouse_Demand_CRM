@@ -374,9 +374,13 @@ function PropVisitRow({
   const status = visitStatus(v);
   const stage = visitStage(v);
   const tier = broker.tier || 'T4';
+  // sheet records some PMs/RMs by first name only ("Vinay" vs "Vinay Kumar") — match either
+  const fn = (me.name || '').split(' ')[0];
+  const nameMatch = (s) => !!s && (s === me.name || (fn && s === fn));
   const isMine = !!(owner && (owner.id === me.id || owner.slug === me.slug));
-  const isMyProperty = p.sales_manager === me.name;
-  const canEdit = isAdmin(me) || me.team === 'TL' || isMine || (me.team === 'Ground' && isMyProperty);
+  const isMyProperty = nameMatch(p.sales_manager);
+  const isMyVisit = nameMatch(v.sales_manager);   // the RM who actually ran this visit
+  const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit || (me.team === 'Ground' && isMyProperty);
   const nfc = nextFuClass(nextFuFor(v));
   const nudgeOk = (!isMine && !!owner);
   const stDef = STATUSES.find((s) => s.k === status);

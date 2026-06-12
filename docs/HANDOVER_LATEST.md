@@ -319,6 +319,15 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   skipped, not cleared). Deploying `seed_snapshot.py` + `sheet_sync.py` makes first-name resolution durable
   going forward + gives full RM-visit coverage. Safety: "Anuj" → exactly 1 user (no collision); the resolver
   refuses ambiguous first names.
+- **2026-06-09 (Claude session, cont. — "You don't have permission to edit this visit" 403):** A Ground RM
+  (e.g. Vinay Kumar) could SEE a visit they ran but got a 403 on save, because `_can_edit_visit`
+  (`main.py`) allowed only Admin/TL, the CP owner, or a Ground PM whose assigned property matched the
+  society — it never allowed the **RM who actually ran the visit**. We had extended *viewing* to RM-run
+  visits but not *editing*. Fix: `_can_edit_visit` now also returns true when the visit's `sales_manager`
+  matches the user's **full or first name** (99 visits are recorded RM-by-first-name). Frontend
+  `PropertyModal` `canEdit` updated to mirror it (adds `isMyVisit`; first-name aware for property + visit).
+  **Deploy: this is a CODE permission change — needs the Render backend deploy to take effect** (unlike the
+  Anuj assignment, it can't work on old code). Frontend `vercel deploy` for the PropertyModal parity.
 
 ---
 
