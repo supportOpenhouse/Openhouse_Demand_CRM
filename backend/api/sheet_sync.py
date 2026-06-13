@@ -711,21 +711,29 @@ async def sync_all_properties(conn: asyncpg.Connection) -> dict:
 
 async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
     """Old-lead + Buyer-Status='dead' for every visit whose unit is no longer
-    live inventory — i.e. it does NOT map (by home_id) to an all_properties row
-    that is 'Ready' or 'Coming Soon'. Covers Sold / Archived / Booked units AND
-    visits with no listing record at all.
+    live inventory — i.e. it is NOT 'Ready'/'Coming Soon' in either property table.
+    Covers Sold / Archived / Booked units AND visits with no listing record at all.
+
+    A visit is ACTIVE if its home_id maps to a Ready/Coming-Soon row in the LIVE
+    `properties` tab OR in `all_properties`. We MUST check the live tab: the two
+    inventory tabs assign DIFFERENT home_ids to the same unit, and visits' home_ids
+    align with the live tab — checking only all_properties wrongly archived 69 visits
+    on a live Ready unit (B-304 Bestech Ananda: properties=Ready hid 130, but
+    all_properties=Archived hid 112, so the hid-130 join missed it).
 
     This REPLACES the old pre-1-May date rule (migration 003 / 005). It runs as
     the LAST step of run_all() — after sync_visits has re-upserted lead_status
-    from the sheet — so the sheet can never resurrect a dead lead: each cycle
-    ends with inactive-property visits forced back to dead + old. Idempotent;
+    from the sheet — so the sheet can never resurrect a dead lead. Idempotent;
     the WHERE clause only touches rows whose classification actually changed."""
     res = await conn.execute(
         """
         WITH cls AS (
           SELECT v.id,
-                 bool_or(ap.listing_status IN ('Ready','Coming Soon')) AS active
+                 (bool_or(p.listing_status  IN ('Ready','Coming Soon'))
+               OR bool_or(ap.listing_status IN ('Ready','Coming Soon'))) AS active
           FROM visits v
+          LEFT JOIN properties p
+            ON p.home_id = v.home_id AND p.deleted_at IS NULL
           LEFT JOIN all_properties ap
             ON ap.home_id = v.home_id AND ap.deleted_at IS NULL
           GROUP BY v.id

@@ -356,6 +356,17 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   showed the filtered count (801). Fix: moved the modal predicates + search INTO `cityBase`, so every bubble
   and the row list share one base and the counts match. The internal facet cascade (status→stage→FU→priority)
   is unchanged. `VisitsView.jsx` only; **frontend deploy**.
+- **2026-06-09 (Claude session, cont. — Ready units wrongly marked Old/Dead):** VST9018 (B-304 Bestech Park
+  View Ananda, a **Ready** unit) showed up under Old Leads + Dead. Cause: the two inventory tabs assign
+  **different `home_id`s to the same unit**, and visits' home_ids align with the LIVE `properties` tab — but
+  `sync_inactive_leads` joined only `all_properties` (where that unit is hid 112 / Archived, vs properties
+  hid 130 / Ready), so the hid-130 visits found no match → wrongly classified inactive. **69 visits** (all on
+  B-304 Ananda) were affected. Fix: `sync_inactive_leads` now treats a visit ACTIVE if its home_id is
+  Ready/Coming-Soon in **`properties` OR `all_properties`** (prefer live). One-time DB repair restored the 69
+  (30 worked → re-projected from their latest followup; 39 unworked → reset to Not-Updated; all
+  `is_old_lead=FALSE`); the fixed reclassify then returned `reclassified=0` (consistent). **Needs the Render
+  deploy** — the currently-deployed (all_properties-only) `sync_inactive_leads` will re-archive these 69 on
+  its next 15-min cron run until the fix ships.
 
 ---
 
