@@ -1,4 +1,4 @@
-# OpenHouse Demand CRM — Handover (LATEST · 2026-06-05)
+# OpenHouse Demand CRM — Handover (LATEST · 2026-06-13)
 
 > **This is the current, authoritative handover.** It supersedes the dated ones
 > (`PROD_HANDOVER.md`, `SESSION_HANDOVER_2026-06.md`, `SARANSH_HANDOVER.md`, …) —
@@ -367,6 +367,40 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   `is_old_lead=FALSE`); the fixed reclassify then returned `reclassified=0` (consistent). **Needs the Render
   deploy** — the currently-deployed (all_properties-only) `sync_inactive_leads` will re-archive these 69 on
   its next 15-min cron run until the fix ships.
+- **2026-06-13 (Claude session — Visits filter split + stage-aware follow-up buckets; edit-permission audit):**
+  Three reported issues; **two shipped to prod, one validated as a non-issue.**
+  **(1) Two-tier Visits filter (#1 — DEPLOYED, `VisitsView.jsx`):** the single "Visit stage · operational
+  pipeline" chip-bar mixed the visit *lifecycle* (Completed / Upcoming / Cancelled) with the *pipeline
+  sub-stages* (After Visit FU, Revisit Scheduled, …) in one flat, confusing row. Split into two bars —
+  **Visit status** (`__completed`/upcoming/cancelled) + **Pipeline stage** (the 10 sub-stages) — both driving
+  the same `stages` selection via the unchanged `stagePass`, so filtering/counts are identical (purely
+  presentational).
+  **(2) Stage-aware follow-up buckets (#2 — DEPLOYED, `lib/visits.js`):** "Overdue" was counting terminal
+  leads. Root cause: the FU gate keyed only on buyer-status `dead` (`nextFuFor`/`matchFuFilter`), ignoring the
+  operational *stage* — so **Future Prospect** (status≠dead) and **Not Interested** with a non-dead status
+  leaked into Overdue, while **Need More Props** marked dead was excluded from *every* bucket (incl. "No
+  next-FU set") and so never prompted for a date. Added `TERMINAL_STAGES = {future_prospect, not_interested}`
+  + an `isClosedLead(v)` helper (terminal stage OR dead-but-not-need_more) used by `nextFuFor`,
+  `matchFuFilter`, and `activityForVisit`. Validated old-vs-new over the **live** DB: **only**
+  `future_prospect`/`not_interested`/`need_more` ever change bucket (every other stage byte-identical) —
+  Overdue 364→292 (removes 55 Not-Interested + 17 Future-Prospect, adds 0); ~59 dead Need-More leads now
+  surface under "No next-FU set". (A Need-More lead still carries buyer-status `dead` in the DB, so to set a
+  date the rep re-classifies it to an active status — the form disables the date while `dead`.)
+  **(3) "Mayank can't edit, Abhash can" (#3 — AUDITED, NO CODE CHANGE):** deep validation of `_can_edit_visit`
+  (`main.py`) vs `scope_for_user` reproduced both over all 36 users and found **see ⟹ edit already holds —
+  0 gaps**; live-confirmed (minted cookie) that Mayank's seed = **620 visits, all 620 editable**. Mayank is a
+  **KAM** (scope = own CPs only); Abhash is **Ground** (PM of his societies + RM on his visits). The leads
+  Mayank "can't edit" (e.g. Arihant Abode visits run by Abhash) are **outside his visibility**, not an edit
+  gap — and visibility was explicitly left as-is. The one structural change that *would* do anything
+  (assignment-based edit for all teams, i.e. dropping the `team=='Ground'` gate on the property-PM path) would
+  grant edit on **unseen** leads to 2 KAM-PMs (Mayank +17, Shubham +67) — broadening permission beyond
+  visibility — so it was **not** made. Open: if PM-KAMs should *work* their assigned property's leads, that's
+  a scoped **visibility** tweak (awaiting a concrete failing VST… to confirm the surface). Latent (untouched):
+  `BrokerModal` visit rows render Save with no `canEdit` gate, so a denied save would surface as a "Save
+  failed: …403" toast rather than read-only — doesn't bite KAMs on their own CPs today.
+  **Deploy:** frontend shipped via owner `vercel deploy --prod` (CLI already auth'd as `akshit-1522`); live
+  bundle `index-BiUbRIdY.js` is **SHA-256 byte-identical** to the locally unit-tested build (6/6 logic tests +
+  render-smoke, 0 console errors). Backend unchanged. Validated L1/L2/L3.
 
 ---
 

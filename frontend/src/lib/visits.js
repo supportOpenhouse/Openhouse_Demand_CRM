@@ -25,12 +25,26 @@ export const FU_PRESETS = [
   { k: 'no_fu',    label: '⚠️ No next-FU set', cls: 'pr-tl' },
 ];
 
-// next scheduled FU (in-session save) → else the latest taken date
+// Stages that are CLOSED for follow-up purposes: the lead is parked (Future Prospect) or
+// finished (Not Interested), so no "next follow-up" is expected and it must never read as
+// overdue. NOTE: "Need More Props" is deliberately NOT here — it's an ACTIVE ask (the rep
+// owes the buyer more options), so it always keeps a follow-up even if marked dead.
+export const TERMINAL_STAGES = new Set(['future_prospect', 'not_interested']);
+
+// True when a COMPLETED visit carries no pending follow-up — it drops out of the Overdue /
+// Due / No-next-FU buckets and the Next-FU column reads "No FU". A lead is closed when its
+// stage is terminal (Future Prospect / Not Interested) OR the buyer is explicitly Dead —
+// EXCEPT "Need More Props", which stays active so the team is prompted to set a date.
+export function isClosedLead(v) {
+  if (TERMINAL_STAGES.has(visitStage(v))) return true;
+  if (visitStatus(v) === 'dead' && visitStage(v) !== 'need_more') return true;
+  return false;
+}
+
+// next scheduled FU — null for closed leads (terminal stage or dead, per isClosedLead) so
+// the Next-FU column reads "No FU" and they stay out of the overdue filter.
 export function nextFuFor(v) {
-  // A dead lead carries no follow-up — never derive a "next FU" for it (even if it
-  // has a last-FU date or a stage like Upcoming/After-FU). Keeps the column "No FU"
-  // and drops dead leads out of the overdue filter.
-  if (visitStatus(v) === 'dead') return null;
+  if (isClosedLead(v)) return null;
   // ONLY a scheduled next-FU drives "Next FU" / overdue — no fallback to the last-FU
   // date. A visit with no scheduled next-FU reads "No FU" / "No next-FU set" (needs a
   // date), NOT "overdue" (which a past last-FU date would wrongly imply once a day passes).
@@ -50,11 +64,12 @@ export function isVisitCompleted(v) {
 // Pending-work follow-up filter, per visit. Operates on the NEXT follow-up date.
 export function matchFuFilter(v, key) {
   if (key === 'all') return true;
-  // dead leads & not-yet-completed visits carry no pending follow-up
-  if (visitStatus(v) === 'dead') return false;
+  // not-yet-completed (Upcoming/Cancelled) and CLOSED leads (terminal stage, or dead but
+  // NOT "Need More Props") carry no pending follow-up — see isClosedLead.
   if (!isVisitCompleted(v)) return false;
+  if (isClosedLead(v)) return false;
   const next = nextFuFor(v);
-  if (key === 'no_fu') return !next;          // completed, nothing scheduled → needs action
+  if (key === 'no_fu') return !next;          // completed, active, nothing scheduled → needs action
   if (!next) return false;
   const d = daysBetween(next);                // +ve = past, 0 = today, -ve = future
   if (d == null) return false;
@@ -142,7 +157,7 @@ export function activityForVisit(v) {
   const sg = visitStage(v);
   if (sg === 'revisit_scheduled' && v._revisit_date) return { type: 'revisit', date: v._revisit_date };
   if (sg === 'negotiation' && v._negotiation_date) return { type: 'negotiation', date: v._negotiation_date };
-  if (visitStatus(v) === 'dead') return null;
+  if (isClosedLead(v)) return null;
   const next = nextFuFor(v);
   if (next && isVisitCompleted(v)) return { type: 'followup', date: next };
   return null;

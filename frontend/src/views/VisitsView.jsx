@@ -20,11 +20,19 @@ const PAGE_SIZE = 60;
 const STATUS_OPTS = [{ k: 'all', label: 'All', cls: '' }, ...STATUSES];
 // "Visit Completed" = every operational stage except Upcoming + Cancelled.
 const COMPLETED_EXCLUDE = new Set(['upcoming', 'cancelled']);
-const STAGE_OPTS = [
+// Two-tier stage filter. Top tier = the visit's lifecycle (Completed / Upcoming /
+// Cancelled); second tier = where a COMPLETED visit sits in the pipeline. These used to
+// be one flat bar, which mixed "did the visit happen?" with "where is it in the pipeline?".
+// Both bars drive the same `stages` selection (OR via stagePass), so filtering is unchanged.
+const VISIT_STATUS_OPTS = [
   { k: 'all', label: 'All', cls: '' },
   { k: '__completed', label: 'Visit Completed', cls: 'sg-avfu' },
-  ...STAGES,
+  { k: 'upcoming', label: 'Upcoming Visit', cls: 'sg-up' },
+  { k: 'cancelled', label: 'Cancelled', cls: 'sg-canc' },
 ];
+// Pipeline sub-stages = every stage that lives WITHIN a completed visit (drop the two
+// lifecycle stages the status tier already owns).
+const PIPELINE_STAGE_OPTS = STAGES.filter((s) => !COMPLETED_EXCLUDE.has(s.k));
 // true if a visit's stage passes the selected stage filter (handles the meta value)
 const stagePass = (vstage, sel) => sel === 'all'
   || (sel === '__completed' ? !COMPLETED_EXCLUDE.has(vstage) : vstage === sel);
@@ -350,8 +358,15 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
         onChange={setStatuses}
       />
       <ChipBar multi
-        label="Visit stage · operational pipeline"
-        options={STAGE_OPTS}
+        label="Visit status · completed / upcoming / cancelled"
+        options={VISIT_STATUS_OPTS}
+        counts={stageCounts}
+        value={stages}
+        onChange={setStages}
+      />
+      <ChipBar multi
+        label="Pipeline stage · where a completed visit sits (After Visit FU → Booking)"
+        options={PIPELINE_STAGE_OPTS}
         counts={stageCounts}
         value={stages}
         onChange={setStages}
