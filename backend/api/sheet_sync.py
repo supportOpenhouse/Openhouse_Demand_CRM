@@ -490,7 +490,9 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
     _by_full: dict = {}
     _first_count: dict = {}
     _first_id: dict = {}
+    _id_to_name: dict = {}
     for _u in _user_rows:
+        _id_to_name[_u["id"]] = (_u["name"] or "").strip()
         ph = _last10(_u["phone"])
         if ph:
             _by_phone[ph] = _u["id"]
@@ -524,6 +526,13 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
             skipped += 1
             continue
         try:
+            # Resolve the PM up front (phone-first, name fallback) and store the property's
+            # sales_manager TEXT as the RESOLVED PM's canonical name — NOT the raw sheet value.
+            # The sheet's sales_manager drifts to whoever last sold the unit (the visit RM),
+            # which otherwise leaks into the PM display + name-based scope. Phone is the stable
+            # key; fall back to the raw sheet name only when the PM can't be resolved.
+            pm_user_id = resolve_pm(g(r, "sales_manager"), g(r, "sales_manager_contact"))
+            sm_name = (_id_to_name.get(pm_user_id) if pm_user_id else None) or g(r, "sales_manager")
             row = await conn.fetchrow(
                 """
                 INSERT INTO properties (
@@ -570,13 +579,13 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                 g(r, "super_sqft"), g(r, "carpet_sqft"),
                 g(r, "exit_facing"), g(r, "balcony_view"),
                 g(r, "listing_price"), g(r, "commission"),
-                g(r, "sales_manager"), g(r, "photo_count"), g(r, "video_added"),
+                sm_name, g(r, "photo_count"), g(r, "video_added"),
                 g(r, "home_id") or None, g(r, "supply_form_uid") or None,
                 g(r, "sales_manager_contact") or None,
             )
             ins += 1 if not row else 0  # rough; ON CONFLICT path returns same shape
-            # PM assignment refresh — phone first (sales_manager_contact), name fallback
-            pm_user_id = resolve_pm(g(r, "sales_manager"), g(r, "sales_manager_contact"))
+            # PM assignment refresh — phone first (sales_manager_contact), name fallback.
+            # (pm_user_id was already resolved above; reuse it for the assignment.)
             if pm_user_id:
                 current = await conn.fetchrow(
                     "SELECT pm_user_id FROM property_assignments "

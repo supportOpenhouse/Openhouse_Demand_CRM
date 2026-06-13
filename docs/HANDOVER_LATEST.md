@@ -401,6 +401,27 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   **Deploy:** frontend shipped via owner `vercel deploy --prod` (CLI already auth'd as `akshit-1522`); live
   bundle `index-BiUbRIdY.js` is **SHA-256 byte-identical** to the locally unit-tested build (6/6 logic tests +
   render-smoke, 0 console errors). Backend unchanged. Validated L1/L2/L3.
+- **2026-06-13 (Claude session — property PM = visit RM instead of the property manager):** Report: "when a
+  person creates a visit, they become the property's sales manager on the CRM rather than the property manager
+  of the society." Root cause (confirmed): **no CRM code writes a visit onto a property** (`sync_visits` only
+  touches `visits`/`buyers`; the only trigger is followup→visit). The leak is the **inventory sheet's
+  `sales_manager` *name* column**, which upstream (oh-core) drifts to whoever last sold the unit (the visit
+  RM). `sync_properties` stored that raw name verbatim in `properties.sales_manager`, which then surfaced as
+  the "PM" in PropertyModal **and** leaked into name-based Ground scope (`_is_pm(p.sales_manager)` in
+  `seed_snapshot`/`scopeVisits`/`properties.js`). The PHONE column (`sales_manager_contact`) is stable, so the
+  phone-resolved `property_assignments` was already correct (e.g. Nirala Greenshire → Abhishek Dwivedi even
+  while the name read "Abhash Kumar"/"Jatin Jain"). **Fix (`sheet_sync.sync_properties`, 1 function, +12/-3):**
+  resolve the PM up front (phone-first) and store the **resolved PM's canonical name** in
+  `properties.sales_manager`, falling back to the raw sheet name only when unresolved. Display + name-scope now
+  follow the real PM, self-healing on each sync. **Deep validation (read-only sim over the live sheet + DB):**
+  133/140 unchanged, 7 benign first→full normalizations ("Abhishek"→"Abhishek Dwivedi", same person, and that
+  first name is unique to one user), **0 wrong-person changes**, **0 Ground users' scope changes** under
+  current data, and no PM loses an assigned society; drift-robustness proven — feeding the earlier drifted
+  names (Abhash/Jatin/Ajitesh/Udit) with each unit's current phone all resolve to the correct stable PM
+  (Abhishek Dwivedi / Vinay Kumar). `py_compile` OK. **Caveat:** units where BOTH the name and the phone drift
+  to the same RM can't be distinguished by phone — those need an authoritative society→PM roster / admin
+  correction (not addressed here). **Deploy:** backend-only → `git push` → Render; applies on the next sheet
+  sync.
 
 ---
 
