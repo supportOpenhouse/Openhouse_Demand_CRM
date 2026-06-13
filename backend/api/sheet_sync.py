@@ -711,9 +711,12 @@ async def sync_all_properties(conn: asyncpg.Connection) -> dict:
 
 async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
     """Old-lead + Buyer-Status='dead' for every visit whose unit is no longer
-    live inventory — i.e. it does NOT map (by home_id) to an all_properties row
-    that is 'Ready' or 'Coming Soon'. Covers Sold / Archived / Booked units AND
-    visits with no listing record at all.
+    live inventory — i.e. its home_id does NOT map to a 'Ready'/'Coming Soon' row
+    in EITHER the live `properties` table OR the `all_properties` mirror. Checking
+    both heals a home_id mismatch between the two inventory tabs: a unit that's live
+    in Sheet1 (properties) but recorded in All Properties under a different home_id /
+    an Archived status was being wrongly flagged old + dead. Covers Sold / Archived /
+    Booked units AND visits with no listing record at all.
 
     This REPLACES the old pre-1-May date rule (migration 003 / 005). It runs as
     the LAST step of run_all() — after sync_visits has re-upserted lead_status
@@ -724,10 +727,13 @@ async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
         """
         WITH cls AS (
           SELECT v.id,
-                 bool_or(ap.listing_status IN ('Ready','Coming Soon')) AS active
+                 (bool_or(ap.listing_status IN ('Ready','Coming Soon'))
+                  OR bool_or(p.listing_status IN ('Ready','Coming Soon'))) AS active
           FROM visits v
           LEFT JOIN all_properties ap
             ON ap.home_id = v.home_id AND ap.deleted_at IS NULL
+          LEFT JOIN properties p
+            ON p.home_id = v.home_id AND p.deleted_at IS NULL
           GROUP BY v.id
         )
         UPDATE visits v SET
