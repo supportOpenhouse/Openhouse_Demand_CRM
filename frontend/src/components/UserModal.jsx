@@ -24,6 +24,8 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
   const [slug, setSlug] = useState('');                       // create-only, optional override
   const [cities, setCities] = useState(user?.cities || []);
   const [cityDraft, setCityDraft] = useState('');
+  const [mms, setMms] = useState(user?.micro_markets || []);
+  const [mmDraft, setMmDraft] = useState('');
   const [active, setActive] = useState(user?.active !== false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -44,6 +46,13 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
     () => [...new Set(allUsers.flatMap((u) => u.cities || []).filter(Boolean))].sort(),
     [allUsers],
   );
+  const mmSuggest = useMemo(
+    () => [...new Set([
+      ...allUsers.flatMap((u) => u.micro_markets || []),
+      ...(seed?.properties || []).map((p) => p.micro_market),
+    ].filter(Boolean))].sort(),
+    [allUsers, seed],
+  );
 
   const addCity = (c) => {
     const v = (c || '').trim();
@@ -54,6 +63,16 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
   const onCityKey = (e) => {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addCity(cityDraft); }
     else if (e.key === 'Backspace' && !cityDraft && cities.length) removeCity(cities[cities.length - 1]);
+  };
+  const addMm = (c) => {
+    const v = (c || '').trim();
+    if (v && !mms.some((x) => x.toLowerCase() === v.toLowerCase())) setMms([...mms, v]);
+    setMmDraft('');
+  };
+  const removeMm = (c) => setMms(mms.filter((x) => x !== c));
+  const onMmKey = (e) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addMm(mmDraft); }
+    else if (e.key === 'Backspace' && !mmDraft && mms.length) removeMm(mms[mms.length - 1]);
   };
 
   const submit = async () => {
@@ -69,10 +88,10 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
     setSaving(true);
     try {
       if (editing) {
-        await updateUser(user.slug, { name: nm, email: em, team, role: role.trim(), phone: digits, cities, active });
+        await updateUser(user.slug, { name: nm, email: em, team, role: role.trim(), phone: digits, cities, micro_markets: mms, active });
         toast('Member updated', 'good');
       } else {
-        const r = await createUser({ name: nm, email: em, team, role: role.trim(), phone: digits, cities, slug: slug.trim() || undefined });
+        const r = await createUser({ name: nm, email: em, team, role: role.trim(), phone: digits, cities, micro_markets: mms, slug: slug.trim() || undefined });
         toast(`${r.name || nm} added to the team`, 'good');
       }
       await onSaved?.();
@@ -146,6 +165,25 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
                 <div className="rx-citysuggest">
                   {citySuggest.filter((c) => !cities.includes(c)).map((c) => (
                     <button type="button" key={c} className="btn xs ghost" onClick={() => addCity(c)}>+ {c}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="full">
+              <label>Micro-market manager <span style={{ textTransform: 'none', fontWeight: 400 }}>(optional — scopes them to these micro-markets, overriding city)</span></label>
+              <div className="rx-citybox">
+                {mms.map((c) => (
+                  <span key={c} className="rx-citychip">{c}<button type="button" onClick={() => removeMm(c)} aria-label={`Remove ${c}`}>✕</button></span>
+                ))}
+                <input className="rx-cityinput" value={mmDraft} onChange={(e) => setMmDraft(e.target.value)}
+                       onKeyDown={onMmKey} onBlur={() => addMm(mmDraft)}
+                       placeholder={mms.length ? 'Add another…' : 'e.g. Dwarka Expressway'} />
+              </div>
+              {mmSuggest.filter((c) => !mms.includes(c)).length > 0 && (
+                <div className="rx-citysuggest">
+                  {mmSuggest.filter((c) => !mms.includes(c)).map((c) => (
+                    <button type="button" key={c} className="btn xs ghost" onClick={() => addMm(c)}>+ {c}</button>
                   ))}
                 </div>
               )}

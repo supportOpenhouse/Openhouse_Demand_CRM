@@ -66,6 +66,31 @@ def scope_for_user(snap: dict, user: dict) -> dict:
         snap["engagements"] = {cp: e for cp, e in snap.get("engagements", {}).items() if cp in codes}
         snap["followups"] = [f for f in snap.get("followups", []) if f.get("cp_code") in codes]
 
+    # ── MM-manager: micro-market scope takes PRECEDENCE over team/city. A user with
+    # micro_markets set sees every property + visit in those micro-markets (across all
+    # PMs/RMs there), plus their own PM societies / RM visits. Only triggers when
+    # micro_markets is set, so no other user is affected. Edit rights come from the
+    # user's team (these managers are TLs → the frontend already grants TL edit).
+    mms = set(user.get("micro_markets") or [])
+    if mms:
+        pm_by_property = snap.get("pm_by_property", {})
+        my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
+        in_scope_prop = lambda p: (p.get("micro_market") in mms) or (p["property_name"] in my_props)
+        mm_socs = {p["society_name"] for p in properties if in_scope_prop(p)}
+        mm_homeids = {p["home_id"] for p in properties if in_scope_prop(p) and p.get("home_id")}
+        def _in_mm(v):
+            return ((v.get("home_id") and v["home_id"] in mm_homeids)
+                    or v["society_name"] in mm_socs or v["sales_manager"] == name)
+        codes = {b["cp_code"] for b in brokers if cp_owner.get(b["cp_code"]) == slug}
+        for v in visits:
+            if _in_mm(v) and v["cp_code"]:
+                codes.add(v["cp_code"])
+        keep_brokers(codes)
+        snap["properties"] = [p for p in properties if in_scope_prop(p)]
+        snap["visits"] = [v for v in visits if _in_mm(v)]
+        _scope_personal(snap, slug)
+        return snap
+
     if team == "TL" or role in ("kam_tl", "caller_tl"):
         # TLs and the calling-team lead (kam_tl) see the team, not a personal book.
         # City-scope only single-city TLs / closers; multi-city leads see everything.
@@ -550,7 +575,7 @@ async def build(conn: asyncpg.Connection) -> dict:
     # --- full roster (DB is the source of truth; frontend merges over its
     # hardcoded USERS array so team/city/role edits show up without a code change) ---
     user_rows = await conn.fetch(
-        "SELECT slug, email, name, phone, team, role, cities, active FROM users WHERE active ORDER BY name"
+        "SELECT slug, email, name, phone, team, role, cities, micro_markets, active FROM users WHERE active ORDER BY name"
     )
     users = [{
         "id": r["slug"],                 # frontend convention: id == slug
@@ -561,6 +586,7 @@ async def build(conn: asyncpg.Connection) -> dict:
         "team": r["team"],
         "role": r["role"],
         "cities": list(r["cities"] or []),
+        "micro_markets": list(r["micro_markets"] or []),
     } for r in user_rows]
 
     return {

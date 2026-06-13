@@ -47,6 +47,12 @@ SHEET_ID_TEAM = os.environ.get(
     "SHEET_ID_TEAM", "18XoHGVorN5cMOIJSvfqS2cS6teGi-iq98xwdCp3ZBjk"
 )
 
+# AMA-register sheet — source of key-handover dates synced daily into
+# sheet_key_handovers (Gurgaon / Noida-GN / Ghaziabad tabs). See sheet_sync.
+SHEET_ID_KEY_HANDOVERS = os.environ.get(
+    "SHEET_ID_KEY_HANDOVERS", "1PZC6MHbqMVldSBWSQ8d7Pw_B101PcofRXFpWaVRWUL8"
+)
+
 # How many recent visits to ship to the frontend in /api/seed. IMPORTANT: the seed
 # loads the global most-recent N visits and THEN scopes per user, so a scoped KAM/
 # Ground user only sees their visits that fall inside this global window. Keep this

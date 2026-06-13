@@ -2,6 +2,10 @@
 
 export function propertiesForUser(properties, me, pmByProperty = {}) {
   if (!me || !me.id) return properties;
+  // MM-manager: scope to their micro-market(s) (+ own PM properties). Takes
+  // precedence over team/city; only users with micro_markets set are affected.
+  const mms = me.micro_markets || [];
+  if (mms.length) return properties.filter((p) => mms.includes(p.micro_market) || pmByProperty[p.property_name] === me.slug);
   const admTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
   if (admTL) {
     if (me.role === 'tl_closer') return properties.filter((p) => (me.cities || []).includes(p.city_name));

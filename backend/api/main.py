@@ -131,6 +131,7 @@ async def me(user: dict = Depends(auth.current_user_or_none)):
         "team": user["team"],
         "role": user["role"],
         "cities": list(user["cities"] or []),
+        "micro_markets": list(user.get("micro_markets") or []),
     }
 
 
@@ -158,6 +159,7 @@ async def get_seed(user: dict = Depends(auth.current_user)):
         "team": user["team"],
         "role": user["role"],
         "cities": list(user["cities"] or []),
+        "micro_markets": list(user.get("micro_markets") or []),
     }
     return snapshot
 
@@ -232,38 +234,72 @@ _kh_cache: dict = {"at": 0.0, "items": None}   # 5-min in-process cache
 _KH_TTL = 300
 
 
+def _kh_key(society: str, unit: str) -> str:
+    """society (alnum, upper) + de-zeroed digit-runs of the unit — mirrors the
+    frontend matcher so 'acquisitions wins' dedup uses the same key."""
+    soc = re.sub(r"[^A-Z0-9]", "", (society or "").upper())
+    digits = sorted({re.sub(r"^0+(?=\d)", "", d) for d in re.findall(r"\d+", unit or "")})
+    return f"{soc}#{'|'.join(digits)}" if soc else ""
+
+
 @app.get("/api/key-handovers")
 async def key_handovers(user: dict = Depends(auth.current_user)):
-    """society_name + unit_no + key_handover_date from the external properties DB.
-    The frontend matches these to our inventory (society + unit) for the Analytics
-    Property-Status report. Degrades gracefully when PROPERTIES_DATABASE_URL is unset
-    or unreachable (returns an empty list + a source flag)."""
-    if not config.PROPERTIES_DATABASE_URL:
-        return {"items": [], "source": "unset", "count": 0}
+    """society_name + unit_no + key_handover_date, MERGED from the acquisitions
+    ("properties") DB AND our sheet_key_handovers table (AMA-register daily sync).
+    Acquisitions wins on conflict (same society + flat-number); the sheet fills the
+    gaps. The frontend matches these to our inventory for the Property-Status report.
+    Degrades gracefully when either source is unreachable."""
     now = time.monotonic()
     if _kh_cache["items"] is not None and (now - _kh_cache["at"]) < _KH_TTL:
         return {"items": _kh_cache["items"], "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
-    try:
-        conn = await asyncpg.connect(config.PROPERTIES_DATABASE_URL, timeout=8)
+
+    def _row_to_item(r):
+        return {"society": (r["society_name"] or "").strip(), "unit": (r["unit_no"] or "").strip(),
+                "kh_date": r["key_handover_date"].isoformat() if r["key_handover_date"] else ""}
+
+    # 1. acquisitions DB (authoritative; wins on conflict)
+    acq_items, acq_source = [], "unset"
+    if config.PROPERTIES_DATABASE_URL:
         try:
-            rows = await conn.fetch(
+            conn = await asyncpg.connect(config.PROPERTIES_DATABASE_URL, timeout=8)
+            try:
+                rows = await conn.fetch(
+                    "SELECT society_name, unit_no, key_handover_date "
+                    "FROM properties WHERE key_handover_date IS NOT NULL", timeout=8,
+                )
+            finally:
+                await conn.close()
+            acq_items = [_row_to_item(r) for r in rows]
+            acq_source = "connected"
+        except Exception as e:  # noqa: BLE001 — never let a bad external DB break the page
+            log.warning("key-handovers (acquisitions) fetch failed: %s", e)
+            acq_source = "error"
+
+    # 2. sheet-synced KH (our DB) — fills units the acquisitions DB doesn't cover
+    sheet_items = []
+    try:
+        async with acquire() as conn:
+            srows = await conn.fetch(
                 "SELECT society_name, unit_no, key_handover_date "
-                "FROM properties WHERE key_handover_date IS NOT NULL",
-                timeout=8,   # bound the query too (connect timeout alone won't stop a slow SELECT)
+                "FROM sheet_key_handovers WHERE key_handover_date IS NOT NULL"
             )
-        finally:
-            await conn.close()
-    except Exception as e:  # noqa: BLE001 — never let a bad external DB break the page
-        log.warning("key-handovers fetch failed: %s", e)
-        return {"items": [], "source": "error", "error": str(e)[:200], "count": 0}
-    items = [{
-        "society": (r["society_name"] or "").strip(),
-        "unit": (r["unit_no"] or "").strip(),
-        "kh_date": r["key_handover_date"].isoformat() if r["key_handover_date"] else "",
-    } for r in rows]
+        sheet_items = [_row_to_item(r) for r in srows]
+    except Exception as e:  # noqa: BLE001
+        log.warning("key-handovers (sheet) fetch failed: %s", e)
+
+    # 3. merge: acquisitions first, sheet only fills keys not already present
+    seen = {_kh_key(it["society"], it["unit"]) for it in acq_items}
+    items = list(acq_items)
+    for it in sheet_items:
+        k = _kh_key(it["society"], it["unit"])
+        if k and k not in seen:
+            seen.add(k); items.append(it)
+
     _kh_cache["items"] = items
     _kh_cache["at"] = now
-    return {"items": items, "source": "connected", "count": len(items)}
+    source = "connected" if (acq_source == "connected" or sheet_items) else acq_source
+    return {"items": items, "source": source, "count": len(items),
+            "acquisitions": len(acq_items), "sheet": len(sheet_items)}
 
 
 # ============================================================================
@@ -668,6 +704,7 @@ class UserCreateBody(BaseModel):
     slug: Optional[str] = None             # auto-derived from name when blank
     phone: Optional[str] = None
     cities: list[str] = Field(default_factory=list)
+    micro_markets: list[str] = Field(default_factory=list)
     joined_at: Optional[str] = None
 
 
@@ -679,6 +716,7 @@ class UserUpdateBody(BaseModel):
     role: Optional[str] = None
     phone: Optional[str] = None
     cities: Optional[list[str]] = None
+    micro_markets: Optional[list[str]] = None
     active: Optional[bool] = None
 
 
@@ -712,6 +750,7 @@ async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_us
         raise HTTPException(400, f"Invalid team: {body.team}")
     email = _check_email_domain(body.email)
     cities = [c.strip() for c in (body.cities or []) if c.strip()]
+    mms = [m.strip() for m in (body.micro_markets or []) if m.strip()]
     async with acquire() as conn:
         if await conn.fetchval("SELECT 1 FROM users WHERE email = $1", email):
             raise HTTPException(409, "A user with this email already exists")
@@ -726,12 +765,12 @@ async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_us
             slug = await _unique_slug(conn, _slugify(body.name))
         row = await conn.fetchrow(
             """
-            INSERT INTO users (slug, email, name, phone, team, role, cities, joined_at, active)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+            INSERT INTO users (slug, email, name, phone, team, role, cities, micro_markets, joined_at, active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
             RETURNING slug, name
             """,
             slug, email, body.name.strip(), (body.phone or "").strip() or None,
-            body.team, body.role.strip(), cities, _date_or_none(body.joined_at),
+            body.team, body.role.strip(), cities, mms, _date_or_none(body.joined_at),
         )
     return {"ok": True, "slug": row["slug"], "name": row["name"]}
 
@@ -769,6 +808,8 @@ async def update_user(slug: str, body: UserUpdateBody, user: dict = Depends(auth
             fields["phone"] = body.phone.strip() or None
         if body.cities is not None:
             fields["cities"] = [c.strip() for c in body.cities if c.strip()]
+        if body.micro_markets is not None:
+            fields["micro_markets"] = [m.strip() for m in body.micro_markets if m.strip()]
         if body.active is not None:
             fields["active"] = body.active
         if not fields:

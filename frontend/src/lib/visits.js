@@ -173,6 +173,15 @@ function isAdminOrTL(me) {
 }
 export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByProperty = {}) {
   if (!me || !me.id) return visits;
+  // MM-manager: micro-market scope takes precedence over team/city (mirrors the
+  // backend scope_for_user). Only users with micro_markets set are affected.
+  const mms = me.micro_markets || [];
+  if (mms.length) {
+    const inScope = (p) => mms.includes(p.micro_market) || pmByProperty[p.property_name] === me.slug;
+    const mmSocs = new Set(properties.filter(inScope).map((p) => p.society_name));
+    const mmHomes = new Set(properties.filter((p) => inScope(p) && p.home_id).map((p) => String(p.home_id)));
+    return visits.filter((v) => (v.home_id && mmHomes.has(String(v.home_id))) || mmSocs.has(v.society_name) || v.sales_manager === me.name);
+  }
   if (isAdminOrTL(me)) {
     if (me.role === 'tl_closer' || (me.team === 'TL' && (me.cities || []).length === 1)) {
       return visits.filter((v) => (me.cities || []).includes(v.city));

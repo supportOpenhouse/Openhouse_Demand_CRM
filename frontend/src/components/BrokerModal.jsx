@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { TODAY, ymd, fmtDate, fmtDay, fmtMonth, initials } from '../lib/format.js';
+import { TODAY, ymd, fmtDate, fmtDay, fmtMonth, fmtDateTime, initials } from '../lib/format.js';
 import {
-  STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus,
+  STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextActivityFor,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -431,6 +431,9 @@ function VisitRow({ v, visits, open, isPriority, onToggle, draft, setDraft, onSa
         <div className="vh-buyer">
           <div className="b">{v.buyer_name || '—'}</div>
           <div className="ph">{v.buyer_contact || ''}{v.lead_occurrence_count && +v.lead_occurrence_count > 1 ? ` · revisit #${v.lead_occurrence_count}` : ''}</div>
+          {(() => { const na = nextActivityFor(v); return na ? (
+            <div style={{ marginTop: 3 }}><span className={'fu-chip ' + (na.kind === 'negotiation' ? 'today' : 'later')} title={na.label}><span className="d" />{na.kind === 'negotiation' ? '🤝 Negotiation ' : '↻ Revisit '}{fmtDateTime(na.date)}</span></div>
+          ) : null; })()}
         </div>
         <div className="vh-prop">
           <div className="p">{v.society_name || '—'} {unit ? <span className="muted" style={{ fontWeight: 500, fontSize: 11 }}>{unit}</span> : null}</div>

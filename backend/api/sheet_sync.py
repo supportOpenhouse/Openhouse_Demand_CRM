@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import re
 from typing import Any
 
 import asyncpg
@@ -755,6 +756,105 @@ async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
 
 # ---- TOP-LEVEL ---------------------------------------------------------------
 
+# ---- KEY-HANDOVER (AMA-register sheet → sheet_key_handovers) ------------------
+
+def _norm_hdr(h: str) -> str:
+    return re.sub(r"\s+", " ", (h or "").strip().lower())
+
+
+def _kh_date(v: str | None) -> dt.date | None:
+    """Parse the sheet's varied date formats (13-Oct-2024, 16 Feb 2026, 6-Apr-2026)."""
+    s = _safe(v)
+    if not s:
+        return None
+    try:
+        return dt.date.fromisoformat(s[:10])
+    except ValueError:
+        pass
+    try:
+        from dateutil import parser as _dp
+        return _dp.parse(s, dayfirst=True, fuzzy=True).date()
+    except Exception:
+        return None
+
+
+async def sync_key_handovers(conn: asyncpg.Connection) -> dict:
+    """Society Name / Unit No / City / Key Handover Date from the AMA-register
+    sheet's Gurgaon / Noida-GN / Ghaziabad tabs → sheet_key_handovers. The header
+    row is auto-detected per tab (Gurgaon has legend rows above it). Only rows with
+    a society + unit + parseable KH date are kept."""
+    sheet_id = config.SHEET_ID_KEY_HANDOVERS
+    run_id = await _begin_run(conn, "key_handovers", sheet_id, "Gurgaon,Noida/GN,Ghaziabad")
+    seen = skipped = failed = 0
+    errors: list = []
+    rows_out: dict = {}   # (society_lc, unit_lc) -> (city, society, unit, date, tab); last-wins
+
+    for tab in ("Gurgaon", "Noida/GN", "Ghaziabad"):
+        try:
+            rows = sheets.read_tab(sheet_id, tab)
+        except Exception as e:
+            errors.append({"tab": tab, "error": str(e)[:200]})
+            continue
+        hdr_i = None
+        for i, r in enumerate(rows[:8]):
+            norm = [_norm_hdr(x) for x in r]
+            if "society name" in norm and any("key handover" in x for x in norm):
+                hdr_i = i
+                break
+        if hdr_i is None:
+            errors.append({"tab": tab, "error": "header row not found"})
+            continue
+        idx = {_norm_hdr(h): j for j, h in enumerate(rows[hdr_i])}
+
+        def col(*names):
+            for n in names:
+                if n in idx:
+                    return idx[n]
+            return -1
+
+        ci_soc = col("society name", "society")
+        ci_unit = col("unit no", "unit no.", "unit")
+        ci_city = col("city")
+        ci_kh = next((j for h, j in idx.items() if "key handover" in h), -1)
+        if ci_soc < 0 or ci_unit < 0 or ci_kh < 0:
+            errors.append({"tab": tab, "error": "missing society/unit/kh column"})
+            continue
+        for r in rows[hdr_i + 1:]:
+            seen += 1
+            soc = _safe(r[ci_soc]) if ci_soc < len(r) else ""
+            unit = _safe(r[ci_unit]) if ci_unit < len(r) else ""
+            kh = _kh_date(r[ci_kh]) if ci_kh < len(r) else None
+            city = _safe(r[ci_city]) if (0 <= ci_city < len(r)) else ""
+            if not soc or not unit or kh is None:
+                skipped += 1
+                continue
+            rows_out[(soc.lower(), unit.lower())] = (city or None, soc, unit, kh, tab)
+
+    upserted = 0
+    if rows_out:
+        try:
+            await conn.executemany(
+                """
+                INSERT INTO sheet_key_handovers (city, society_name, unit_no, key_handover_date, source_tab, synced_at)
+                VALUES ($1,$2,$3,$4,$5, now())
+                ON CONFLICT (society_name, unit_no) DO UPDATE SET
+                  city = EXCLUDED.city,
+                  key_handover_date = EXCLUDED.key_handover_date,
+                  source_tab = EXCLUDED.source_tab,
+                  synced_at = now()
+                """,
+                list(rows_out.values()),
+            )
+            upserted = len(rows_out)
+        except Exception as e:
+            failed = len(rows_out)
+            errors.append({"phase": "upsert", "error": str(e)[:200]})
+
+    await _finish_run(conn, run_id, seen, 0, upserted, skipped, failed, errors,
+                      status="partial" if (failed or errors) else "success")
+    return {"seen": seen, "upserted": upserted, "skipped": skipped, "failed": failed, "tab_errors": len(errors)}
+
+
 async def run_all() -> dict:
     """Run brokers → tiers → properties → visits in that order (FK dependencies),
     then reclassify old/dead leads off the freshly-synced property statuses."""
@@ -774,4 +874,15 @@ async def run_all() -> dict:
         # MUST be last: re-derives old/dead from the just-synced all_properties,
         # overriding any lead_status the sheet upsert above restored.
         out["inactive_leads"] = await sync_inactive_leads(conn)
+        # Key-handover sheet: refresh once per UTC day (first /admin/sync after
+        # midnight ≈ 5:30 AM IST), not every 15 min — it reads ~1,165 rows.
+        last_kh = await conn.fetchval(
+            "SELECT max(run_started_at) FROM sheet_sync_log "
+            "WHERE sheet_name = 'key_handovers' AND status IN ('success', 'partial')"
+        )
+        today = dt.datetime.now(dt.timezone.utc).date()
+        if last_kh is None or last_kh.date() < today:
+            out["key_handovers"] = await sync_key_handovers(conn)
+        else:
+            out["key_handovers"] = {"skipped": "already synced today"}
     return out

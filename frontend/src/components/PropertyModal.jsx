@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { TODAY, ymd, fmtDate, fmtDay, initials } from '../lib/format.js';
-import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor } from '../lib/visits.js';
+import { TODAY, ymd, fmtDate, fmtDay, fmtDateTime, initials } from '../lib/format.js';
+import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import { top99ForSociety } from '../lib/properties.js';
 import { TEAM_PILL, nextFuClass, classifyClosingSignal, visitIntentItems } from '../lib/legacy.js';
@@ -393,6 +393,9 @@ function PropVisitRow({
         <div className="vh-buyer">
           <div className="b">{v.buyer_name || '—'}</div>
           <div className="ph">{v.buyer_contact || ''}{v.lead_occurrence_count && +v.lead_occurrence_count > 1 ? ` · revisit #${v.lead_occurrence_count}` : ''}</div>
+          {(() => { const na = nextActivityFor(v); return na ? (
+            <div style={{ marginTop: 3 }}><span className={'fu-chip ' + (na.kind === 'negotiation' ? 'today' : 'later')} title={na.label}><span className="d" />{na.kind === 'negotiation' ? '🤝 Negotiation ' : '↻ Revisit '}{fmtDateTime(na.date)}</span></div>
+          ) : null; })()}
         </div>
         <div className="vh-prop" style={{ minWidth: 160 }}>
           <div className="p">{v.broker_name || '—'} <span className={'tier-badge ' + tier} style={{ marginLeft: 4 }}>{tier}</span></div>
