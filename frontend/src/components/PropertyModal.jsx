@@ -541,7 +541,7 @@ function FollowupForm({ v, draft, onPatch, onSaved }) {
         buyer_status: draft.status || visitStatus(v),
         stage: draft.stage || visitStage(v),
         note: (draft.note || '').trim(),
-        next_followup_date: isDead ? null : (draft.next_date || null),
+        next_followup_date: isDead ? null : (draft.next_date || ymd(addDays(TODAY, 2))),
         revisit_date: isDead ? null : (draft.revisit_date || null),
         negotiation_date: isDead ? null : (draft.negotiation_date || null),
       });

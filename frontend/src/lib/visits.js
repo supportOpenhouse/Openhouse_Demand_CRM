@@ -31,7 +31,10 @@ export function nextFuFor(v) {
   // has a last-FU date or a stage like Upcoming/After-FU). Keeps the column "No FU"
   // and drops dead leads out of the overdue filter.
   if (visitStatus(v) === 'dead') return null;
-  return v._next_followup_date || v.latest_followup_date || null;
+  // ONLY a scheduled next-FU drives "Next FU" / overdue — no fallback to the last-FU
+  // date. A visit with no scheduled next-FU reads "No FU" / "No next-FU set" (needs a
+  // date), NOT "overdue" (which a past last-FU date would wrongly imply once a day passes).
+  return v._next_followup_date || null;
 }
 // latest followup date taken on this visit (seed projection = the real latest)
 export function lastFollowupTaken(v) {
