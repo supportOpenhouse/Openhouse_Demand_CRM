@@ -14,6 +14,7 @@ import AnalyticsView from './views/AnalyticsView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
+import BottomTabBar from './components/BottomTabBar.jsx';
 import { TEAM_PILL } from './lib/legacy.js';
 
 const SEARCH_VIEWS = new Set(['visits', 'cps', 'properties']);
@@ -206,6 +207,7 @@ export default function App() {
             </div>
           </main>
         </div>
+        <BottomTabBar nav={nav} view={view} setView={setView} unread={unread} />
       </div>
       {openCp && <BrokerModal cpCode={openCp} seed={vseed} reloadSeed={reloadSeed} onClose={() => setOpenCp(null)} />}
       {filtersOpen && (

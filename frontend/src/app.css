@@ -539,3 +539,67 @@ html, body, #root { height: 100%; margin: 0; }
 .flt-unit-opt:hover { background: var(--panel2); }
 .flt-unit-opt.on { background: var(--accBg); color: var(--accDark, var(--acc)); font-weight: 600; }
 .flt-unit-more { color: var(--mut2); font-size: 11px; padding: 6px 8px; }
+
+/* ============================================================================
+   MOBILE REDESIGN (<=900px) — bottom tab bar + shell foundation.
+   100% ADDITIVE & MOBILE-ONLY: every rule lives under @media (max-width:900px)
+   or is a base `display:none` for the new tab-bar elements, so desktop (>900px)
+   and all data/business logic are completely untouched. Aligns the shell to
+   useIsMobile()'s 900px breakpoint, removing the old 761–900 "dead zone".
+   ============================================================================ */
+.rx-tabbar, .rx-tab-sheet, .rx-tab-sheet-backdrop { display: none; }
+@keyframes rx-sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+
+@media (max-width: 900px) {
+  /* the vertical sidebar / legacy horizontal strip is replaced by the bottom tab bar */
+  .rx-sidebar, .rx-sidebar.collapsed { display: none; }
+  .rx-navtoggle { display: none; }                 /* no sidebar to toggle on mobile */
+  /* leave room for the fixed tab bar + the phone home indicator */
+  .rx-main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px) + 14px); }
+
+  .rx-tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 5px 4px calc(5px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -1px 14px rgba(22, 28, 36, .06);
+  }
+  .rx-tab {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center;
+    gap: 3px; padding: 6px 2px; min-height: 50px; border: none; background: none;
+    color: var(--mut); cursor: pointer; border-radius: 12px;
+    -webkit-tap-highlight-color: transparent; transition: color .12s ease;
+  }
+  .rx-tab .rx-tab-ic { font-size: 20px; line-height: 1; position: relative; }
+  .rx-tab .rx-tab-lbl { font-size: 10.5px; font-weight: 600; letter-spacing: -.1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rx-tab.on { color: var(--accDark, var(--acc)); }
+  .rx-tab:active { background: var(--panel2); }
+  .rx-tab-dot {
+    position: absolute; top: -3px; right: -7px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--bad, #B91C1C); border: 1.5px solid var(--panel);
+  }
+
+  /* "More" bottom sheet */
+  .rx-tab-sheet-backdrop { display: block; position: fixed; inset: 0; z-index: 95; background: rgba(22, 28, 36, .4); animation: rx-fade-in .16s ease-out; }
+  .rx-tab-sheet {
+    display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: 96;
+    background: var(--panel); border-radius: 20px 20px 0 0;
+    padding: 8px 12px calc(14px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 30px rgba(22, 28, 36, .16); animation: rx-sheet-up .26s var(--ease-out-quint);
+  }
+  .rx-tab-sheet-grip { width: 38px; height: 4px; border-radius: 3px; background: var(--line2, var(--line)); margin: 6px auto 12px; }
+  .rx-tab-sheet-item {
+    display: flex; align-items: center; gap: 13px; width: 100%; padding: 14px 12px;
+    border: none; background: none; color: var(--txt); border-radius: 12px; cursor: pointer;
+    font-size: 15px; font-weight: 600; text-align: left;
+  }
+  .rx-tab-sheet-item .rx-tab-ic { font-size: 20px; }
+  .rx-tab-sheet-item .rx-badge { margin-left: auto; }
+  .rx-tab-sheet-item.on { background: var(--accBg); color: var(--accDark, var(--acc)); }
+  .rx-tab-sheet-item:active { background: var(--panel2); }
+
+  /* iOS Safari zooms the page when a focused input's font-size <16px — force 16px on mobile */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea { font-size: 16px !important; }
+
+  /* momentum scrolling inside modal bodies on iOS */
+  .modal-body { -webkit-overflow-scrolling: touch; }
+}
