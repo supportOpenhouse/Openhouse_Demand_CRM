@@ -380,7 +380,10 @@ function PropVisitRow({
   const isMine = !!(owner && (owner.id === me.id || owner.slug === me.slug));
   const isMyProperty = nameMatch(p.sales_manager);
   const isMyVisit = nameMatch(v.sales_manager);   // the RM who actually ran this visit
-  const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit || (me.team === 'Ground' && isMyProperty);
+  // KAM with admin-granted extra-city access can edit visits in those cities (mirrors
+  // backend _can_edit_visit + the visibility grant). Default off → no effect.
+  const kamExtra = me.team === 'KAM' && me.extra_cities_enabled && (me.extra_cities || []).includes(v.city);
+  const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit || (me.team === 'Ground' && isMyProperty) || kamExtra;
   const nfc = nextFuClass(nextFuFor(v));
   const nudgeOk = (!isMine && !!owner);
   const stDef = STATUSES.find((s) => s.k === status);

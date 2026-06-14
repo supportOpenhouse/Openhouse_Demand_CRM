@@ -946,7 +946,7 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
         return True
     row = await conn.fetchrow(
         """
-        SELECT v.broker_id, v.society_name, v.sales_manager,
+        SELECT v.broker_id, v.society_name, v.sales_manager, v.city,
                co.owner_user_id,
                EXISTS (
                  SELECT 1 FROM property_assignments pa
@@ -973,5 +973,10 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
     if sm and nm and (sm == nm or sm == nm.split(" ", 1)[0]):
         return True
     if user["team"] == "Ground" and row["at_my_property"]:
+        return True
+    # KAM with admin-granted extra-city access can edit visits in those cities — mirrors
+    # the extra-city VISIBILITY grant in scope_for_user. Default off / no cities → no-op.
+    if user["team"] == "KAM" and user.get("extra_cities_enabled") \
+            and (row["city"] or "") in set(user.get("extra_cities") or []):
         return True
     return False
