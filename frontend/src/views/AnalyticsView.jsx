@@ -2,6 +2,7 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import * as A from '../lib/analytics.js';
 import { loadKeyHandovers } from '../api.js';
 import PropertyStatusTable from '../components/PropertyStatusTable.jsx';
+import useIsMobile from '../lib/useIsMobile.js';
 
 const int = (n) => (n || 0).toLocaleString('en-IN');
 const dec = (n) => (n || 0).toFixed(1);
@@ -135,6 +136,7 @@ function Kpi({ label, value }) {
 // ---- main view -------------------------------------------------------------
 export default function AnalyticsView({ seed }) {
   const visits = seed.visits || [];
+  const isMobile = useIsMobile();
   const [f, setF] = useState({
     statuses: ['completed'], leadStatuses: [], sources: [], cities: [], societies: [],
     apartments: [], salesManagers: [], brokers: [], listingStatuses: [], buyerQuery: '', dateFrom: '', dateTo: '',
@@ -248,6 +250,21 @@ export default function AnalyticsView({ seed }) {
           </div>
         </div>
         <div className="an-table-wrap">
+          {isMobile ? (
+          <table className="an-table">
+            <thead><tr><th>Date</th><th>Apartment</th><th>Status</th><th>Buyer</th></tr></thead>
+            <tbody>
+              {tableRows.map((v) => (
+                <tr key={v.id}>
+                  <td>{v.selected_date || v.visit_date || ''}</td>
+                  <td className="an-td-apt">{A.apartmentOf(v)}</td>
+                  <td>{A.STATUS_LABEL[(v.status || '').toLowerCase()] || v.status}</td>
+                  <td>{v.buyer_name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          ) : (
           <table className="an-table">
             <thead><tr>
               <th>Date</th><th>City</th><th>Apartment</th><th>Status</th><th>Lead</th><th>Source</th><th>Sales Mgr</th><th>Broker</th><th>CP</th><th>Buyer</th><th>Contact</th>
@@ -264,6 +281,7 @@ export default function AnalyticsView({ seed }) {
               ))}
             </tbody>
           </table>
+          )}
           {rows.length > TABLE_CAP && <div className="an-table-more">Showing first {TABLE_CAP} of {int(rows.length)} — download CSV for all.</div>}
         </div>
       </div>
