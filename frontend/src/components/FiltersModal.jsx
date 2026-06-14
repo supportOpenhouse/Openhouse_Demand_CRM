@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { TODAY, ymd } from '../lib/format.js';
 import { flatNo } from '../lib/propertyStatus.js';
+import useIsMobile from '../lib/useIsMobile.js';
 
 // Advanced Visits filters — faithful to crm.html's #modal-filters (society / locality /
 // BHK / CP tier / CP / RM / source / visit-date range / next-followup).
@@ -34,6 +35,20 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
     ...brokers.flatMap((b) => (b.micro_markets || '').split(',').map((s) => s.trim())),
   ].filter(Boolean))].sort(), [properties, brokers]);
   const rms = useMemo(() => [...new Set(visits.map((v) => v.sales_manager).filter(Boolean))].sort(), [visits]);
+
+  // CP autocomplete options. WEB behaviour is unchanged (the same brokers.slice(0,4000)).
+  // On MOBILE that 4,000-<option> datalist freezes the device, so there we render a typed,
+  // capped list instead — only suggestions matching what's typed (max 50), which is what
+  // autocomplete shows anyway. Desktop/web users are not affected.
+  const isMobile = useIsMobile();
+  const cpOptions = useMemo(() => {
+    if (!isMobile) return brokers.slice(0, 4000);
+    const q = (f.cp || '').trim().toLowerCase();
+    if (!q) return [];
+    return brokers.filter((b) =>
+      `${b.cp_code || ''} ${b.name || ''} ${b.company_name || ''}`.toLowerCase().includes(q)
+    ).slice(0, 50);
+  }, [isMobile, brokers, f.cp]);
 
   // unit options cascade off the chosen society: property unit = property_name
   // before the first comma; visit unit = unit_address_line1. No society → all units.
@@ -154,7 +169,7 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
               <label style={lbl}>Channel Partner</label>
               <input className="rx-inp" style={{ width: '100%' }} list="flt-cp" placeholder="Type CP name / code / company…"
                      value={f.cp} onChange={(e) => setF((p) => ({ ...p, cp: e.target.value }))} />
-              <datalist id="flt-cp">{brokers.slice(0, 4000).map((b) => <option key={b.cp_code} value={b.cp_code}>{b.name} · {b.cp_code} · {b.company_name || ''}</option>)}</datalist>
+              <datalist id="flt-cp">{cpOptions.map((b) => <option key={b.cp_code} value={b.cp_code}>{b.name} · {b.cp_code} · {b.company_name || ''}</option>)}</datalist>
             </div>
             <div>
               <label style={lbl}>RM / sales_manager</label>
