@@ -131,7 +131,7 @@ async def current_user(request: Request) -> dict:
         raise HTTPException(401, "Not signed in")
     async with acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, slug, email, name, team, role, cities, micro_markets, active "
+            "SELECT id, slug, email, name, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active "
             "FROM users WHERE id = $1 AND active = true",
             sess["uid"],
         )
@@ -154,7 +154,7 @@ async def upsert_user_for_login(email: str, name: str, picture: Optional[str]) -
     """
     async with acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, slug, email, name, team, role, cities, micro_markets, active "
+            "SELECT id, slug, email, name, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active "
             "FROM users WHERE lower(email) = lower($1)",
             email,
         )

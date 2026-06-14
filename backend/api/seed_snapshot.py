@@ -103,8 +103,19 @@ def scope_for_user(snap: dict, user: dict) -> dict:
 
     if team == "KAM":
         owned = {b["cp_code"] for b in brokers if cp_owner.get(b["cp_code"]) == slug}
+        # Optional admin-granted extra-city visit access (per-KAM toggle). When enabled,
+        # the KAM ALSO sees every visit in `extra_cities` (on top of their own CPs), plus
+        # those visits' CPs so the cards/pop-ups resolve. Default off / empty {} → this is
+        # a no-op and the KAM's scope is byte-identical to before (no other user touched).
+        extra = set(user.get("extra_cities") or []) if user.get("extra_cities_enabled") else set()
+        if extra:
+            for v in visits:
+                if v.get("city") in extra and v["cp_code"]:
+                    owned.add(v["cp_code"])
         keep_brokers(owned)
-        snap["visits"] = [v for v in visits if cp_owner.get(v["cp_code"]) == slug]
+        snap["visits"] = [v for v in visits
+                          if cp_owner.get(v["cp_code"]) == slug
+                          or (extra and v.get("city") in extra)]
         # KAMs keep ALL properties (they suggest inventory to buyers).
         _scope_personal(snap, slug)
         return snap
@@ -575,7 +586,7 @@ async def build(conn: asyncpg.Connection) -> dict:
     # --- full roster (DB is the source of truth; frontend merges over its
     # hardcoded USERS array so team/city/role edits show up without a code change) ---
     user_rows = await conn.fetch(
-        "SELECT slug, email, name, phone, team, role, cities, micro_markets, active FROM users WHERE active ORDER BY name"
+        "SELECT slug, email, name, phone, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active FROM users WHERE active ORDER BY name"
     )
     users = [{
         "id": r["slug"],                 # frontend convention: id == slug
@@ -587,6 +598,8 @@ async def build(conn: asyncpg.Connection) -> dict:
         "role": r["role"],
         "cities": list(r["cities"] or []),
         "micro_markets": list(r["micro_markets"] or []),
+        "extra_cities": list(r["extra_cities"] or []),
+        "extra_cities_enabled": bool(r["extra_cities_enabled"]),
     } for r in user_rows]
 
     return {

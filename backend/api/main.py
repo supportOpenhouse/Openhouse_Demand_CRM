@@ -132,6 +132,8 @@ async def me(user: dict = Depends(auth.current_user_or_none)):
         "role": user["role"],
         "cities": list(user["cities"] or []),
         "micro_markets": list(user.get("micro_markets") or []),
+        "extra_cities": list(user.get("extra_cities") or []),
+        "extra_cities_enabled": bool(user.get("extra_cities_enabled")),
     }
 
 
@@ -160,6 +162,8 @@ async def get_seed(user: dict = Depends(auth.current_user)):
         "role": user["role"],
         "cities": list(user["cities"] or []),
         "micro_markets": list(user.get("micro_markets") or []),
+        "extra_cities": list(user.get("extra_cities") or []),
+        "extra_cities_enabled": bool(user.get("extra_cities_enabled")),
     }
     return snapshot
 
@@ -705,6 +709,8 @@ class UserCreateBody(BaseModel):
     phone: Optional[str] = None
     cities: list[str] = Field(default_factory=list)
     micro_markets: list[str] = Field(default_factory=list)
+    extra_cities: list[str] = Field(default_factory=list)
+    extra_cities_enabled: bool = False
     joined_at: Optional[str] = None
 
 
@@ -717,6 +723,8 @@ class UserUpdateBody(BaseModel):
     phone: Optional[str] = None
     cities: Optional[list[str]] = None
     micro_markets: Optional[list[str]] = None
+    extra_cities: Optional[list[str]] = None
+    extra_cities_enabled: Optional[bool] = None
     active: Optional[bool] = None
 
 
@@ -751,6 +759,7 @@ async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_us
     email = _check_email_domain(body.email)
     cities = [c.strip() for c in (body.cities or []) if c.strip()]
     mms = [m.strip() for m in (body.micro_markets or []) if m.strip()]
+    extra = [c.strip() for c in (body.extra_cities or []) if c.strip()]
     async with acquire() as conn:
         if await conn.fetchval("SELECT 1 FROM users WHERE email = $1", email):
             raise HTTPException(409, "A user with this email already exists")
@@ -765,12 +774,12 @@ async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_us
             slug = await _unique_slug(conn, _slugify(body.name))
         row = await conn.fetchrow(
             """
-            INSERT INTO users (slug, email, name, phone, team, role, cities, micro_markets, joined_at, active)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+            INSERT INTO users (slug, email, name, phone, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, joined_at, active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true)
             RETURNING slug, name
             """,
             slug, email, body.name.strip(), (body.phone or "").strip() or None,
-            body.team, body.role.strip(), cities, mms, _date_or_none(body.joined_at),
+            body.team, body.role.strip(), cities, mms, extra, bool(body.extra_cities_enabled), _date_or_none(body.joined_at),
         )
     return {"ok": True, "slug": row["slug"], "name": row["name"]}
 
@@ -810,6 +819,10 @@ async def update_user(slug: str, body: UserUpdateBody, user: dict = Depends(auth
             fields["cities"] = [c.strip() for c in body.cities if c.strip()]
         if body.micro_markets is not None:
             fields["micro_markets"] = [m.strip() for m in body.micro_markets if m.strip()]
+        if body.extra_cities is not None:
+            fields["extra_cities"] = [c.strip() for c in body.extra_cities if c.strip()]
+        if body.extra_cities_enabled is not None:
+            fields["extra_cities_enabled"] = body.extra_cities_enabled
         if body.active is not None:
             fields["active"] = body.active
         if not fields:
