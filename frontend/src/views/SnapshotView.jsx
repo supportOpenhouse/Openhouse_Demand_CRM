@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, useEffect, useCallback, forwardRef } from 'r
 import { TODAY, ymd, fmtDate } from '../lib/format.js';
 import { parsePrice, fmtPrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
+import useIsMobile from '../lib/useIsMobile.js';
 
 const CITY_ORDER = ['Gurgaon', 'Noida', 'Ghaziabad'];
 
@@ -333,6 +334,7 @@ export default function SnapshotView({ seed }) {
 
 /* ============================== city block ============================== */
 function CityBlock({ city, g }) {
+  const isMobile = useIsMobile();
   const cfg = CITY_CFG[city] || { sub: `OpenHouse · ${city} Inventory` };
   const readyCount = g.ordered.reduce(
     (n, mm) => n + g.mmGroups[mm].filter((p) => p.listing_status === 'Ready').length, 0);
@@ -358,6 +360,23 @@ function CityBlock({ city, g }) {
         return (
           <div className="snap-cluster" key={mm}>
             <div className="snap-cluster-head">{mm} · {props.length}</div>
+            {isMobile ? (
+              <div className="snap-mlist">
+                {props.map((p, i) => {
+                  const isNew = isPropertyNew(p);
+                  return (
+                    <div className="snap-mcard" key={(p.property_name || '') + i}>
+                      <div className="smc-top">
+                        <span className="smc-soc">{isNew ? <span className="new-badge">NEW</span> : null}{p.society_name || '—'}</span>
+                        <span className={`status-pill ${p.listing_status === 'Ready' ? 'r' : 'cs'}`}>{p.listing_status || '—'}</span>
+                      </div>
+                      <div className="smc-meta">{unitOf(p)} · {p.configuration || '—'} · {p.super_sqft || '—'} sqft · {p.locality_or_sector || p.micro_market || '—'}</div>
+                      <div className="smc-price">{p.listing_price || '—'}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
             <table className="snap-tbl">
               <colgroup>
                 <col className="col-soc" /><col className="col-unit" /><col className="col-area" />
@@ -396,6 +415,7 @@ function CityBlock({ city, g }) {
                 })}
               </tbody>
             </table>
+            )}
           </div>
         );
       })}

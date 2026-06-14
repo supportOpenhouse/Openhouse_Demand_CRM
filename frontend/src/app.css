@@ -605,4 +605,12 @@ html, body, #root { height: 100%; margin: 0; }
 
   /* 44px minimum touch targets for the key one-handed actions (close, call/WhatsApp) */
   .x-btn, .rx-x, .m-card .mc-foot .qa { min-width: 44px; min-height: 44px; }
+
+  /* Inventory Snapshot: card list replaces the wide table on phones (render-gated by useIsMobile) */
+  .snap-mlist { display: flex; flex-direction: column; gap: 8px; }
+  .snap-mcard { border: 0.5px solid var(--line); border-radius: 12px; padding: 11px 12px; background: var(--panel); }
+  .snap-mcard .smc-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .snap-mcard .smc-soc { font-weight: 600; font-size: 14px; }
+  .snap-mcard .smc-meta { font-size: 12px; color: var(--mut); margin-top: 4px; line-height: 1.5; }
+  .snap-mcard .smc-price { font-size: 15px; font-weight: 600; margin-top: 6px; }
 }
