@@ -206,7 +206,12 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
     }
     return visits;
   }
-  if (me.team === 'KAM') return visits.filter((v) => cpOwner[v.cp_code] === me.id);
+  if (me.team === 'KAM') {
+    // optional admin-granted extra-city visit access (mirrors the backend KAM scope).
+    // Default off / empty → identical to before (own-CP visits only).
+    const extra = me.extra_cities_enabled ? (me.extra_cities || []) : [];
+    return visits.filter((v) => cpOwner[v.cp_code] === me.id || (extra.length > 0 && extra.includes(v.city)));
+  }
   if (me.team === 'Ground') {
     // PM's properties via the authoritative assignment (pm_by_property → slug), with the
     // sheet-name match as fallback. The sheet stores some PMs by FIRST NAME only

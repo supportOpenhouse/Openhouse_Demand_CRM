@@ -26,6 +26,9 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
   const [cityDraft, setCityDraft] = useState('');
   const [mms, setMms] = useState(user?.micro_markets || []);
   const [mmDraft, setMmDraft] = useState('');
+  const [extraCities, setExtraCities] = useState(user?.extra_cities || []);
+  const [extraCityDraft, setExtraCityDraft] = useState('');
+  const [extraOn, setExtraOn] = useState(user?.extra_cities_enabled || false);
   const [active, setActive] = useState(user?.active !== false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -74,6 +77,16 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addMm(mmDraft); }
     else if (e.key === 'Backspace' && !mmDraft && mms.length) removeMm(mms[mms.length - 1]);
   };
+  const addExtraCity = (c) => {
+    const v = (c || '').trim();
+    if (v && !extraCities.some((x) => x.toLowerCase() === v.toLowerCase())) setExtraCities([...extraCities, v]);
+    setExtraCityDraft('');
+  };
+  const removeExtraCity = (c) => setExtraCities(extraCities.filter((x) => x !== c));
+  const onExtraCityKey = (e) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addExtraCity(extraCityDraft); }
+    else if (e.key === 'Backspace' && !extraCityDraft && extraCities.length) removeExtraCity(extraCities[extraCities.length - 1]);
+  };
 
   const submit = async () => {
     setErr('');
@@ -88,10 +101,10 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
     setSaving(true);
     try {
       if (editing) {
-        await updateUser(user.slug, { name: nm, email: em, team, role: role.trim(), phone: digits, cities, micro_markets: mms, active });
+        await updateUser(user.slug, { name: nm, email: em, team, role: role.trim(), phone: digits, cities, micro_markets: mms, extra_cities: extraCities, extra_cities_enabled: extraOn, active });
         toast('Member updated', 'good');
       } else {
-        const r = await createUser({ name: nm, email: em, team, role: role.trim(), phone: digits, cities, micro_markets: mms, slug: slug.trim() || undefined });
+        const r = await createUser({ name: nm, email: em, team, role: role.trim(), phone: digits, cities, micro_markets: mms, extra_cities: extraCities, extra_cities_enabled: extraOn, slug: slug.trim() || undefined });
         toast(`${r.name || nm} added to the team`, 'good');
       }
       await onSaved?.();
@@ -188,6 +201,33 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
                 </div>
               )}
             </div>
+
+            {team === 'KAM' && (
+              <div className="full">
+                <label>Extra-city visit access <span style={{ textTransform: 'none', fontWeight: 400 }}>(KAM — also sees ALL visits in these cities, on top of their own CPs)</span></label>
+                <label className="rx-switch" style={{ margin: '2px 0 8px' }}>
+                  <input type="checkbox" checked={extraOn} onChange={(e) => setExtraOn(e.target.checked)} />
+                  <span>{extraOn ? 'On — the cities below are granted' : 'Off — sees only their own CPs (default)'}</span>
+                </label>
+                {extraOn && (
+                  <>
+                    <div className="rx-citybox">
+                      {extraCities.map((c) => (
+                        <span key={c} className="rx-citychip">{c}<button type="button" onClick={() => removeExtraCity(c)} aria-label={`Remove ${c}`}>✕</button></span>
+                      ))}
+                      <input className="rx-cityinput" value={extraCityDraft} onChange={(e) => setExtraCityDraft(e.target.value)}
+                             onKeyDown={onExtraCityKey} onBlur={() => addExtraCity(extraCityDraft)}
+                             placeholder={extraCities.length ? 'Add another…' : 'Add a city'} />
+                    </div>
+                    <div className="rx-citysuggest">
+                      {['Gurgaon', 'Noida', 'Ghaziabad'].filter((c) => !extraCities.includes(c)).map((c) => (
+                        <button type="button" key={c} className="btn xs ghost" onClick={() => addExtraCity(c)}>+ {c}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {editing && (
               <div className="full">
