@@ -607,7 +607,13 @@ if the SDK/key is absent. **Two prerequisites before the draft button works** (s
     Ground; non-admin nav byte-identical); SSR smoke render; frontend build 0 errors. Migration 012 is additive +
     isolated (CREATE TABLE IF NOT EXISTS, touches no existing table/data). **Change set:** `main.py` (2 new admin
     endpoints), `api.js` (2 fns), `App.jsx` (+4 additive lines), new `HiringView.jsx` + migration 012.
-  - **(E) Report Share tab (BETA · admins only) — BUILT + validated; deploy gated on 2 external creds.** A seller
+  - **(E) Report Share tab (BETA · admins only) — DEPLOYED 2026-06-15 (PR #6, commit d76ab97).** Live-verified end
+    to end on prod: deployed backend admin 200 / Ground 403; a real Gmail draft created via the prod backend (SA +
+    domain-wide delegation + Gmail API all confirmed working in prod). Backend → Render (auto on merge); frontend →
+    `vercel deploy --prod` (authenticated CLI). ONE remaining toggle: `ANTHROPIC_API_KEY` is NOT yet in Render's
+    `oh-crm-secrets`, so the prod report is **metrics-only** (AI summary omitted) until it's added — graceful, no error.
+    The summary prompt was also tuned (2026-06-15) to keep pricing generic (no figures), keep tone effort-forward, and
+    never surface property-upkeep or internal-process issues. A seller
     **property performance report**, generated from live visit data and saved as a **draft in the triggering admin's own
     Gmail** (recipient left blank; nothing is sent). New `backend/api/reports.py`: `build_report_data(conn, home_id)`
     (metrics keyed on `home_id` so they reconcile EXACTLY with the Analytics Property-Status tab — Godrej Oasis A-704:
@@ -675,20 +681,15 @@ if the SDK/key is absent. **Two prerequisites before the draft button works** (s
     email fallback); (b) add a CRM backend proxy endpoint (holds `X-CRM-Key`, forwards the super-admin's identity);
     (c) wire `BookVisitsView` Confirm to it and set **`BOOKING_LIVE = true`**; (d) validate one real booking end-to-end,
     then widen `SUPER_ADMINS`. Until then the tab is preview-only and writes nothing.
-15. **Take "Report Share" live** (code built + validated 2026-06-15; the tab + preview already work — only the *draft*
-    button + AI summary are gated on account settings, NOT code). **THREE** one-time external steps:
-    **(a) `ANTHROPIC_API_KEY` → Render** `oh-crm-secrets` (also in local `.env` placeholder, line 43). ⚠ **Gotcha found in
-    live test:** the key authenticates fine but akshit's Anthropic account had hit a **monthly usage limit** ("regain access
-    2026-07-01") — raise the spend/usage limit in the Anthropic Console (Billing → Limits) or the report stays metrics-only
-    until the cap resets. **(b) Enable the Gmail API** in the SA's Cloud project: visit
-    `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=polished-logic-434606-g3` → **Enable**
-    (separate from delegation — the live test 403'd here first: "Gmail API has not been used in project … or it is disabled").
-    **(c) Domain-wide delegation** (DONE 2026-06-15): Admin console → Security → API controls → **Domain-wide delegation** →
-    Client ID **`103924240682962245131`** (SA `sqlanalytics@polished-logic-434606-g3.iam.gserviceaccount.com`), scope
-    **`https://www.googleapis.com/auth/gmail.compose`**. Until (b)+(c) the `/draft` endpoint returns a friendly `503` whose
-    message now distinguishes "Gmail API not enabled" from "delegation not authorised" (`reports._gmail_setup_error`);
-    preview/metrics are unaffected throughout. After (b): re-run the local e2e draft test (creates one real `[CRM TEST]`
-    draft) to confirm, then deploy / announce. (Draft only — never sends.)
+15. **Report Share — DEPLOYED & live 2026-06-15 (PR #6).** Prod-verified: admin 200 / Ground 403; real Gmail draft created
+    via the prod backend. Gmail API ✅ enabled (project `polished-logic-434606-g3`), domain-wide delegation ✅ (client
+    `103924240682962245131`, scope `gmail.compose`). **ONE thing left to flip on the AI summary:** add **`ANTHROPIC_API_KEY`
+    to Render** `oh-crm-secrets` (no Render CLI/API key on disk, so it must be done in the dashboard or via a Render API key) —
+    until then the prod report is **metrics-only** (graceful). ⚠ Note from the live test: the key works, but akshit's Anthropic
+    account hit a **monthly usage cap** ("regain access 2026-07-01") — if the summary is blank after adding the key, raise the
+    spend limit in the Anthropic Console (Billing → Limits). The `/draft` endpoint's `503` message distinguishes "Gmail API not
+    enabled" vs "delegation not authorised" (`reports._gmail_setup_error`). Housekeeping: delete the `[CRM TEST]` / `[PROD TEST]`
+    drafts in akshit's Gmail.
 
 ---
 
