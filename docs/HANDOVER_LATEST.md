@@ -43,7 +43,7 @@ Openhouse_Demand_CRM/
 │       ├── api.js            apiFetch (same-origin, credentials:'include'), loadSeed, write calls
 │       ├── views/            HomeView (default landing), VisitsView, CpView, PropertiesView, TeamView,
 │       │                     NotificationsView, SnapshotView, AnalyticsView, BookVisitsView (super-admin booking · beta),
-│       │                     HiringView (admin hiring/MM planning · beta)
+│       │                     HiringView (admin hiring/MM planning · beta), ReportShareView (admin seller-report mailer · beta)
 │       ├── components/       BrokerModal, PropertyModal, UserModal, FiltersModal, BottomTabBar (mobile nav), …
 │       ├── lib/              visits.js (stage/status/scope), analytics.js, legacy.js, …
 │       ├── app.css / theme.css   light theme; tokens in theme.css (:root)
@@ -52,6 +52,7 @@ Openhouse_Demand_CRM/
 │   │   ├── main.py           all routes (read seed + writes + OAuth + admin sync)
 │   │   ├── auth.py           Google OAuth + signed session cookie (SameSite=Lax)
 │   │   ├── seed_snapshot.py  build() the /api/seed payload + scope_for_user() per role
+│   │   ├── reports.py        Property Report mailer: metrics (by home_id) + Claude(Sonnet) feedback summary + branded HTML + Gmail draft (SA domain-wide delegation)
 │   │   ├── sheet_sync.py     Sheets → Postgres upsert (brokers/visits/inventory)
 │   │   ├── import_ct_assignments.py   one-off CP owner/tier import from CT sheet
 │   │   ├── import_top_brokers.py      99acres top-brokers import
@@ -205,7 +206,9 @@ Writes (all persisted, permission-checked): `POST /api/followups`, `/api/nudges`
 `/api/notifications/{id}/read`, `/api/notifications/read_all`, `/api/daily_tasks/pin|unpin`,
 `/api/engagements`, `/api/brokers/{cp}/tier`, `/api/brokers/{cp}/owner`, `/api/brokers/bulk_assign`,
 `/api/visits/bulk_reassign`, `POST /api/users` + `PATCH /api/users/{slug}` (admin),
-`/api/top-brokers/{id}/phone`, `POST /api/hiring/mm-override` (**admin** — fills a blank MM).
+`/api/top-brokers/{id}/phone`, `POST /api/hiring/mm-override` (**admin** — fills a blank MM),
+`POST /api/reports/property` (**admin** — build a seller report: metrics + Claude summary + rendered HTML; read-only),
+`POST /api/reports/property/draft` (**admin** — save that report as a Gmail **draft** in the caller's own mailbox; `503` until SA delegation is enabled).
 Auth: `/auth/google/start|callback`, `/auth/logout`,
 `/auth/dev_login` (only when `DEV_MODE=1`). Ops: `POST /admin/sync`, `GET /health`.
 
@@ -214,7 +217,7 @@ Auth: `/auth/google/start|callback`, `/auth/logout`,
 ## 7. Frontend features (`frontend/src/views/`)
 Visits · Channel Partners · Properties · **Analytics** · To Be Assigned (admin) ·
 Inventory Snapshot · Team/My Day · Notifications · **Book Visits** (super-admins only · beta) ·
-**Hiring** (admins · beta). Modals: Broker, Property, User (add/edit), Filters.
+**Hiring** (admins · beta) · **Report Share** (admins · beta). Modals: Broker, Property, User (add/edit), Filters.
 Admin "impersonation" switcher re-scopes every view to view-as-another-user.
 
 **Analytics tab** (`AnalyticsView.jsx` + `lib/analytics.js`): 11 filters (Status default Completed),
@@ -250,6 +253,22 @@ fill is stored in **`hiring_mm_overrides`** (migration 012) and applied ONLY as 
 `App.jsx` by `adminOnly` → `me.team === 'Admin'` (the 8 Admin-team users incl. super-admins). Self-contained view
 (styles scoped under `hr-`, no `app.css` change). PM count = distinct PMs with a current `property_assignments`
 row in that MM (authoritative; per-MM, so totals don't sum them).
+
+**Report Share tab** (`ReportShareView.jsx` + `backend/api/reports.py`, **admins only · beta**, 2026-06-15): generate a
+seller-facing **property performance report** and save it as a **draft in the triggering admin's own Gmail** (they add the
+recipient and send — nothing is emailed automatically). Pick a property (any live unit with a `home_id`) → `POST
+/api/reports/property` builds it server-side and returns metrics + an optional Claude summary + the rendered HTML, shown in a
+sandboxed iframe preview → "Create Gmail draft" calls `POST /api/reports/property/draft`. **Metrics are keyed on `home_id`**, so
+they reconcile EXACTLY with the Analytics "Property Status" tab (`visitsForProperty`): visits last-7-days, visits-to-date,
+unique buyers, monthly trend, and a Hot/Warm/Cold/Dead/Not-updated pipeline. The **feedback summary** uses **Claude Sonnet**
+(`claude-sonnet-4-6`, forced tool-use → structured {headline, positives, objections, notable_leads, assessment,
+recommendations}); it **degrades gracefully** — no `ANTHROPIC_API_KEY` or no feedback → the report still renders, metrics-only.
+The **Gmail draft** is created via **service-account domain-wide delegation** (`subject=<caller email>`, `gmail.compose` scope,
+**draft only, never send**). Gated in `App.jsx` by `adminOnly` → `me.team === 'Admin'` AND server-side `_require_admin`.
+Self-contained view (styles scoped under `rp-`, no `app.css` change); `anthropic` is **lazily imported** so the app boots even
+if the SDK/key is absent. **Two prerequisites before the draft button works** (see §10): (a) `ANTHROPIC_API_KEY` in Render's
+`oh-crm-secrets`; (b) Workspace admin authorises the SA client_id `103924240682962245131` for the `gmail.compose` scope. Until
+(b), the draft endpoint returns a friendly **`503`** and the UI shows the actionable message; the preview/metrics work regardless.
 
 ---
 
@@ -588,6 +607,28 @@ row in that MM (authoritative; per-MM, so totals don't sum them).
     Ground; non-admin nav byte-identical); SSR smoke render; frontend build 0 errors. Migration 012 is additive +
     isolated (CREATE TABLE IF NOT EXISTS, touches no existing table/data). **Change set:** `main.py` (2 new admin
     endpoints), `api.js` (2 fns), `App.jsx` (+4 additive lines), new `HiringView.jsx` + migration 012.
+  - **(E) Report Share tab (BETA · admins only) — BUILT + validated; deploy gated on 2 external creds.** A seller
+    **property performance report**, generated from live visit data and saved as a **draft in the triggering admin's own
+    Gmail** (recipient left blank; nothing is sent). New `backend/api/reports.py`: `build_report_data(conn, home_id)`
+    (metrics keyed on `home_id` so they reconcile EXACTLY with the Analytics Property-Status tab — Godrej Oasis A-704:
+    55 to-date / 4 last-7d / 6 Hot+Warm, all verified equal to the app), `summarize_feedback()` (**Claude Sonnet**
+    `claude-sonnet-4-6`, forced tool-use → structured {headline, positives, objections, notable_leads, assessment,
+    recommendations}; **graceful** — returns `None` with no key/feedback so the report still renders), `render_report_html()`
+    (branded, inline-styled email — OpenHouse orange/slate, table-based for email clients), `create_gmail_draft()`
+    (**service-account domain-wide delegation**, `subject=<caller>`, `gmail.compose`, **draft only**). Two admin endpoints
+    `POST /api/reports/property` (preview, read-only) + `/draft` (`asyncio.to_thread` for the blocking SDK/Gmail calls).
+    New `views/ReportShareView.jsx` (self-contained, styles scoped under `rp-`, no `app.css` change): property picker →
+    sandboxed-iframe email preview → editable subject → "Create Gmail draft" with a friendly `503` if delegation isn't
+    enabled. `anthropic==0.102.0` added to `requirements.txt` (**lazily imported** — app boots without it); `config.py`
+    gains `ANTHROPIC_API_KEY`. **Validation (zero prod writes, no draft created):** metrics reconciled against the live DB;
+    backend imports clean + routes registered; direct-handler gating test (admin preview 200 with correct metrics / Ground
+    + KAM 403 on both endpoints / unknown home_id 404); Claude path degrades to `None` without a key; HTML render
+    screenshotted (no template leaks, no scripts); frontend build 0 errors with **`app.css`/`theme.css` byte-unchanged**
+    (`rp-` styles 0× in CSS bundle, 19× in JS — proven inline); SSR smoke render (picker, rows, no-`home_id` excluded).
+    **Blocked on (deploy prerequisites, see §10):** (1) `ANTHROPIC_API_KEY` → Render `oh-crm-secrets`; (2) Workspace admin
+    authorises SA client_id `103924240682962245131` for `gmail.compose`. **Change set:** new `reports.py` +
+    `ReportShareView.jsx`; `main.py` (+2 endpoints, `import asyncio, reports`), `api.js` (+2 fns), `App.jsx` (+3 additive
+    lines), `config.py` (+1), `requirements.txt` (+1). No DB migration. No data writes; no other user/view affected.
 - **2026-06-09 (Claude session — Home Gold+Silver counter → completed-only):** The "live" monthly Gold+Silver
   counter counted ALL June T1/T2 visits (413 = 306 completed + 60 upcoming + 47 cancelled). Verified straight
   from the raw sheets (visits sheet + "18 Broker Tiers" sheet): **306**, matching the *completed* count to the
@@ -634,6 +675,20 @@ row in that MM (authoritative; per-MM, so totals don't sum them).
     email fallback); (b) add a CRM backend proxy endpoint (holds `X-CRM-Key`, forwards the super-admin's identity);
     (c) wire `BookVisitsView` Confirm to it and set **`BOOKING_LIVE = true`**; (d) validate one real booking end-to-end,
     then widen `SUPER_ADMINS`. Until then the tab is preview-only and writes nothing.
+15. **Take "Report Share" live** (code built + validated 2026-06-15; the tab + preview already work — only the *draft*
+    button + AI summary are gated on account settings, NOT code). **THREE** one-time external steps:
+    **(a) `ANTHROPIC_API_KEY` → Render** `oh-crm-secrets` (also in local `.env` placeholder, line 43). ⚠ **Gotcha found in
+    live test:** the key authenticates fine but akshit's Anthropic account had hit a **monthly usage limit** ("regain access
+    2026-07-01") — raise the spend/usage limit in the Anthropic Console (Billing → Limits) or the report stays metrics-only
+    until the cap resets. **(b) Enable the Gmail API** in the SA's Cloud project: visit
+    `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=polished-logic-434606-g3` → **Enable**
+    (separate from delegation — the live test 403'd here first: "Gmail API has not been used in project … or it is disabled").
+    **(c) Domain-wide delegation** (DONE 2026-06-15): Admin console → Security → API controls → **Domain-wide delegation** →
+    Client ID **`103924240682962245131`** (SA `sqlanalytics@polished-logic-434606-g3.iam.gserviceaccount.com`), scope
+    **`https://www.googleapis.com/auth/gmail.compose`**. Until (b)+(c) the `/draft` endpoint returns a friendly `503` whose
+    message now distinguishes "Gmail API not enabled" from "delegation not authorised" (`reports._gmail_setup_error`);
+    preview/metrics are unaffected throughout. After (b): re-run the local e2e draft test (creates one real `[CRM TEST]`
+    draft) to confirm, then deploy / announce. (Draft only — never sends.)
 
 ---
 

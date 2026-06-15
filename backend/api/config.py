@@ -65,6 +65,11 @@ SEED_VISITS_LIMIT = int(os.environ.get("SEED_VISITS_LIMIT", "20000"))
 # degrades gracefully (KH columns blank).
 PROPERTIES_DATABASE_URL = os.environ.get("PROPERTIES_DATABASE_URL", "")
 
+# Anthropic API key for the Property Report mailer's visit-feedback summariser
+# (Claude Sonnet). Unset = the report still generates with metrics; the AI summary
+# section is omitted (graceful degradation). Set in Render's oh-crm-secrets to enable.
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
 # Local review only. When DEV_MODE=1 the app exposes /auth/dev_login?slug=…
 # (no Google round-trip) and serves the frontend at /. NEVER set on Render.
 DEV_MODE = os.environ.get("DEV_MODE") == "1"

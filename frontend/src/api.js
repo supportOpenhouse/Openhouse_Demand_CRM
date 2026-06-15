@@ -95,6 +95,25 @@ export async function setHiringMmOverride(body) {
   return res.json();
 }
 
+// --- Property Report mailer (Admin only on the backend) ---
+// Pull the human-readable FastAPI {detail} out of an error response.
+async function _errDetail(res) {
+  const t = await res.text();
+  try { return JSON.parse(t).detail || t; } catch { return t; }
+}
+// Build the report for a unit (metrics + optional Claude summary + rendered email HTML).
+export async function previewReport(home_id) {
+  const res = await apiFetch('/api/reports/property', { method: 'POST', body: JSON.stringify({ home_id }) });
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();
+}
+// Drop the report as a DRAFT into the signed-in admin's own Gmail (recipient left blank).
+export async function createReportDraft(body) {
+  const res = await apiFetch('/api/reports/property/draft', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();
+}
+
 // --- Roster admin (Admin only on the backend) ---
 export async function createUser(body) {
   const res = await apiFetch('/api/users', { method: 'POST', body: JSON.stringify(body) });
