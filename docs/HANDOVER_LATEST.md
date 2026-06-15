@@ -42,7 +42,7 @@ Openhouse_Demand_CRM/
 │       ├── App.jsx           shell: nav (NAV array), view render switch, impersonation
 │       ├── api.js            apiFetch (same-origin, credentials:'include'), loadSeed, write calls
 │       ├── views/            HomeView (default landing), VisitsView, CpView, PropertiesView, TeamView,
-│       │                     NotificationsView, SnapshotView, AnalyticsView
+│       │                     NotificationsView, SnapshotView, AnalyticsView, BookVisitsView (super-admin booking · beta)
 │       ├── components/       BrokerModal, PropertyModal, UserModal, FiltersModal, BottomTabBar (mobile nav), …
 │       ├── lib/              visits.js (stage/status/scope), analytics.js, legacy.js, …
 │       ├── app.css / theme.css   light theme; tokens in theme.css (:root)
@@ -56,7 +56,7 @@ Openhouse_Demand_CRM/
 │   │   ├── import_top_brokers.py      99acres top-brokers import
 │   │   ├── bootstrap.py      one-shot schema + users + first sync
 │   │   ├── db.py / config.py / sheets.py
-│   │   └── migrations/ 001…010 (latest: 006 engagement-disposition · 007 negotiation-date · 008 user_micro_markets · 009 sheet_key_handovers · 010 user_extra_cities)
+│   │   └── migrations/ 001…011 (latest: 008 user_micro_markets · 009 sheet_key_handovers · 010 user_extra_cities · 011 old_lead_recency_guard)
 ├── lsq_sync/                 one-shot LeadSquared → CRM migration + write-back (DONE)
 │   ├── migrate.py · writeback.py · README.md · backups/ (gitignored)
 ├── render.yaml               Render blueprint (web + cron)
@@ -211,7 +211,8 @@ Writes (all persisted, permission-checked): `POST /api/followups`, `/api/nudges`
 
 ## 7. Frontend features (`frontend/src/views/`)
 Visits · Channel Partners · Properties · **Analytics** · To Be Assigned (admin) ·
-Inventory Snapshot · Team/My Day · Notifications. Modals: Broker, Property, User (add/edit), Filters.
+Inventory Snapshot · Team/My Day · Notifications · **Book Visits** (super-admins only · beta).
+Modals: Broker, Property, User (add/edit), Filters.
 Admin "impersonation" switcher re-scopes every view to view-as-another-user.
 
 **Analytics tab** (`AnalyticsView.jsx` + `lib/analytics.js`): 11 filters (Status default Completed),
@@ -226,6 +227,17 @@ typed/capped (no 4,000-`<option>` freeze). Pending mobile polish: modal sticky-c
 **Admin User modal** (`UserModal.jsx`): add/edit roster members + per-user `cities`, **Micro-market manager**
 (`micro_markets`), and — for KAMs — **Extra-city visit access** (a toggle + cities chip-input → `extra_cities`
 / `extra_cities_enabled`). All persist via `POST`/`PATCH /api/users`.
+
+**Book Visits tab** (`BookVisitsView.jsx`, **super-admins only · beta**, 2026-06-15): schedule app visits from the
+CRM — single or **up to 10** at once. Gated by **exact slug** `SUPER_ADMINS = {akshit, saransh}` in `App.jsx` on
+the **real** signed-in user (NOT team/role — other users are also Admin/admin; NOT the impersonated `me`). Reads
+live inventory (`seed.properties`, Ready/Coming-Soon with a `home_id`) + CPs (`seed.brokers`, `broker_id = b.id =
+core external_id`); a detailed confirm step lists every field with a **"cannot be edited or undone"** warning. The
+view is self-contained (styles scoped under `bv-`, no `app.css` change) and currently **PREVIEW-ONLY**:
+**`BOOKING_LIVE = false`** at the top of the file → Confirm writes nothing / calls nothing. To go live: flip that
+flag and add the server call to the new app-backend endpoint specced in **`docs/APP_BACKEND_BOOKING_API_SPEC.md`**
+(takes ≤10 visits at once, creates them **sequentially** via the existing single-create path; `X-CRM-Key` +
+`created_by` phone/email → SalesManager). Roll out beyond the two super-admins by adding slugs to `SUPER_ADMINS`.
 
 ---
 
@@ -511,6 +523,44 @@ typed/capped (no 4,000-`<option>` freeze). Pending mobile polish: modal sticky-c
   are clean single passes (no O(n²)). **So per-screen navigation is NOT a compute freeze.** The one heavy
   factor is SEED SIZE (11.7MB Mukul / 15.9MB admin), worsened for the extra-city KAMs. The earlier concrete
   freeze (4,000-option filter list) is fixed. Real fix for the size = server-side visit pagination (TODO).
+- **2026-06-15 (Claude session — two prod fixes shipped + a super-admin booking tab):**
+  - **(A) Old-Leads recency/activity guard — DEPLOYED + migration 011 applied (PR #3 → `main`).** Root cause:
+    `sheet_sync.sync_inactive_leads()` (the migration-005 rule) flagged a visit **Old + dead** the instant its
+    unit left live inventory, with **no recency check** — so a *yesterday* visit on a just-`Booked`/`Sold` unit
+    was swept into Old Leads and its `lead_status`/`next_followup_date`/`revisit_date` wiped every 15 min (~240
+    visits dated ≤30d mis-filed; e.g. VST9335 Panchsheel Greens 2, unit `Booked`). New rule (`sync_inactive_leads`
+    + **migration 011**): a visit is Old only if its unit is dead-inventory **AND** >60d old **AND** never actioned
+    (`latest_followup_at IS NULL`) **AND** not in an active stage (negotiation/booking/ATS/revisit/need-more).
+    Migration 011 also **repaired** the damage — re-projected each actioned lead's latest follow-up from the
+    intact `followups` table (940 rows) and reset never-actioned residue to "Not Updated" for the sheet to refill.
+    Prod effect: Old Leads **5,602 → 4,679** (923 returned to Active), recent-but-old **240 → 0**. Verified stable
+    across 2 full sync cycles. Files: `backend/api/sheet_sync.py`, `backend/migrations/011_old_lead_recency_guard.sql`.
+  - **(B) Visit RM follows the current PM assignment — DEPLOYED (PR #3).** After a society handover (Godrej Oasis
+    → Puran, 2 Jun) the Visits **RM column** still showed the old PM (Shubham, 207/341 rows) because
+    `sales_manager` is sheet-sourced and lags. `seed_snapshot.build()` now sets the **displayed** `sales_manager`
+    from the unit's current PM assignment (`rm_override` > current PM by `home_id` / single-PM society > sheet RM)
+    and adds **`sales_manager_raw`** which ALL scoping reads (`scope_for_user` lines 83/141/149 + frontend
+    `scopeVisits`) — so visibility is **byte-identical**, only the displayed RM changed. Effect: Godrej Oasis
+    201/304/704 → Puran; 204-E correctly stays Shubham (genuinely his unit). Files: `backend/api/seed_snapshot.py`,
+    `frontend/src/lib/visits.js`.
+  - **(C) Book Visits tab (BETA · super-admins only) — frontend-only, PREVIEW (writes nothing), deployed.** New
+    `views/BookVisitsView.jsx` (self-contained; styles scoped under a `bv-` prefix in a `<style>` block, so **no
+    `app.css` change**) + a gated NAV entry in `App.jsx`. Mirrors the Snapshot tab's filters; select **up to 10**
+    live units (Ready/Coming Soon with a `home_id`); single or bulk; collects CP (searchable, from `seed.brokers`,
+    `broker_id` = `broker.id` = core `external_id`), date, time slot, buyer name + **last 5–10 mobile digits**
+    (partial by design). A **detailed confirmation** step shows every field (unit, home_id, CP name/code/tier,
+    buyer, date, time) with a bold **"cannot be edited or undone"** warning. **Gated by EXACT slug**
+    (`SUPER_ADMINS = {akshit, saransh}` in `App.jsx`) on the **real** signed-in user (never the impersonated `me`)
+    — `team`/`role` are NOT used (ashish/ankit/sahaj are also Admin/admin). Proven across 9 user types; every other
+    admin/Ground/KAM nav is **byte-identical** to before. **`BOOKING_LIVE=false`** → Confirm is a labelled preview
+    that writes nothing and calls nothing; to go live, flip that one flag + add the server-side call. The app-backend
+    contract is **`docs/APP_BACKEND_BOOKING_API_SPEC.md`** — ONE endpoint that takes ≤10 visits at once but creates
+    them **sequentially**, reusing the existing single-create logic (check → buyer → schedule-visit), auth =
+    `X-CRM-Key` + `created_by` phone/email → SalesManager (⚠ akshit & saransh have no phone in the CRM → email
+    fallback). **Validation:** frontend build (0 errors, `app.css` byte-unchanged), gating unit test (9 user types
+    + non-super-admin nav identical), SSR smoke render (no crash; filters to bookable units only), real-component
+    visual of the confirm screen. **Change set: 2 code files** (`App.jsx` +5 additive lines, `BookVisitsView.jsx`
+    new) — no backend, no data writes, no other user affected.
 
 ---
 
@@ -538,6 +588,12 @@ typed/capped (no 4,000-`<option>` freeze). Pending mobile polish: modal sticky-c
     current mobile reversibility is Vercel Instant Rollback / `git revert`.
 13. **Test the mobile UI on a real phone** — on-device testing was tooling-blocked in the build sessions
     (Preview viewport / Chrome MCP tab group); confirm tab bar / cards / Snapshot / Analytics on an actual device.
+14. **Take "Book Visits" live** — blocked on the app backend building the endpoint in
+    `docs/APP_BACKEND_BOOKING_API_SPEC.md`. Then: (a) the app team returns the URL + `X-CRM-Key` + confirms the
+    `created_by` phone/email→SalesManager mapping (⚠ akshit & saransh have **no phone** in the CRM — add one or use
+    email fallback); (b) add a CRM backend proxy endpoint (holds `X-CRM-Key`, forwards the super-admin's identity);
+    (c) wire `BookVisitsView` Confirm to it and set **`BOOKING_LIVE = true`**; (d) validate one real booking end-to-end,
+    then widen `SUPER_ADMINS`. Until then the tab is preview-only and writes nothing.
 
 ---
 

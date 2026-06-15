@@ -11,6 +11,7 @@ import NotificationsView from './views/NotificationsView.jsx';
 import SnapshotView from './views/SnapshotView.jsx';
 import TeamView from './views/TeamView.jsx';
 import AnalyticsView from './views/AnalyticsView.jsx';
+import BookVisitsView from './views/BookVisitsView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
@@ -18,6 +19,11 @@ import BottomTabBar from './components/BottomTabBar.jsx';
 import { TEAM_PILL } from './lib/legacy.js';
 
 const SEARCH_VIEWS = new Set(['visits', 'cps', 'properties']);
+
+// Book Visits (beta) is restricted to these two super-admins BY SLUG until the app
+// booking API is connected. Deliberately NOT gated by team/role — several other users
+// are also Admin/admin, and this must stay limited to exactly these two.
+const SUPER_ADMINS = new Set(['akshit', 'saransh']);
 
 const NAV = [
   { k: 'home',          icon: '🏠', label: 'Home' },
@@ -28,6 +34,7 @@ const NAV = [
   { k: 'snapshot',      icon: '📤', label: 'Inventory Snapshot' },
   { k: 'team',          icon: '👤', label: 'My Day' },
   { k: 'notifications', icon: '🔔', label: 'Notifications' },
+  { k: 'book',          icon: '📅', label: 'Book Visits', superAdmin: true },
 ];
 
 function initials(name = '') {
@@ -90,7 +97,9 @@ export default function App() {
     : realMe;
   const vseed = me === realMe ? seed : { ...seed, current_user: me, current_user_slug: me.slug };
   const isAdmTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
-  const nav = NAV.filter((n) => !n.adm || isAdmTL)
+  // Gate Book Visits on the REAL signed-in user (never the impersonated `me`), by exact slug.
+  const isSuperAdmin = SUPER_ADMINS.has(realMe.slug);
+  const nav = NAV.filter((n) => (!n.adm || isAdmTL) && (!n.superAdmin || isSuperAdmin))
     .map((n) => (n.k === 'team' ? { ...n, label: isAdmTL ? 'Team & Assignments' : 'My Day' } : n));
   const unread = (seed.notifications || []).filter((n) => (n.to === me.slug || n.to === me.id) && !n.read).length;
   const counts = {
@@ -198,6 +207,8 @@ export default function App() {
                 <NotificationsView seed={vseed} onOpenBroker={setOpenCp} />
               ) : view === 'snapshot' ? (
                 <SnapshotView seed={vseed} />
+              ) : view === 'book' ? (
+                isSuperAdmin ? <BookVisitsView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'team' ? (
                 <TeamView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} />
               ) : (
