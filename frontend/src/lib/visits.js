@@ -198,7 +198,7 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
     const inScope = (p) => mms.includes(p.micro_market) || pmByProperty[p.property_name] === me.slug;
     const mmSocs = new Set(properties.filter(inScope).map((p) => p.society_name));
     const mmHomes = new Set(properties.filter((p) => inScope(p) && p.home_id).map((p) => String(p.home_id)));
-    return visits.filter((v) => (v.home_id && mmHomes.has(String(v.home_id))) || mmSocs.has(v.society_name) || v.sales_manager === me.name);
+    return visits.filter((v) => (v.home_id && mmHomes.has(String(v.home_id))) || mmSocs.has(v.society_name) || (v.sales_manager_raw ?? v.sales_manager) === me.name);
   }
   if (isAdminOrTL(me)) {
     if (me.role === 'tl_closer' || (me.team === 'TL' && (me.cities || []).length === 1)) {
@@ -222,7 +222,7 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
       .filter((p) => pmByProperty[p.property_name] === me.slug || isPm(p.sales_manager))
       .map((p) => p.society_name));
     // also: visits the PM personally ran (they are the RM), even at others' properties.
-    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || isPm(v.sales_manager));
+    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || isPm(v.sales_manager_raw ?? v.sales_manager));
   }
   return [];
 }

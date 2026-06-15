@@ -80,7 +80,8 @@ def scope_for_user(snap: dict, user: dict) -> dict:
         mm_homeids = {p["home_id"] for p in properties if in_scope_prop(p) and p.get("home_id")}
         def _in_mm(v):
             return ((v.get("home_id") and v["home_id"] in mm_homeids)
-                    or v["society_name"] in mm_socs or v["sales_manager"] == name)
+                    or v["society_name"] in mm_socs
+                    or v.get("sales_manager_raw", v["sales_manager"]) == name)
         codes = {b["cp_code"] for b in brokers if cp_owner.get(b["cp_code"]) == slug}
         for v in visits:
             if _in_mm(v) and v["cp_code"]:
@@ -138,7 +139,8 @@ def scope_for_user(snap: dict, user: dict) -> dict:
             if cp_owner.get(b["cp_code"]) == slug or b.get("added_by") == name:
                 codes.add(b["cp_code"])
         for v in visits:
-            if (v["society_name"] in my_socs or _is_pm(v["sales_manager"])) and v["cp_code"]:
+            if (v["society_name"] in my_socs
+                    or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))) and v["cp_code"]:
                 codes.add(v["cp_code"])
         keep_brokers(codes)
         snap["properties"] = [p for p in properties if p["society_name"] in my_socs]
@@ -146,7 +148,7 @@ def scope_for_user(snap: dict, user: dict) -> dict:
         # the property is managed by someone else and the CP isn't theirs (e.g. VST8592).
         snap["visits"] = [v for v in visits
                           if v["society_name"] in my_socs or cp_owner.get(v["cp_code"]) == slug
-                          or _is_pm(v["sales_manager"])]
+                          or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))]
         _scope_personal(snap, slug)
         return snap
 
@@ -297,7 +299,13 @@ async def build(conn: asyncpg.Connection) -> dict:
             "visit_date": _date_str(r["visit_date"]),
             "status": r["status"] or "",
             "lead_status": r["lead_status"] or "select_status",
+            # sales_manager = the RM SHOWN (display). A second pass below makes it follow
+            # the unit's current PM assignment when one exists (so a handover updates the RM
+            # everywhere automatically). sales_manager_raw = the original sheet/override value
+            # that all SCOPING reads, so visibility is byte-identical to before.
             "sales_manager": rm_override or (r["sales_manager"] or ""),
+            "sales_manager_raw": rm_override or (r["sales_manager"] or ""),
+            "_has_rm_override": bool(rm_override),
             "sales_feedback": r["sales_feedback"] or "",
             "buyer_feedback": r["buyer_feedback"] or "",
             "source": r["source"] or "",
@@ -370,7 +378,7 @@ async def build(conn: asyncpg.Connection) -> dict:
                p.listing_price, p.commission, p.sales_manager,
                p.photo_count, p.video_added,
                p.home_id, p.sales_manager_contact, p.supply_form_uid,
-               u.slug AS pm_slug
+               u.slug AS pm_slug, u.name AS pm_name
           FROM properties p
      LEFT JOIN v_property_current_pm pa ON pa.property_id = p.id
      LEFT JOIN users u ON u.id = pa.pm_user_id
@@ -379,6 +387,11 @@ async def build(conn: asyncpg.Connection) -> dict:
     )
     properties = []
     pm_by_property: dict[str, str] = {}
+    # Current PM *name* per unit (home_id) and per society — used to make the visit
+    # RM column follow the authoritative property assignment, not the stale sheet
+    # `sales_manager` (which lags a handover; see the per-visit override below).
+    pm_name_by_home_id: dict[str, str] = {}
+    _soc_pm_names: dict[str, set] = {}
     for r in property_rows:
         properties.append({
             "property_name": r["property_name"],
@@ -405,6 +418,28 @@ async def build(conn: asyncpg.Connection) -> dict:
         })
         if r["pm_slug"]:
             pm_by_property[r["property_name"]] = r["pm_slug"]
+        pm_nm = r["pm_name"]
+        if pm_nm:
+            if r["home_id"]:
+                pm_name_by_home_id[str(r["home_id"])] = pm_nm
+            if r["society_name"]:
+                _soc_pm_names.setdefault(r["society_name"], set()).add(pm_nm)
+    # Society → PM name only when the WHOLE society has a single assigned PM. A society
+    # split across PMs (e.g. Godrej Oasis: 304/704/201→Puran, 204→Shubham) stays out of
+    # this map, so home_id-less visits there fall back to the sheet RM (never mis-attributed).
+    pm_name_by_society = {s: next(iter(n)) for s, n in _soc_pm_names.items() if len(n) == 1}
+
+    # Make the RM SHOWN follow the unit's current PM assignment. Precedence:
+    #   manual rm_override  >  current PM (by home_id, else single-PM society)  >  sheet RM.
+    # Only `sales_manager` (display) changes; `sales_manager_raw` (scoping) is untouched, so
+    # who-sees-what is unchanged. Resolves stale RMs after a society handover (e.g. Godrej
+    # Oasis → Puran) without anyone having to re-key the visits sheet.
+    for v in visits:
+        if v.pop("_has_rm_override", False):
+            continue  # an explicit admin/TL reassignment always wins
+        pm = pm_name_by_home_id.get(v["home_id"]) or pm_name_by_society.get(v["society_name"])
+        if pm:
+            v["sales_manager"] = pm
 
     # --- to_assign_cps ------------------------------------------------------
     # Anything in brokers without an active cp_assignment is "to be assigned".

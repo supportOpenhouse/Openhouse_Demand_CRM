@@ -719,46 +719,62 @@ async def sync_all_properties(conn: asyncpg.Connection) -> dict:
 # ---- OLD-LEAD / DEAD RECLASSIFY (property-status based) ----------------------
 
 async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
-    """Old-lead + Buyer-Status='dead' for every visit whose unit is no longer
-    live inventory — i.e. it is NOT 'Ready'/'Coming Soon' in either property table.
-    Covers Sold / Archived / Booked units AND visits with no listing record at all.
+    """Old-lead + Buyer-Status='dead' for STALE visits on dead inventory.
 
-    A visit is ACTIVE if its home_id maps to a Ready/Coming-Soon row in the LIVE
-    `properties` tab OR in `all_properties`. We MUST check the live tab: the two
-    inventory tabs assign DIFFERENT home_ids to the same unit, and visits' home_ids
-    align with the live tab — checking only all_properties wrongly archived 69 visits
-    on a live Ready unit (B-304 Bestech Ananda: properties=Ready hid 130, but
-    all_properties=Archived hid 112, so the hid-130 join missed it).
+    A visit is ACTIVE (stays in the working list) if ANY of:
+      • its unit is live — home_id maps to a 'Ready'/'Coming Soon' row in the LIVE
+        `properties` tab OR in `all_properties` (we MUST check the live tab: the two
+        inventory tabs assign DIFFERENT home_ids to the same unit and visits align
+        with the live tab — checking only all_properties wrongly archived 69 visits
+        on B-304 Bestech Ananda); OR
+      • it is RECENT — visited within the last 60 days; OR
+      • it has been ACTIONED — a follow-up was logged (latest_followup_at not null); OR
+      • it sits in an ACTIVE pipeline stage (negotiation / booking / ATS / revisit /
+        need-more).
+    Only when NONE hold — dead unit, >60 days old, never actioned, not in flight — is
+    the lead archived to Old Leads + marked dead. This recency/activity guard replaces
+    the property-status-only rule (migration 005), which swept fresh leads on Booked/Sold
+    units into Old Leads the moment their unit changed status (e.g. a yesterday visit on a
+    just-booked unit). See migration 011.
 
-    This REPLACES the old pre-1-May date rule (migration 003 / 005). It runs as
-    the LAST step of run_all() — after sync_visits has re-upserted lead_status
-    from the sheet — so the sheet can never resurrect a dead lead. Idempotent;
-    the WHERE clause only touches rows whose classification actually changed."""
+    Runs LAST in run_all() — after sync_visits re-upserts lead_status from the sheet — so
+    the sheet can't resurrect a dead lead. Idempotent; the WHERE clause only touches rows
+    whose classification actually changed."""
     res = await conn.execute(
         """
-        WITH cls AS (
+        WITH live AS (
           SELECT v.id,
-                 (bool_or(p.listing_status  IN ('Ready','Coming Soon'))
-               OR bool_or(ap.listing_status IN ('Ready','Coming Soon'))) AS active
+                 ( bool_or(p.listing_status  IN ('Ready','Coming Soon'))
+                OR bool_or(ap.listing_status IN ('Ready','Coming Soon')) ) AS live_unit
           FROM visits v
           LEFT JOIN properties p
             ON p.home_id = v.home_id AND p.deleted_at IS NULL
           LEFT JOIN all_properties ap
             ON ap.home_id = v.home_id AND ap.deleted_at IS NULL
           GROUP BY v.id
+        ),
+        cls AS (
+          SELECT v.id,
+                 ( COALESCE(l.live_unit, FALSE)
+                OR (v.visit_date IS NOT NULL AND v.visit_date >= current_date - 60)
+                OR v.latest_followup_at IS NOT NULL
+                OR v.current_stage = ANY(ARRAY['negotiation','after_negotiation_fu',
+                     'booking','ats','revisit_scheduled','after_revisit_fu','need_more']) ) AS active
+          FROM visits v
+          JOIN live l ON l.id = v.id
         )
         UPDATE visits v SET
-          is_old_lead        = NOT COALESCE(cls.active, FALSE),
-          lead_status        = CASE WHEN COALESCE(cls.active, FALSE) THEN v.lead_status        ELSE 'dead' END,
-          current_status     = CASE WHEN COALESCE(cls.active, FALSE) THEN v.current_status     ELSE 'dead' END,
+          is_old_lead        = NOT cls.active,
+          lead_status        = CASE WHEN cls.active THEN v.lead_status        ELSE 'dead' END,
+          current_status     = CASE WHEN cls.active THEN v.current_status     ELSE 'dead' END,
           -- dead leads carry no pending followup obligation (don't clutter FU-due lists)
-          next_followup_date = CASE WHEN COALESCE(cls.active, FALSE) THEN v.next_followup_date ELSE NULL END,
-          revisit_date       = CASE WHEN COALESCE(cls.active, FALSE) THEN v.revisit_date       ELSE NULL END,
+          next_followup_date = CASE WHEN cls.active THEN v.next_followup_date ELSE NULL END,
+          revisit_date       = CASE WHEN cls.active THEN v.revisit_date       ELSE NULL END,
           updated_at         = now()
         FROM cls
         WHERE cls.id = v.id
-          AND ( v.is_old_lead IS DISTINCT FROM (NOT COALESCE(cls.active, FALSE))
-                OR (NOT COALESCE(cls.active, FALSE)
+          AND ( v.is_old_lead IS DISTINCT FROM (NOT cls.active)
+                OR (NOT cls.active
                     AND (v.lead_status <> 'dead' OR v.current_status <> 'dead'
                          OR v.next_followup_date IS NOT NULL OR v.revisit_date IS NOT NULL)) )
         """
