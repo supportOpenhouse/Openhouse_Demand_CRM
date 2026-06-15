@@ -13,6 +13,7 @@ import TeamView from './views/TeamView.jsx';
 import AnalyticsView from './views/AnalyticsView.jsx';
 import BookVisitsView from './views/BookVisitsView.jsx';
 import HiringView from './views/HiringView.jsx';
+import ReportShareView from './views/ReportShareView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
@@ -37,6 +38,7 @@ const NAV = [
   { k: 'notifications', icon: '🔔', label: 'Notifications' },
   { k: 'book',          icon: '📅', label: 'Book Visits', superAdmin: true },
   { k: 'hiring',        icon: '🧮', label: 'Hiring', adminOnly: true },
+  { k: 'reports',       icon: '📧', label: 'Report Share', adminOnly: true },
 ];
 
 function initials(name = '') {
@@ -216,6 +218,8 @@ export default function App() {
                 isSuperAdmin ? <BookVisitsView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'hiring' ? (
                 isAdmin ? <HiringView /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
+              ) : view === 'reports' ? (
+                isAdmin ? <ReportShareView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'team' ? (
                 <TeamView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} />
               ) : (

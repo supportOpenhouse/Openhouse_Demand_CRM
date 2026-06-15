@@ -8,6 +8,7 @@ Cron: /admin/sync hit by Render Cron Job; gated by INTERNAL_CRON_TOKEN.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -21,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import auth, config, seed_snapshot, sheet_sync
+from . import auth, config, reports, seed_snapshot, sheet_sync
 from .db import init_pool, close_pool, acquire
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -936,6 +937,75 @@ async def set_hiring_mm_override(body: HiringMmOverrideBody, user: dict = Depend
                 "DELETE FROM hiring_mm_overrides WHERE city = $1 AND society_name = $2", city, soc
             )
     return {"ok": True}
+
+
+# ============================================================================
+# Property Report mailer (Admin only)
+# Build a seller-facing performance report from visit data (metrics reconcile with
+# the Analytics tab, keyed on home_id), optionally summarise feedback with Claude,
+# and drop it as a DRAFT into the triggering admin's own Gmail. Read-only against
+# the CRM; the only side effect is the draft (gmail.compose, never send).
+# ============================================================================
+
+class ReportPreviewBody(BaseModel):
+    home_id: str
+
+
+class ReportDraftBody(BaseModel):
+    home_id: str
+    summary: Optional[dict] = None   # the structured summary returned by the preview
+    subject: Optional[str] = None
+
+
+@app.post("/api/reports/property")
+async def report_preview(body: ReportPreviewBody, user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    async with acquire() as conn:
+        data = await reports.build_report_data(conn, body.home_id)
+    if not data:
+        raise HTTPException(404, "No live property found for that home_id")
+    label = data["property"].get("property_name") or data["property"].get("society_name") or ""
+    # The Claude SDK call is blocking — run it off the event loop. Returns None when
+    # ANTHROPIC_API_KEY is unset or there's no feedback (report still renders).
+    summary = await asyncio.to_thread(
+        reports.summarize_feedback, label, data["metrics"], data["feedback_items"]
+    )
+    html = reports.render_report_html(
+        data["property"], data["metrics"], summary,
+        user.get("name") or user.get("slug") or "", user.get("email") or "",
+    )
+    return {
+        "property": data["property"],
+        "metrics": data["metrics"],
+        "summary": summary,
+        "feedback_count": len(data["feedback_items"]),
+        "subject": reports.default_subject(data["property"]),
+        "html": html,
+    }
+
+
+@app.post("/api/reports/property/draft")
+async def report_draft(body: ReportDraftBody, user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    async with acquire() as conn:
+        data = await reports.build_report_data(conn, body.home_id)
+    if not data:
+        raise HTTPException(404, "No live property found for that home_id")
+    # Re-render server-side from the previewed summary (no second Claude call). The
+    # renderer HTML-escapes every dynamic field, so client-supplied summary text is safe.
+    html = reports.render_report_html(
+        data["property"], data["metrics"], body.summary,
+        user.get("name") or user.get("slug") or "", user.get("email") or "",
+    )
+    subject = (body.subject or "").strip() or reports.default_subject(data["property"])
+    try:
+        result = await asyncio.to_thread(reports.create_gmail_draft, user["email"], subject, html)
+    except reports.DelegationNotConfigured as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:  # noqa: BLE001
+        log.exception("gmail draft creation failed")
+        raise HTTPException(502, f"Could not create the Gmail draft: {e}")
+    return {"ok": True, "subject": subject, **result}
 
 
 # ============================================================================
