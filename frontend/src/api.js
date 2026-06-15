@@ -83,6 +83,18 @@ export async function addNudge(body) {
   return res.json();
 }
 
+// --- Hiring planning (Admin only on the backend) ---
+export async function loadHiring() {
+  const res = await apiFetch('/api/hiring');
+  if (!res.ok) throw new Error(`hiring failed (HTTP ${res.status})`);
+  return res.json();
+}
+export async function setHiringMmOverride(body) {
+  const res = await apiFetch('/api/hiring/mm-override', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // --- Roster admin (Admin only on the backend) ---
 export async function createUser(body) {
   const res = await apiFetch('/api/users', { method: 'POST', body: JSON.stringify(body) });

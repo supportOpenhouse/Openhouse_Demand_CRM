@@ -42,7 +42,8 @@ Openhouse_Demand_CRM/
 │       ├── App.jsx           shell: nav (NAV array), view render switch, impersonation
 │       ├── api.js            apiFetch (same-origin, credentials:'include'), loadSeed, write calls
 │       ├── views/            HomeView (default landing), VisitsView, CpView, PropertiesView, TeamView,
-│       │                     NotificationsView, SnapshotView, AnalyticsView, BookVisitsView (super-admin booking · beta)
+│       │                     NotificationsView, SnapshotView, AnalyticsView, BookVisitsView (super-admin booking · beta),
+│       │                     HiringView (admin hiring/MM planning · beta)
 │       ├── components/       BrokerModal, PropertyModal, UserModal, FiltersModal, BottomTabBar (mobile nav), …
 │       ├── lib/              visits.js (stage/status/scope), analytics.js, legacy.js, …
 │       ├── app.css / theme.css   light theme; tokens in theme.css (:root)
@@ -56,7 +57,7 @@ Openhouse_Demand_CRM/
 │   │   ├── import_top_brokers.py      99acres top-brokers import
 │   │   ├── bootstrap.py      one-shot schema + users + first sync
 │   │   ├── db.py / config.py / sheets.py
-│   │   └── migrations/ 001…011 (latest: 008 user_micro_markets · 009 sheet_key_handovers · 010 user_extra_cities · 011 old_lead_recency_guard)
+│   │   └── migrations/ 001…012 (latest: 009 sheet_key_handovers · 010 user_extra_cities · 011 old_lead_recency_guard · 012 hiring_mm_overrides)
 ├── lsq_sync/                 one-shot LeadSquared → CRM migration + write-back (DONE)
 │   ├── migrate.py · writeback.py · README.md · backups/ (gitignored)
 ├── render.yaml               Render blueprint (web + cron)
@@ -199,20 +200,21 @@ to diagnose "user X can't see Y" bugs (e.g., the Ayush properties bug — §8).
 ---
 
 ## 6. API endpoints (`backend/api/main.py`)
-Read: `GET /api/me`, `GET /api/seed`, `GET /api/top-brokers`.
+Read: `GET /api/me`, `GET /api/seed`, `GET /api/top-brokers`, `GET /api/hiring` (**admin** — hiring table).
 Writes (all persisted, permission-checked): `POST /api/followups`, `/api/nudges`,
 `/api/notifications/{id}/read`, `/api/notifications/read_all`, `/api/daily_tasks/pin|unpin`,
 `/api/engagements`, `/api/brokers/{cp}/tier`, `/api/brokers/{cp}/owner`, `/api/brokers/bulk_assign`,
 `/api/visits/bulk_reassign`, `POST /api/users` + `PATCH /api/users/{slug}` (admin),
-`/api/top-brokers/{id}/phone`. Auth: `/auth/google/start|callback`, `/auth/logout`,
+`/api/top-brokers/{id}/phone`, `POST /api/hiring/mm-override` (**admin** — fills a blank MM).
+Auth: `/auth/google/start|callback`, `/auth/logout`,
 `/auth/dev_login` (only when `DEV_MODE=1`). Ops: `POST /admin/sync`, `GET /health`.
 
 ---
 
 ## 7. Frontend features (`frontend/src/views/`)
 Visits · Channel Partners · Properties · **Analytics** · To Be Assigned (admin) ·
-Inventory Snapshot · Team/My Day · Notifications · **Book Visits** (super-admins only · beta).
-Modals: Broker, Property, User (add/edit), Filters.
+Inventory Snapshot · Team/My Day · Notifications · **Book Visits** (super-admins only · beta) ·
+**Hiring** (admins · beta). Modals: Broker, Property, User (add/edit), Filters.
 Admin "impersonation" switcher re-scopes every view to view-as-another-user.
 
 **Analytics tab** (`AnalyticsView.jsx` + `lib/analytics.js`): 11 filters (Status default Completed),
@@ -238,6 +240,16 @@ view is self-contained (styles scoped under `bv-`, no `app.css` change) and curr
 flag and add the server call to the new app-backend endpoint specced in **`docs/APP_BACKEND_BOOKING_API_SPEC.md`**
 (takes ≤10 visits at once, creates them **sequentially** via the existing single-create path; `X-CRM-Key` +
 `created_by` phone/email → SalesManager). Roll out beyond the two super-admins by adding slugs to `SUPER_ADMINS`.
+
+**Hiring tab** (`HiringView.jsx`, **admins only · beta**, 2026-06-15): a city × micro-market planning table —
+property bifurcation (Ready / Coming Soon / Archived) → Total + **currently-assigned PM count**, off
+`all_properties` (so it includes Archived, which the seed doesn't). Backed by **`GET /api/hiring`** (admin-gated
+aggregation) — NOT the seed. Admins can **fill the micro-market** for blank-MM societies (mostly Archived); the
+fill is stored in **`hiring_mm_overrides`** (migration 012) and applied ONLY as a COALESCE fallback (`POST
+/api/hiring/mm-override`), so a unit's real sheet MM always wins and it never mutates `all_properties`. Gated in
+`App.jsx` by `adminOnly` → `me.team === 'Admin'` (the 8 Admin-team users incl. super-admins). Self-contained view
+(styles scoped under `hr-`, no `app.css` change). PM count = distinct PMs with a current `property_assignments`
+row in that MM (authoritative; per-MM, so totals don't sum them).
 
 ---
 
@@ -561,6 +573,21 @@ flag and add the server call to the new app-backend endpoint specced in **`docs/
     + non-super-admin nav identical), SSR smoke render (no crash; filters to bookable units only), real-component
     visual of the confirm screen. **Change set: 2 code files** (`App.jsx` +5 additive lines, `BookVisitsView.jsx`
     new) — no backend, no data writes, no other user affected.
+  - **(D) Hiring tab (BETA · admins only) — DEPLOYED + migration 012 applied.** A city × micro-market planning
+    table: property bifurcation (Ready/Coming-Soon/Archived) → Total + **currently-assigned PM count**, off
+    `all_properties` (incl. Archived, which the seed lacks). New **read-only** `GET /api/hiring` (admin-gated
+    aggregation: counts from all_properties + distinct current PM per MM from `property_assignments`). Admins can
+    **fill blank micro-markets** — ~21 (mostly Archived) societies have no MM; an admin assigns one via `POST
+    /api/hiring/mm-override`, stored in the new isolated **`hiring_mm_overrides`** table (**migration 012**) and
+    applied ONLY as a COALESCE fallback (a unit's real MM always wins; never mutates `all_properties`). New
+    `views/HiringView.jsx` (self-contained, styles scoped under `hr-`, no `app.css` change). Gated in `App.jsx` by
+    `adminOnly` → `me.team === 'Admin'` (8 Admin-team users incl. super-admins). **Validation (zero prod writes):**
+    aggregation validated read-only against prod (9 MM rows / 188 props / 21 blanks; PM counts match); full GET+POST
+    round-trip proven in a ROLLED-BACK txn (override rolls Amrapali Zodiac's 3 archived units into Noida Extension,
+    blanks 21→20, then clears back); gating unit test across 8 user types (Hiring=team Admin, hidden from TL/KAM/
+    Ground; non-admin nav byte-identical); SSR smoke render; frontend build 0 errors. Migration 012 is additive +
+    isolated (CREATE TABLE IF NOT EXISTS, touches no existing table/data). **Change set:** `main.py` (2 new admin
+    endpoints), `api.js` (2 fns), `App.jsx` (+4 additive lines), new `HiringView.jsx` + migration 012.
 - **2026-06-09 (Claude session — Home Gold+Silver counter → completed-only):** The "live" monthly Gold+Silver
   counter counted ALL June T1/T2 visits (413 = 306 completed + 60 upcoming + 47 cancelled). Verified straight
   from the raw sheets (visits sheet + "18 Broker Tiers" sheet): **306**, matching the *completed* count to the

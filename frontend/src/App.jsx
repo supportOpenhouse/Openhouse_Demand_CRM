@@ -12,6 +12,7 @@ import SnapshotView from './views/SnapshotView.jsx';
 import TeamView from './views/TeamView.jsx';
 import AnalyticsView from './views/AnalyticsView.jsx';
 import BookVisitsView from './views/BookVisitsView.jsx';
+import HiringView from './views/HiringView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
@@ -35,6 +36,7 @@ const NAV = [
   { k: 'team',          icon: '👤', label: 'My Day' },
   { k: 'notifications', icon: '🔔', label: 'Notifications' },
   { k: 'book',          icon: '📅', label: 'Book Visits', superAdmin: true },
+  { k: 'hiring',        icon: '🧮', label: 'Hiring', adminOnly: true },
 ];
 
 function initials(name = '') {
@@ -99,7 +101,10 @@ export default function App() {
   const isAdmTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
   // Gate Book Visits on the REAL signed-in user (never the impersonated `me`), by exact slug.
   const isSuperAdmin = SUPER_ADMINS.has(realMe.slug);
-  const nav = NAV.filter((n) => (!n.adm || isAdmTL) && (!n.superAdmin || isSuperAdmin))
+  // Hiring (beta) is for all team=Admin users (incl. the super-admins). Gated on the
+  // effective user, like the other admin tabs.
+  const isAdmin = me.team === 'Admin';
+  const nav = NAV.filter((n) => (!n.adm || isAdmTL) && (!n.superAdmin || isSuperAdmin) && (!n.adminOnly || isAdmin))
     .map((n) => (n.k === 'team' ? { ...n, label: isAdmTL ? 'Team & Assignments' : 'My Day' } : n));
   const unread = (seed.notifications || []).filter((n) => (n.to === me.slug || n.to === me.id) && !n.read).length;
   const counts = {
@@ -209,6 +214,8 @@ export default function App() {
                 <SnapshotView seed={vseed} />
               ) : view === 'book' ? (
                 isSuperAdmin ? <BookVisitsView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
+              ) : view === 'hiring' ? (
+                isAdmin ? <HiringView /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'team' ? (
                 <TeamView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} />
               ) : (
