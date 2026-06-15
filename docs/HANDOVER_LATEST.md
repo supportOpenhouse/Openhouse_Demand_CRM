@@ -518,6 +518,12 @@ typed/capped (no 4,000-`<option>` freeze). Pending mobile polish: modal sticky-c
   cols) and got stamped with the sync date (June 15). Per owner: changed `HomeView` `gs` to count
   `isVisitCompleted(v)` only (excludes upcoming/cancelled); label now "completed visits from Gold + Silver
   CPs". `HomeView.jsx` only; **frontend deploy**.
+- **2026-06-09 (Claude session — "After Negotiation FU" missing from the follow-up form):** The stage existed
+  in the master `STAGES` (so it showed in the Visit-stage chip-bar + auto-applied when the negotiation date
+  passed), but the original negotiation work never added it to the form's selectable **Next-Stage pills** —
+  `FU_STAGES` (PropertyModal) + `STAGE_PILLS` (BrokerModal) — nor to PropertyModal's `STAGE_ORDER` tab
+  grouping. So you couldn't pick "After Negotiation FU" when logging a follow-up. Added it after `negotiation`
+  in all three lists (mirrors how After-Revisit-FU follows Revisit-Scheduled). Frontend only; **vercel deploy**.
 
 ---
 
