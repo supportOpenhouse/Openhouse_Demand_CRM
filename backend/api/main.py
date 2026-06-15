@@ -837,6 +837,108 @@ async def update_user(slug: str, body: UserUpdateBody, user: dict = Depends(auth
 
 
 # ============================================================================
+# Admin · Hiring planning (beta) — read-only table off all_properties + a manual
+# micro-market fill for blank-MM societies. Admin-only. Touches no existing data:
+# the GET only reads; the POST writes ONLY to the isolated hiring_mm_overrides
+# table (migration 012), applied as a COALESCE fallback so it can never override
+# a property's real MM.
+# ============================================================================
+
+@app.get("/api/hiring")
+async def get_hiring(user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    async with acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT ap.city,
+                   COALESCE(NULLIF(ap.micro_market,''), ov.micro_market)  AS mm,
+                   count(*) FILTER (WHERE ap.listing_status='Ready')       AS ready,
+                   count(*) FILTER (WHERE ap.listing_status='Coming Soon') AS coming_soon,
+                   count(*) FILTER (WHERE ap.listing_status='Archived')    AS archived
+              FROM all_properties ap
+              LEFT JOIN hiring_mm_overrides ov
+                ON ov.city = ap.city AND ov.society_name = ap.society_name
+             WHERE ap.deleted_at IS NULL
+               AND ap.listing_status IN ('Ready','Coming Soon','Archived')
+               AND COALESCE(NULLIF(ap.micro_market,''), ov.micro_market) IS NOT NULL
+             GROUP BY 1, 2
+            """
+        )
+        # currently-assigned PM count per live (city, micro-market) — authoritative
+        pm = await conn.fetch(
+            """
+            SELECT p.city, NULLIF(p.micro_market,'') AS mm, count(DISTINCT pa.pm_user_id) AS pms
+              FROM v_property_current_pm pa
+              JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+             WHERE NULLIF(p.micro_market,'') IS NOT NULL
+             GROUP BY 1, 2
+            """
+        )
+        blanks = await conn.fetch(
+            """
+            SELECT ap.city, ap.society_name, count(*) AS n
+              FROM all_properties ap
+              LEFT JOIN hiring_mm_overrides ov
+                ON ov.city = ap.city AND ov.society_name = ap.society_name
+             WHERE ap.deleted_at IS NULL
+               AND ap.listing_status IN ('Ready','Coming Soon','Archived')
+               AND COALESCE(NULLIF(ap.micro_market,''), ov.micro_market) IS NULL
+             GROUP BY 1, 2
+            """
+        )
+        overrides = await conn.fetch(
+            "SELECT city, society_name, micro_market, set_by FROM hiring_mm_overrides ORDER BY city, society_name"
+        )
+    pmmap = {(r["city"], r["mm"]): r["pms"] for r in pm}
+    table = [
+        {
+            "city": r["city"] or "", "mm": r["mm"] or "",
+            "ready": r["ready"], "coming_soon": r["coming_soon"], "archived": r["archived"],
+            "total": r["ready"] + r["coming_soon"] + r["archived"],
+            "pms": pmmap.get((r["city"], r["mm"]), 0),
+        }
+        for r in rows
+    ]
+    return {
+        "rows": table,
+        "blanks": [{"city": b["city"] or "", "society_name": b["society_name"] or "", "n": b["n"]} for b in blanks],
+        "overrides": [dict(o) for o in overrides],
+    }
+
+
+class HiringMmOverrideBody(BaseModel):
+    city: str
+    society_name: str
+    micro_market: str  # blank → clear the override
+
+
+@app.post("/api/hiring/mm-override")
+async def set_hiring_mm_override(body: HiringMmOverrideBody, user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    city = (body.city or "").strip()
+    soc = (body.society_name or "").strip()
+    mm = (body.micro_market or "").strip()
+    if not city or not soc:
+        raise HTTPException(400, "city and society_name are required")
+    async with acquire() as conn:
+        if mm:
+            await conn.execute(
+                """
+                INSERT INTO hiring_mm_overrides (city, society_name, micro_market, set_by)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (city, society_name)
+                DO UPDATE SET micro_market = EXCLUDED.micro_market, set_by = EXCLUDED.set_by, updated_at = now()
+                """,
+                city, soc, mm, user["slug"],
+            )
+        else:
+            await conn.execute(
+                "DELETE FROM hiring_mm_overrides WHERE city = $1 AND society_name = $2", city, soc
+            )
+    return {"ok": True}
+
+
+# ============================================================================
 # Admin · sync trigger (used by Render Cron Job)
 # ============================================================================
 
