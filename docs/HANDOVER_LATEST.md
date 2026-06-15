@@ -511,6 +511,13 @@ typed/capped (no 4,000-`<option>` freeze). Pending mobile polish: modal sticky-c
   are clean single passes (no O(n²)). **So per-screen navigation is NOT a compute freeze.** The one heavy
   factor is SEED SIZE (11.7MB Mukul / 15.9MB admin), worsened for the extra-city KAMs. The earlier concrete
   freeze (4,000-option filter list) is fixed. Real fix for the size = server-side visit pagination (TODO).
+- **2026-06-09 (Claude session — Home Gold+Silver counter → completed-only):** The "live" monthly Gold+Silver
+  counter counted ALL June T1/T2 visits (413 = 306 completed + 60 upcoming + 47 cancelled). Verified straight
+  from the raw sheets (visits sheet + "18 Broker Tiers" sheet): **306**, matching the *completed* count to the
+  number. The 107 extra were upcoming/cancelled rows that are dateless in the sheet (`"None"` in both date
+  cols) and got stamped with the sync date (June 15). Per owner: changed `HomeView` `gs` to count
+  `isVisitCompleted(v)` only (excludes upcoming/cancelled); label now "completed visits from Gold + Silver
+  CPs". `HomeView.jsx` only; **frontend deploy**.
 
 ---
 

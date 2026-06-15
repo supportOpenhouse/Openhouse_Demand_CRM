@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TODAY, ymd, fmtDateTime, fmtDay, fmtMonth, initials, daysBetween } from '../lib/format.js';
-import { activityForVisit, scopeVisits } from '../lib/visits.js';
+import { activityForVisit, isVisitCompleted, scopeVisits } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import { TEAM_PILL } from '../lib/legacy.js';
 
@@ -86,13 +86,15 @@ export default function HomeView({ seed, onOpenBroker }) {
     [seed], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  // this month's visits brought by Gold (T1) + Silver (T2) channel partners
+  // this month's COMPLETED visits brought by Gold (T1) + Silver (T2) channel partners.
+  // Excludes Upcoming/Cancelled (not real activity) — matches the visits-sheet count.
   const monthKey = ymd(TODAY).slice(0, 7);             // 'YYYY-MM'
   const gs = useMemo(() => {
     let gold = 0, silver = 0;
     scoped.forEach((v) => {
       const d = v.visit_date || v.selected_date;
       if (!d || String(d).slice(0, 7) !== monthKey) return;
+      if (!isVisitCompleted(v)) return;                // only completed visits count
       const tier = brokersByCode[v.cp_code]?.tier;
       if (tier === 'T1') gold += 1;
       else if (tier === 'T2') silver += 1;
@@ -142,7 +144,7 @@ export default function HomeView({ seed, onOpenBroker }) {
       {/* live monthly Gold + Silver visit counter */}
       <div className="home-hero">
         <div className="hh-badge"><span className="hh-dot" /> LIVE</div>
-        <div className="hh-label">{fmtMonth(TODAY)} {TODAY.getFullYear()} · visits from Gold + Silver CPs</div>
+        <div className="hh-label">{fmtMonth(TODAY)} {TODAY.getFullYear()} · completed visits from Gold + Silver CPs</div>
         <div className="hh-num"><CountUp value={gs.total} /></div>
         <div className="hh-break">
           <span className="hh-pill gold">🥇 Gold <b>{gs.gold.toLocaleString('en-IN')}</b></span>
