@@ -1,4 +1,4 @@
-# OpenHouse Demand CRM — Handover (LATEST · 2026-06-13)
+# OpenHouse Demand CRM — Handover (LATEST · 2026-06-15)
 
 > **This is the current, authoritative handover.** It supersedes the dated ones
 > (`PROD_HANDOVER.md`, `SESSION_HANDOVER_2026-06.md`, `SARANSH_HANDOVER.md`, …) —
@@ -41,9 +41,9 @@ Openhouse_Demand_CRM/
 │   └── src/
 │       ├── App.jsx           shell: nav (NAV array), view render switch, impersonation
 │       ├── api.js            apiFetch (same-origin, credentials:'include'), loadSeed, write calls
-│       ├── views/            VisitsView, CpView, PropertiesView, QueueView, TeamView,
+│       ├── views/            HomeView (default landing), VisitsView, CpView, PropertiesView, TeamView,
 │       │                     NotificationsView, SnapshotView, AnalyticsView
-│       ├── components/       BrokerModal, PropertyModal, UserModal, FiltersModal, …
+│       ├── components/       BrokerModal, PropertyModal, UserModal, FiltersModal, BottomTabBar (mobile nav), …
 │       ├── lib/              visits.js (stage/status/scope), analytics.js, legacy.js, …
 │       ├── app.css / theme.css   light theme; tokens in theme.css (:root)
 ├── backend/                  FastAPI (Render root = backend/)
@@ -56,7 +56,7 @@ Openhouse_Demand_CRM/
 │   │   ├── import_top_brokers.py      99acres top-brokers import
 │   │   ├── bootstrap.py      one-shot schema + users + first sync
 │   │   ├── db.py / config.py / sheets.py
-│   │   └── migrations/ 001_initial_schema · 002_top_brokers_99acres · 003_visit_date_and_old_lead
+│   │   └── migrations/ 001…010 (latest: 006 engagement-disposition · 007 negotiation-date · 008 user_micro_markets · 009 sheet_key_handovers · 010 user_extra_cities)
 ├── lsq_sync/                 one-shot LeadSquared → CRM migration + write-back (DONE)
 │   ├── migrate.py · writeback.py · README.md · backups/ (gitignored)
 ├── render.yaml               Render blueprint (web + cron)
@@ -148,6 +148,13 @@ to diagnose "user X can't see Y" bugs (e.g., the Ayush properties bug — §8).
 5. Post-deploy: confirm the live `/assets/index-*.js` hash changed and `grep` the live bundle for your new strings; existing view labels still present (no regression). (Recipe: fetch `/` for the hash, fetch the bundle and `grep` for your marker, and mint-cookie `/api/seed` to confirm any backend field is live.)
 
 ### 4.5 Make a BACKEND change → deploy
+0. **If it adds/changes a DB column (migration):** write `backend/migrations/NNN_*.sql` — idempotent
+   (`ADD COLUMN IF NOT EXISTS`) — and **apply it to prod FIRST, before the code deploy** (the new code's
+   `SELECT`s error on a missing column → CRM down). Apply with a read-WRITE psycopg2 connection (the §4.0 env,
+   NOT `set_session(readonly)`): `cur.execute(open(path).read()); conn.commit()`, then verify via
+   `information_schema.columns`. There is **no auto-runner** — migrations are applied by hand (migration 010 was
+   applied this way on 2026-06-14). If `scope_for_user`/handlers read the new column, add it to **both `auth.py`
+   user `SELECT`s** too (that dict is what `scope_for_user` receives).
 1. Edit under `backend/api/`. `py_compile` it.
 2. Commit + **push to `main`** → **Render auto-deploys** (it does *not* have Vercel's author gate; ~3-5 min).
 3. Post-deploy: poll the live endpoint until the new behaviour appears, then validate across roles (mint cookies for an affected user, a control user, and admin) and confirm `/health`=200.
@@ -177,6 +184,15 @@ to diagnose "user X can't see Y" bugs (e.g., the Ayush properties bug — §8).
   (`ENABLE_TIER_SYNC=0`). It DOES keep overwriting `properties.sales_manager`/`brokers` text from the sheets.
 - **`scope_for_user()`** (`seed_snapshot.py`) filters `/api/seed` per role: Admin = all; TL = their cities;
   KAM = own CPs (+ all properties for inventory); Ground = own CPs + visits/properties they're the PM of.
+  Two opt-in extensions (both default off → no one affected unless set):
+  - **MM-managers** — a user with `users.micro_markets` set (usually TLs) sees every property+visit in those
+    micro-markets, overriding team/city (migration 008).
+  - **KAM extra-cities** — a KAM with `users.extra_cities` + `extra_cities_enabled` also sees (and edits) ALL
+    visits in those cities, on top of their own CPs (migration 010; admin toggle in the User modal). Live:
+    Saket → Noida+Ghaziabad, Mukul → Gurgaon.
+  **Edit permission** is a SEPARATE check — `_can_edit_visit()` in `main.py` (mirrored by `canEdit` in the
+  modals): Admin/TL, the CP owner, the RM who ran the visit, a Ground PM at_my_property, or a KAM with the
+  extra-city grant. Granting *visibility* does not grant *edit* — keep them in sync (see §9, 2026-06-14).
   **Lesson learned:** scope by the *assignment tables* (slug), not by matching sheet name-text to a
   user's full name (sheets store some PMs by first name → silent zero-results; see §8).
 
@@ -201,6 +217,15 @@ Admin "impersonation" switcher re-scopes every view to view-as-another-user.
 **Analytics tab** (`AnalyticsView.jsx` + `lib/analytics.js`): 11 filters (Status default Completed),
 8 dependency-free SVG charts + a filtered raw table with CSV download, all cross-filtering on click.
 Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fast-follow).
+
+**Mobile (≤900px, 2026-06-14 — all mobile-only, desktop byte-identical):** a **bottom tab bar**
+(`components/BottomTabBar.jsx`) replaces the sidebar; Visits/CPs/Properties/Snapshot use card layouts (via
+`useIsMobile`); Analytics shows a compact 4-col raw table; 16px inputs (no iOS zoom); the CP filter list is
+typed/capped (no 4,000-`<option>` freeze). Pending mobile polish: modal sticky-close + density (see §10).
+
+**Admin User modal** (`UserModal.jsx`): add/edit roster members + per-user `cities`, **Micro-market manager**
+(`micro_markets`), and — for KAMs — **Extra-city visit access** (a toggle + cities chip-input → `extra_cities`
+/ `extra_cities_enabled`). All persist via `POST`/`PATCH /api/users`.
 
 ---
 
@@ -422,6 +447,70 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
   to the same RM can't be distinguished by phone — those need an authoritative society→PM roster / admin
   correction (not addressed here). **Deploy:** backend-only → `git push` → Render; applies on the next sheet
   sync.
+- **2026-06-14 (Claude session — MOBILE REDESIGN, shipped in increments; all mobile-only & web-safe):**
+  Goal: fix mobile freezes/glitches + move the phone UI toward best-in-class WITHOUT changing desktop/web.
+  Every change is gated under `@media (max-width:900px)` or behind `useIsMobile()` (default bp **900**), so
+  desktop (>900px) renders byte-identically and NO data/logic/scope is touched. Each increment shipped as its
+  own validated, reversible Vercel deploy:
+  - **Inc 1 — bottom tab bar + shell** (`19036e9`→merge `69a4568`): new `components/BottomTabBar.jsx` (Home /
+    Visits / Partners / Property + a "More" bottom-sheet for Analytics / Inventory / My Day / Alerts) replaces
+    the cramped top scroll-strip on phones. Aligned the CSS mobile shell to 900px — removes the old **761–900
+    "dead zone"** (JS rendered mobile cards inside desktop chrome because `useIsMobile`=900 but the CSS shell
+    was 760). 16px inputs on mobile (kills iOS focus-zoom); momentum scroll in `.modal-body`. New CSS block at
+    the END of `app.css` (search "MOBILE REDESIGN") — base `.rx-tabbar{display:none}` + an `@media ≤900` block.
+  - **Inc 2 — FiltersModal freeze fix + 44px tap targets** (`f14ab04`→merge `0f708f8`): the CP filter rendered
+    up to **4,000 `<option>`s** in a `<datalist>`, freezing phones. WEB unchanged (still `brokers.slice(0,4000)`
+    via the `!isMobile` branch); on MOBILE it renders a typed, capped (≤50) `cpOptions` list. + 44px min touch
+    targets (`.x-btn`, `.rx-x`, `.m-card .mc-foot .qa`) under `@media ≤900`.
+  - **Inc 3 — Inventory Snapshot mobile cards** (`849cd10`→merge `8f807f0`): `CityBlock` renders property CARDS
+    on phones instead of the 7-col table (which overflowed); **desktop table byte-unchanged** (moved into the
+    `else` branch). `.snap-mcard` CSS under `@media ≤900`.
+  - **Inc 4 — Analytics compact raw table** (merge `5fb2c24`): the charts were ALREADY responsive (`.an-grid`→
+    1 col at ≤900, line-chart SVG scales via `viewBox`, fluid CSS bars), so only the 11-col raw table needed
+    work — on phones it shows 4 columns (Date/Apartment/Status/Buyer); CSV export still has all 11. Desktop
+    table byte-unchanged.
+  - **Reversibility:** a per-device `?classic` kill-switch was discussed but **NOT built** (kept deploys
+    minimal). Reversibility = redeploy the prior Vercel bundle (Vercel "Instant Rollback") or `git revert` the
+    merge. Desktop is untouched by construction.
+  - **STILL PENDING (mobile polish):** modal sticky-close + sized scroll regions; a density pass. Nav, charts,
+    snapshot, filter-freeze, tap-targets, iOS-zoom are done.
+  - **Tooling caveat:** pixel-precise on-device mobile testing was blocked (Preview viewport not controllable;
+    connected Chrome couldn't open an MCP tab group). Mobile validation was code/CSS review + clean build +
+    desktop render-smoke + offline timing — NOT a live phone render. **Test on a real phone** after mobile work.
+- **2026-06-14 (Claude session — KAM extra-city visit access; admin toggle; migration 010 APPLIED to prod):**
+  Lets an admin grant a specific KAM visibility **and edit** of *all visits in chosen cities*, on top of their
+  own CPs. Applied per request: **Saket → Noida + Ghaziabad, Mukul → Gurgaon** (both ON); every other KAM OFF.
+  - **Data model (`010_user_extra_cities.sql`):** `users.extra_cities text[] DEFAULT '{}'` +
+    `extra_cities_enabled boolean DEFAULT false`. Both default OFF → zero scope change for anyone until set.
+    Mirrors the `micro_markets` column pattern. Idempotent (`ADD COLUMN IF NOT EXISTS`).
+  - **Scope (`seed_snapshot.scope_for_user`, KAM branch ONLY):** if enabled + cities set, the KAM also gets
+    every visit whose `city ∈ extra_cities`, PLUS those visits' CPs added to their broker set so cards/pop-ups
+    resolve. CpView still filters its CP *list* to own+T3/T4, so the book isn't flooded — the extra CPs live in
+    `seed.brokers` only for pop-ups. Mirrored in frontend `lib/visits.js scopeVisits`.
+  - **Edit permission (`_can_edit_visit` in `main.py` + `PropertyModal` canEdit — merge `bf00b51`):** follow-up
+    fix. The grant first added visibility only, so targets could SEE the extra cards but saves 403'd. Now a KAM
+    can EDIT visits whose `city ∈ extra_cities` (added `v.city` to the query). Gated on team==KAM + the toggle.
+  - **Plumbing:** `auth.py` (both user SELECTs now include the 2 columns — REQUIRED, scope reads the auth dict);
+    `seed_snapshot` (roster query + projection); `main.py` (`/api/me` + `/api/seed` current_user, create/update
+    models, POST, PATCH); `UserModal.jsx` (toggle + cities chip-input, shown only for KAM users). Commits
+    `27563df`→merge `b98f7a3`, then `bf00b51`.
+  - **DEPLOY ORDER MATTERS:** migration FIRST (old code ignores the new columns), THEN push backend (new code
+    SELECTs them), THEN frontend, THEN set the grants. Migration 010 + the Saket/Mukul grants are already
+    applied to prod.
+  - **Validation (offline + live):** toggle OFF → every KAM byte-identical to before; Saket 362→**3,411**
+    visits live, Mukul 444→**6,139**, control KAM Mayank unchanged (641); only Saket+Mukul have any grant in
+    the DB; targets can edit 100% of what they see.
+  - **Admin usage:** User modal → open a KAM → "Extra-city visit access" toggle + cities (Gurgaon/Noida/
+    Ghaziabad). **Reversibility:** flip the toggle off (instant, per-user, no deploy) or `git revert`.
+  - **Consequence — bigger seed:** granted KAMs load far more (Mukul 4.4MB→**11.7MB**), so their app LOAD is
+    slower on mobile data (download-bound, skeleton shown) — NOT a per-screen freeze (next entry). To shrink:
+    drop the extra-city CPs (added only for pop-ups) from the payload.
+- **2026-06-15 (Claude session — "freeze opening visit/cp screen" — diagnosed, NO code change):** Measured the
+  real paths over the live large seeds: opening Visits computes ~17 ms, CP ~20 ms, `JSON.parse` of the whole
+  seed ~35 ms — all <~250 ms even on a slow phone, masked by a loading skeleton. `ownedCpCodes`/`buildCpIndex`
+  are clean single passes (no O(n²)). **So per-screen navigation is NOT a compute freeze.** The one heavy
+  factor is SEED SIZE (11.7MB Mukul / 15.9MB admin), worsened for the extra-city KAMs. The earlier concrete
+  freeze (4,000-option filter list) is fixed. Real fix for the size = server-side visit pagination (TODO).
 
 ---
 
@@ -439,6 +528,16 @@ Apartment = `addr2 · addr1 · society`. "View in Google Sheets" is stubbed (fas
 9. (Optional, from the 2026-06-08 best-CRM research) **revisit-as-chain** (`original_visit_id` self-FK for a
    linked visit sequence) and a Google Drive **`changes.watch` webhook + optimistic writes** to cut the 15-min
    sheet-sync lag for app-entered activity.
+10. **Mobile polish (remaining)** — modal sticky-close on a long scroll + sized scroll regions, and a density
+    pass. The bottom tab bar, card layouts, filter-freeze fix, tap targets and iOS-zoom are done (§9 06-14).
+11. **Seed size / server-side visit pagination** — `/api/seed` is large for big-scope users (admin ~15.9MB;
+    extra-city KAM Mukul ~11.7MB) → slow load on mobile data. Real fix = paginate visits server-side (also
+    closes the long-standing "/api/seed is large" gotcha in §8). Quick partial: drop the pop-up-only extra-city
+    CPs from granted-KAM payloads to shrink them.
+12. (Optional) **Per-device mobile `?classic` kill-switch** — discussed during the redesign, NOT built;
+    current mobile reversibility is Vercel Instant Rollback / `git revert`.
+13. **Test the mobile UI on a real phone** — on-device testing was tooling-blocked in the build sessions
+    (Preview viewport / Chrome MCP tab group); confirm tab bar / cards / Snapshot / Analytics on an actual device.
 
 ---
 
