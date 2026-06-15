@@ -16,7 +16,7 @@ import useIsMobile from '../lib/useIsMobile.js';
 
 const STAGE_ORDER = ['all', 'upcoming', 'avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more', 'cancelled'];
 const STATUS_PILLS = ['hot', 'warm', 'cold', 'dead', 'future_prospect'];
-const STAGE_PILLS = ['avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more'];
+const STAGE_PILLS = ['avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'after_negotiation_fu', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more'];
 const TIERS = ['T1', 'T2', 'T3', 'T4'];
 // engagement call-disposition labels (Close/HubSpot 2-axis model)
 const CONNECTED_LABEL = { connected: 'Connected', no_answer: 'No answer', busy: 'Busy', switched_off: 'Switched off', wrong_number: 'Wrong number' };

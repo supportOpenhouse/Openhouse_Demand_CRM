@@ -561,6 +561,19 @@ flag and add the server call to the new app-backend endpoint specced in **`docs/
     + non-super-admin nav identical), SSR smoke render (no crash; filters to bookable units only), real-component
     visual of the confirm screen. **Change set: 2 code files** (`App.jsx` +5 additive lines, `BookVisitsView.jsx`
     new) — no backend, no data writes, no other user affected.
+- **2026-06-09 (Claude session — Home Gold+Silver counter → completed-only):** The "live" monthly Gold+Silver
+  counter counted ALL June T1/T2 visits (413 = 306 completed + 60 upcoming + 47 cancelled). Verified straight
+  from the raw sheets (visits sheet + "18 Broker Tiers" sheet): **306**, matching the *completed* count to the
+  number. The 107 extra were upcoming/cancelled rows that are dateless in the sheet (`"None"` in both date
+  cols) and got stamped with the sync date (June 15). Per owner: changed `HomeView` `gs` to count
+  `isVisitCompleted(v)` only (excludes upcoming/cancelled); label now "completed visits from Gold + Silver
+  CPs". `HomeView.jsx` only; **frontend deploy**.
+- **2026-06-09 (Claude session — "After Negotiation FU" missing from the follow-up form):** The stage existed
+  in the master `STAGES` (so it showed in the Visit-stage chip-bar + auto-applied when the negotiation date
+  passed), but the original negotiation work never added it to the form's selectable **Next-Stage pills** —
+  `FU_STAGES` (PropertyModal) + `STAGE_PILLS` (BrokerModal) — nor to PropertyModal's `STAGE_ORDER` tab
+  grouping. So you couldn't pick "After Negotiation FU" when logging a follow-up. Added it after `negotiation`
+  in all three lists (mirrors how After-Revisit-FU follows Revisit-Scheduled). Frontend only; **vercel deploy**.
 
 ---
 

@@ -9,9 +9,9 @@ import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import { SkeletonTable } from './Skeleton.jsx';
 
-const STAGE_ORDER = ['upcoming', 'avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more', 'cancelled'];
+const STAGE_ORDER = ['upcoming', 'avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'after_negotiation_fu', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more', 'cancelled'];
 const FU_STATUS = ['hot', 'warm', 'cold', 'dead', 'future_prospect'];
-const FU_STAGES = ['avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more'];
+const FU_STAGES = ['avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'after_negotiation_fu', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more'];
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const esc = (s) => String(s == null ? '' : s).replace(/</g, '&lt;');
