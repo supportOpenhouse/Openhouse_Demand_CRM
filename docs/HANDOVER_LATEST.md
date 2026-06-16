@@ -284,9 +284,13 @@ buyer names), **awaiting-status-update** counts — using a Python port of `lib/
 broker cp_codes against the user's own brokers so a click can't break (App.jsx gained a `pendingSearch` ref so the deep-link search
 survives the view switch — otherwise byte-identical). Role-aware framing: KAM=their CPs, PM=their properties, TL=their market/team,
 Admin=org-wide. Cached one row per user per day in **`ai_suggestions`** (migration 013). Generated **on-demand** on first open
-(`GET /api/ai-suggestions`) AND pre-generated for everyone by a **09:30-IST cron** (`POST /admin/generate-suggestions`, in
-`render.yaml` — needs a Render **Blueprint re-sync** to create the new cron service). Degrades gracefully: no key / API error →
-a deterministic (still clickable) fallback brief. Self-contained (styles scoped `as-`, no `app.css` change); `anthropic` lazy-imported.
+(`GET /api/ai-suggestions`) AND pre-generated for everyone by a **09:30-IST cron** that runs the batch **in its own cron
+container** (`python -m api.generate_suggestions_cli`, in `render.yaml`) — deliberately NOT via the web service, because the
+full-snapshot build is a few minutes of CPU (~285s for 38 users on starter) and must not degrade the live app at the login peak.
+`POST /admin/generate-suggestions` is the equivalent **manual** web trigger (token-gated; loads the web service, use sparingly).
+⚠ On-demand (cold) generation is slow (~50s — builds the full snapshot like `/api/seed`); the cron keeps morning opens cached &
+instant. Adding the cron needs a Render **Blueprint re-sync** (a git push won't create a new service). Degrades gracefully: no
+key / API error → a deterministic (still clickable) fallback brief. Self-contained (styles scoped `as-`, no `app.css` change); `anthropic` lazy-imported.
 
 ---
 
