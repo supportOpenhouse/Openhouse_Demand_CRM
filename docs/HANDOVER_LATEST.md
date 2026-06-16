@@ -212,7 +212,7 @@ Writes (all persisted, permission-checked): `POST /api/followups`, `/api/nudges`
 `/api/top-brokers/{id}/phone`, `POST /api/hiring/mm-override` (**admin** — fills a blank MM),
 `POST /api/reports/property` (**admin** — build a seller report: metrics + Claude summary + rendered HTML; read-only),
 `POST /api/reports/property/draft` (**admin** — save that report as a Gmail **draft** in the caller's own mailbox; `503` until SA delegation is enabled),
-`POST /api/ai-suggestions/refresh` (**all roles** — force-regenerate the caller's own brief).
+`POST /api/ai-suggestions/refresh` (**admin only** — force-regenerate the caller's own brief; gated because it triggers an expensive full-snapshot regen. The button is hidden for non-admins in the view too).
 Auth: `/auth/google/start|callback`, `/auth/logout`,
 `/auth/dev_login` (only when `DEV_MODE=1`). Ops: `POST /admin/sync`, `POST /admin/generate-suggestions` (daily 09:30-IST cron, token-gated — pre-generates every user's brief), `GET /health`.
 
