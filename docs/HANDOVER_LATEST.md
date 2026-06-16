@@ -43,7 +43,8 @@ Openhouse_Demand_CRM/
 │       ├── api.js            apiFetch (same-origin, credentials:'include'), loadSeed, write calls
 │       ├── views/            HomeView (default landing), VisitsView, CpView, PropertiesView, TeamView,
 │       │                     NotificationsView, SnapshotView, AnalyticsView, BookVisitsView (super-admin booking · beta),
-│       │                     HiringView (admin hiring/MM planning · beta), ReportShareView (admin seller-report mailer · beta)
+│       │                     HiringView (admin hiring/MM planning · beta), ReportShareView (admin seller-report mailer · beta),
+│       │                     AiSuggestionsView (per-user daily AI morning brief · all roles · beta)
 │       ├── components/       BrokerModal, PropertyModal, UserModal, FiltersModal, BottomTabBar (mobile nav), …
 │       ├── lib/              visits.js (stage/status/scope), analytics.js, legacy.js, …
 │       ├── app.css / theme.css   light theme; tokens in theme.css (:root)
@@ -53,12 +54,13 @@ Openhouse_Demand_CRM/
 │   │   ├── auth.py           Google OAuth + signed session cookie (SameSite=Lax)
 │   │   ├── seed_snapshot.py  build() the /api/seed payload + scope_for_user() per role
 │   │   ├── reports.py        Property Report mailer: metrics (by home_id) + Claude(Sonnet) feedback summary + branded HTML + Gmail draft (SA domain-wide delegation)
+│   │   ├── ai_suggestions.py Per-user daily AI "morning brief": deterministic signals from SCOPED visits (near-closing, overdue FUs, broker call-nudges) + Claude(Sonnet) prioritisation. Reuses scope_for_user.
 │   │   ├── sheet_sync.py     Sheets → Postgres upsert (brokers/visits/inventory)
 │   │   ├── import_ct_assignments.py   one-off CP owner/tier import from CT sheet
 │   │   ├── import_top_brokers.py      99acres top-brokers import
 │   │   ├── bootstrap.py      one-shot schema + users + first sync
 │   │   ├── db.py / config.py / sheets.py
-│   │   └── migrations/ 001…012 (latest: 009 sheet_key_handovers · 010 user_extra_cities · 011 old_lead_recency_guard · 012 hiring_mm_overrides)
+│   │   └── migrations/ 001…013 (latest: 011 old_lead_recency_guard · 012 hiring_mm_overrides · 013 ai_suggestions)
 ├── lsq_sync/                 one-shot LeadSquared → CRM migration + write-back (DONE)
 │   ├── migrate.py · writeback.py · README.md · backups/ (gitignored)
 ├── render.yaml               Render blueprint (web + cron)
@@ -201,16 +203,18 @@ to diagnose "user X can't see Y" bugs (e.g., the Ayush properties bug — §8).
 ---
 
 ## 6. API endpoints (`backend/api/main.py`)
-Read: `GET /api/me`, `GET /api/seed`, `GET /api/top-brokers`, `GET /api/hiring` (**admin** — hiring table).
+Read: `GET /api/me`, `GET /api/seed`, `GET /api/top-brokers`, `GET /api/hiring` (**admin** — hiring table),
+`GET /api/ai-suggestions` (**all roles** — the caller's daily AI brief; generates + caches on-demand if today's is missing).
 Writes (all persisted, permission-checked): `POST /api/followups`, `/api/nudges`,
 `/api/notifications/{id}/read`, `/api/notifications/read_all`, `/api/daily_tasks/pin|unpin`,
 `/api/engagements`, `/api/brokers/{cp}/tier`, `/api/brokers/{cp}/owner`, `/api/brokers/bulk_assign`,
 `/api/visits/bulk_reassign`, `POST /api/users` + `PATCH /api/users/{slug}` (admin),
 `/api/top-brokers/{id}/phone`, `POST /api/hiring/mm-override` (**admin** — fills a blank MM),
 `POST /api/reports/property` (**admin** — build a seller report: metrics + Claude summary + rendered HTML; read-only),
-`POST /api/reports/property/draft` (**admin** — save that report as a Gmail **draft** in the caller's own mailbox; `503` until SA delegation is enabled).
+`POST /api/reports/property/draft` (**admin** — save that report as a Gmail **draft** in the caller's own mailbox; `503` until SA delegation is enabled),
+`POST /api/ai-suggestions/refresh` (**all roles** — force-regenerate the caller's own brief).
 Auth: `/auth/google/start|callback`, `/auth/logout`,
-`/auth/dev_login` (only when `DEV_MODE=1`). Ops: `POST /admin/sync`, `GET /health`.
+`/auth/dev_login` (only when `DEV_MODE=1`). Ops: `POST /admin/sync`, `POST /admin/generate-suggestions` (daily 09:30-IST cron, token-gated — pre-generates every user's brief), `GET /health`.
 
 ---
 
@@ -270,6 +274,20 @@ if the SDK/key is absent. **Two prerequisites before the draft button works** (s
 `oh-crm-secrets`; (b) Workspace admin authorises the SA client_id `103924240682962245131` for the `gmail.compose` scope. Until
 (b), the draft endpoint returns a friendly **`503`** and the UI shows the actionable message; the preview/metrics work regardless.
 
+**AI Suggestions tab** (`AiSuggestionsView.jsx` + `backend/api/ai_suggestions.py`, **ALL roles · beta**, 2026-06-16): a per-user
+daily **"morning brief"** — placed second in the nav (after Home). For each user it (1) scopes the snapshot via **`scope_for_user`**
+(identical who-sees-what, so it only reflects their own book), (2) computes deterministic **signals** from their scoped visits —
+leads **near closing** (advanced stages), **overdue / due-today** follow-ups, **channel-partners to call** (with pending counts +
+buyer names), **awaiting-status-update** counts — using a Python port of `lib/visits.js` (visitStage/nextFu/isClosedLead), then
+(3) asks **Claude Sonnet** to PRIORITISE + phrase them into an **uncapped, priority-ordered** list. Each point is **clickable**:
+`link_kind` ∈ {broker → opens the CP modal, lead → jumps to Visits filtered to that buyer, visits, none}; the frontend validates
+broker cp_codes against the user's own brokers so a click can't break (App.jsx gained a `pendingSearch` ref so the deep-link search
+survives the view switch — otherwise byte-identical). Role-aware framing: KAM=their CPs, PM=their properties, TL=their market/team,
+Admin=org-wide. Cached one row per user per day in **`ai_suggestions`** (migration 013). Generated **on-demand** on first open
+(`GET /api/ai-suggestions`) AND pre-generated for everyone by a **09:30-IST cron** (`POST /admin/generate-suggestions`, in
+`render.yaml` — needs a Render **Blueprint re-sync** to create the new cron service). Degrades gracefully: no key / API error →
+a deterministic (still clickable) fallback brief. Self-contained (styles scoped `as-`, no `app.css` change); `anthropic` lazy-imported.
+
 ---
 
 ## 8. Gotchas / landmines (hard-won)
@@ -295,6 +313,16 @@ if the SDK/key is absent. **Two prerequisites before the draft button works** (s
 ---
 
 ## 9. Recent change log
+- **2026-06-16 (Claude session — AI Suggestions tab, ALL roles · beta):** new per-user daily **morning brief**
+  (`backend/api/ai_suggestions.py` + `views/AiSuggestionsView.jsx` + **migration 013** `ai_suggestions` + render.yaml
+  09:30-IST cron). Reuses `scope_for_user` for who-sees-what, computes deterministic signals (near-closing / overdue /
+  due-today / broker call-nudges / awaiting-update) from each user's scoped visits, and Claude Sonnet prioritises them into
+  an **uncapped, priority-ordered, clickable** list (each point opens the CP modal or jumps to the buyer's visit). Validated
+  live across KAM/PM/TL/Admin (scoping counts differ correctly: 448/80/322/881 active; refs valid). **Key fix:** the model
+  initially returned empty priorities (`stop_reason=max_tokens` — it tried to emit a point per 40+40+40 signal item); fixed by
+  passing Claude the TOP-15 of each list + max_tokens 3500, while the frontend renders the full clickable lists. App.jsx gained
+  a `pendingSearch` ref for deep-link search (else byte-identical). Deploy: migration 013 applied; backend→Render, frontend→
+  Vercel. `ANTHROPIC_API_KEY` already in Render (from Report Share) so the AI brief is live; the cron needs a Blueprint re-sync.
 - **2026-05-29 → 06-01 (Claude session):** config/URL fixes; LSQ→CRM one-shot migration (3,817 visits
   enriched, 26 inserted, 2,808 followups) + write-back (`mx_Test='a'` on 1,248 leads, reversible); 3-round
   validation; mobile login-loop fix (first-party cookie via Vercel proxy). See `SESSION_HANDOVER_2026-06.md`.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { loadSeed } from './api.js';
 import Toast from './components/Toast.jsx';
 import AppSkeleton from './components/AppSkeleton.jsx';
@@ -14,6 +14,7 @@ import AnalyticsView from './views/AnalyticsView.jsx';
 import BookVisitsView from './views/BookVisitsView.jsx';
 import HiringView from './views/HiringView.jsx';
 import ReportShareView from './views/ReportShareView.jsx';
+import AiSuggestionsView from './views/AiSuggestionsView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
@@ -29,6 +30,7 @@ const SUPER_ADMINS = new Set(['akshit', 'saransh']);
 
 const NAV = [
   { k: 'home',          icon: '🏠', label: 'Home' },
+  { k: 'ai',            icon: '✨', label: 'AI Suggestions' },
   { k: 'visits',        icon: '📋', label: 'Visits' },
   { k: 'cps',           icon: '🤝', label: 'Channel Partners' },
   { k: 'properties',    icon: '🏠', label: 'Properties' },
@@ -60,7 +62,17 @@ export default function App() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [impersonate, setImpersonate] = useState(null); // admin: view as another user (slug)
   const [switcherOpen, setSwitcherOpen] = useState(false);
-  useEffect(() => { setSearch(''); }, [view]);         // clear search when switching views
+  // clear search when switching views — UNLESS a deep-link (AI Suggestions) set a
+  // pending search to apply on arrival (e.g. jump to Visits filtered to a buyer).
+  const pendingSearch = useRef(null);
+  useEffect(() => {
+    if (pendingSearch.current != null) { setSearch(pendingSearch.current); pendingSearch.current = null; }
+    else setSearch('');
+  }, [view]);
+  const navigateWithSearch = (targetView, term) => {
+    if (term != null) pendingSearch.current = term;
+    setView(targetView);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -202,6 +214,8 @@ export default function App() {
               <ErrorBoundary resetKey={view}>
               {view === 'home' ? (
                 <HomeView seed={vseed} onOpenBroker={setOpenCp} />
+              ) : view === 'ai' ? (
+                <AiSuggestionsView seed={vseed} onOpenBroker={setOpenCp} onNavigate={navigateWithSearch} />
               ) : view === 'visits' ? (
                 <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} />
               ) : view === 'cps' ? (

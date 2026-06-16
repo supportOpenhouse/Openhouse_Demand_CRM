@@ -55,6 +55,30 @@ services:
         value: https://oh-demand-crm-api.onrender.com
       - fromGroup: oh-crm-secrets
 
+  # ── 3. Cron job · AI Suggestions morning brief — 09:30 IST (04:00 UTC) ──
+  # Pre-generates every active user's daily brief so it's ready at login. The GET
+  # endpoint also generates on-demand, so this is an optimisation, not a hard
+  # dependency. NOTE: adding a NEW service needs a Blueprint re-sync in the Render
+  # dashboard — a plain git push won't create the cron on its own.
+  - type: cron
+    name: oh-demand-crm-ai-suggestions
+    runtime: python
+    region: singapore
+    plan: starter
+    rootDir: backend
+    schedule: "0 4 * * *"
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: |
+      curl -fsS --max-time 295 -X POST \
+        -H "X-Internal-Cron-Token: $INTERNAL_CRON_TOKEN" \
+        "$API_BASE_URL/admin/generate-suggestions"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: API_BASE_URL
+        value: https://oh-demand-crm-api.onrender.com
+      - fromGroup: oh-crm-secrets
+
 # ── Shared secrets ────────────────────────────────────────────────────────
 # Define the VALUES ONCE in the Render dashboard under Environment Groups; both
 # services consume the group. `sync: false` means "dashboard-managed" — the
