@@ -114,6 +114,18 @@ export async function createReportDraft(body) {
   return res.json();
 }
 
+// --- AI Suggestions (per-user daily morning brief; all roles) ---
+export async function loadAiSuggestions() {
+  const res = await apiFetch('/api/ai-suggestions');
+  if (!res.ok) throw new Error(`ai-suggestions failed (HTTP ${res.status})`);
+  return res.json();   // { payload:{counts,signals,brief,for_date,team}, generated_at, cached }
+}
+export async function refreshAiSuggestions() {
+  const res = await apiFetch('/api/ai-suggestions/refresh', { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // --- Roster admin (Admin only on the backend) ---
 export async function createUser(body) {
   const res = await apiFetch('/api/users', { method: 'POST', body: JSON.stringify(body) });

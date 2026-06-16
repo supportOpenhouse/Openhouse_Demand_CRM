@@ -9,6 +9,7 @@ Cron: /admin/sync hit by Render Cron Job; gated by INTERNAL_CRON_TOKEN.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -22,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import auth, config, reports, seed_snapshot, sheet_sync
+from . import ai_suggestions, auth, config, reports, seed_snapshot, sheet_sync
 from .db import init_pool, close_pool, acquire
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -1006,6 +1007,95 @@ async def report_draft(body: ReportDraftBody, user: dict = Depends(auth.current_
         log.exception("gmail draft creation failed")
         raise HTTPException(502, f"Could not create the Gmail draft: {e}")
     return {"ok": True, "subject": subject, **result}
+
+
+# ============================================================================
+# AI Suggestions — per-user daily "morning brief" (all roles)
+# A short, role-scoped brief (leads near closing, brokers to call with pending
+# counts, status updates) built from each user's SCOPED data (reusing
+# scope_for_user — identical who-sees-what) and prioritised by Claude. Cached one
+# row per user per day. The 09:30-IST cron pre-generates everyone; the GET
+# endpoint generates on-demand if today's brief is missing. Read-only on CRM data.
+# ============================================================================
+
+_AI_USER_COLS = ("id, slug, email, name, team, role, cities, micro_markets, "
+                 "extra_cities, extra_cities_enabled, active")
+
+
+async def _ai_upsert(conn, user_id, for_date, payload: dict) -> None:
+    await conn.execute(
+        """
+        INSERT INTO ai_suggestions (user_id, for_date, payload)
+        VALUES ($1, $2, $3::jsonb)
+        ON CONFLICT (user_id, for_date)
+        DO UPDATE SET payload = EXCLUDED.payload, generated_at = now()
+        """,
+        user_id, for_date, json.dumps(payload),
+    )
+
+
+def _ai_payload(row) -> dict:
+    p = row["payload"]
+    return json.loads(p) if isinstance(p, str) else p
+
+
+@app.get("/api/ai-suggestions")
+async def get_ai_suggestions(user: dict = Depends(auth.current_user)):
+    today = _dt.date.today()
+    async with acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT payload, generated_at FROM ai_suggestions WHERE user_id = $1 AND for_date = $2",
+            user["id"], today,
+        )
+        if row:
+            return {"payload": _ai_payload(row), "generated_at": row["generated_at"].isoformat(), "cached": True}
+        snap = await seed_snapshot.build(conn)
+    # first open of the day → generate on-demand (blocking SDK call off the loop), then cache
+    payload = await asyncio.to_thread(ai_suggestions.build_for_user, snap, user, seed_snapshot.scope_for_user)
+    async with acquire() as conn:
+        await _ai_upsert(conn, user["id"], today, payload)
+    return {"payload": payload, "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(), "cached": False}
+
+
+@app.post("/api/ai-suggestions/refresh")
+async def refresh_ai_suggestions(user: dict = Depends(auth.current_user)):
+    today = _dt.date.today()
+    async with acquire() as conn:
+        snap = await seed_snapshot.build(conn)
+    payload = await asyncio.to_thread(ai_suggestions.build_for_user, snap, user, seed_snapshot.scope_for_user)
+    async with acquire() as conn:
+        await _ai_upsert(conn, user["id"], today, payload)
+    return {"payload": payload, "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(), "cached": False}
+
+
+@app.post("/admin/generate-suggestions")
+async def admin_generate_suggestions(x_internal_cron_token: str = Header(default="")):
+    """Daily cron (09:30 IST). Pre-generates every active user's brief. Token-gated."""
+    if not config.INTERNAL_CRON_TOKEN:
+        raise HTTPException(503, "INTERNAL_CRON_TOKEN not configured")
+    if x_internal_cron_token != config.INTERNAL_CRON_TOKEN:
+        raise HTTPException(403, "Bad cron token")
+    today = _dt.date.today()
+    async with acquire() as conn:
+        snap = await seed_snapshot.build(conn)
+        users = [dict(u) for u in await conn.fetch(f"SELECT {_AI_USER_COLS} FROM users WHERE active")]
+    sem = asyncio.Semaphore(5)   # modest concurrency on the Claude calls
+
+    async def _one(u):
+        async with sem:
+            try:
+                payload = await asyncio.to_thread(
+                    ai_suggestions.build_for_user, snap, u, seed_snapshot.scope_for_user)
+                return u["id"], payload
+            except Exception:  # one user's failure must not abort the batch
+                log.exception("ai brief failed for %s", u.get("slug"))
+                return None
+
+    results = [r for r in await asyncio.gather(*[_one(u) for u in users]) if r]
+    async with acquire() as conn:
+        for uid, payload in results:
+            await _ai_upsert(conn, uid, today, payload)
+    return {"ok": True, "generated": len(results), "users": len(users)}
 
 
 # ============================================================================
