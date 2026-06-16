@@ -77,7 +77,7 @@ export default function AiSuggestionsView({ seed, onOpenBroker, onNavigate, init
         </div>
       </div>
 
-      {!data && !err && <div className="as-loading"><span className="as-spin" /> Preparing your brief…</div>}
+      {!data && !err && <div className="as-loading"><span className="as-spin" /> Preparing your brief… the first load of the day can take up to a minute.</div>}
       {err && <div className="as-err">⚠️ Couldn’t load your brief — {err} <button className="as-link" onClick={refresh}>retry</button></div>}
 
       {data && (
