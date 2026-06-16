@@ -21,6 +21,7 @@ function fmtTime(iso) {
 
 export default function AiSuggestionsView({ seed, onOpenBroker, onNavigate, initialData = null }) {
   const me = seed?.current_user || {};
+  const isAdmin = me.team === 'Admin';   // Refresh (an expensive regen) is admin-only — backend enforces it too
   const [data, setData] = useState(initialData);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -71,9 +72,11 @@ export default function AiSuggestionsView({ seed, onOpenBroker, onNavigate, init
         </div>
         <div className="as-head-meta">
           {data && <span className="as-when">{data.cached ? 'Updated' : 'Generated'} {fmtTime(data.generated_at)}</span>}
-          <button type="button" className="as-refresh" onClick={refresh} disabled={busy}>
-            {busy ? '…' : '↻'} Refresh
-          </button>
+          {isAdmin && (
+            <button type="button" className="as-refresh" onClick={refresh} disabled={busy}>
+              {busy ? '…' : '↻'} Refresh
+            </button>
+          )}
         </div>
       </div>
 

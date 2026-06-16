@@ -1059,6 +1059,7 @@ async def get_ai_suggestions(user: dict = Depends(auth.current_user)):
 
 @app.post("/api/ai-suggestions/refresh")
 async def refresh_ai_suggestions(user: dict = Depends(auth.current_user)):
+    _require_admin(user)   # refresh forces an expensive full-snapshot regen → admins only
     today = _dt.date.today()
     async with acquire() as conn:
         snap = await seed_snapshot.build(conn)
