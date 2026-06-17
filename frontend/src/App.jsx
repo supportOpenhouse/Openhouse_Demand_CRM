@@ -23,10 +23,10 @@ import { TEAM_PILL } from './lib/legacy.js';
 
 const SEARCH_VIEWS = new Set(['visits', 'cps', 'properties']);
 
-// Book Visits (beta) is restricted to these two super-admins BY SLUG until the app
+// Book Visits (beta) is restricted to these super-admins BY SLUG until the app
 // booking API is connected. Deliberately NOT gated by team/role — several other users
-// are also Admin/admin, and this must stay limited to exactly these two.
-const SUPER_ADMINS = new Set(['akshit', 'saransh']);
+// are also Admin/admin, and this must stay limited to exactly this set.
+const SUPER_ADMINS = new Set(['akshit', 'saransh', 'tazim']);
 
 const NAV = [
   { k: 'home',          icon: '🏠', label: 'Home' },

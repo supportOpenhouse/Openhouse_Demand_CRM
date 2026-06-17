@@ -2,7 +2,7 @@
 // Joins live inventory (seed.properties) + visits (counts) + the external
 // key-handover dates (/api/key-handovers), matching on society + unit "mix & match".
 import { TODAY, ymd, daysBetween } from './format.js';
-import { visitStage, visitStatus } from './visits.js';
+import { visitStage, visitStatus, isVisitCompleted } from './visits.js';
 import { parsePrice } from './legacy.js';
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
@@ -63,9 +63,18 @@ export function weekWindows(today = TODAY) {
   const d0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const dow = (d0.getDay() + 6) % 7;                 // 0 = Monday
   const thisMon = addDays(d0, -dow);
+  const from = (n) => ymd(addDays(thisMon, -7 * n));        // Monday of n weeks ago
+  const to = (n) => ymd(addDays(thisMon, -7 * n + 6));      // Sunday of n weeks ago
+  // previous CALENDAR month (e.g. today in June → 1–31 May)
+  const firstThis = new Date(today.getFullYear(), today.getMonth(), 1);
+  const lmEnd = addDays(firstThis, -1);
+  const lmStart = new Date(lmEnd.getFullYear(), lmEnd.getMonth(), 1);
   return {
-    lastFrom: ymd(addDays(thisMon, -7)), lastTo: ymd(addDays(thisMon, -1)),
-    prevFrom: ymd(addDays(thisMon, -14)), prevTo: ymd(addDays(thisMon, -8)),
+    lastFrom: from(1), lastTo: to(1),     // last week (Mon–Sun)
+    prevFrom: from(2), prevTo: to(2),     // 2 weeks ago
+    w3From: from(3), w3To: to(3),         // 3 weeks ago
+    w4From: from(4), w4To: to(4),         // 4 weeks ago
+    lmFrom: ymd(lmStart), lmTo: ymd(lmEnd),   // last calendar month
   };
 }
 
@@ -109,13 +118,22 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
     const unit = unitNoOf(p);
     const vs = visitsForProperty(p, idx);
     const c = {
-      total: vs.length, lastWeek: 0, prevWeek: 0, hot: 0, warm: 0, cold: 0,
+      total: 0, lastWeek: 0, prevWeek: 0, week3: 0, week4: 0, lastMonth: 0,
+      hot: 0, warm: 0, cold: 0,
       revisit: 0, negotiation: 0, booking: 0, not_interested: 0, need_more: 0, future_prospect: 0,
     };
     vs.forEach((v) => {
-      const d = v.visit_date || '';
+      // COMPLETED visits only (exclude upcoming / cancelled), bucketed by the
+      // SCHEDULED visit date (selected_date) — same date convention as the raw
+      // visit table. Upcoming/cancelled visits no longer inflate the counts.
+      if (!isVisitCompleted(v)) return;
+      c.total += 1;
+      const d = v.selected_date || v.visit_date || '';
       if (d >= w.lastFrom && d <= w.lastTo) c.lastWeek += 1;
-      if (d >= w.prevFrom && d <= w.prevTo) c.prevWeek += 1;
+      else if (d >= w.prevFrom && d <= w.prevTo) c.prevWeek += 1;
+      else if (d >= w.w3From && d <= w.w3To) c.week3 += 1;
+      else if (d >= w.w4From && d <= w.w4To) c.week4 += 1;
+      if (d >= w.lmFrom && d <= w.lmTo) c.lastMonth += 1;   // calendar month — separate, may overlap weeks
       const st = visitStatus(v);
       if (st === 'hot' || st === 'warm' || st === 'cold') c[st] += 1;
       const b = stageBucket(visitStage(v));
@@ -145,8 +163,11 @@ export const PS_COLUMNS = [
   { k: 'kh_date', label: 'KH Date', type: 'text' },
   { k: 'days_since_kh', label: 'Days Since KH', type: 'num' },
   { k: 'total', label: 'Total Visits', type: 'num' },
-  { k: 'lastWeek', label: 'Last Week (Mon-Sun)', type: 'num' },
-  { k: 'prevWeek', label: 'Prev Week', type: 'num' },
+  { k: 'lastWeek', label: 'Last Week', type: 'num' },
+  { k: 'prevWeek', label: '2 Weeks Ago', type: 'num' },
+  { k: 'week3', label: '3 Weeks Ago', type: 'num' },
+  { k: 'week4', label: '4 Weeks Ago', type: 'num' },
+  { k: 'lastMonth', label: 'Last Month', type: 'num' },
   { k: 'hot', label: 'Hot Leads', type: 'num' },
   { k: 'warm', label: 'Warm Leads', type: 'num' },
   { k: 'cold', label: 'Cold Leads', type: 'num' },
