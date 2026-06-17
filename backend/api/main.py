@@ -255,9 +255,20 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
     Acquisitions wins on conflict (same society + flat-number); the sheet fills the
     gaps. The frontend matches these to our inventory for the Property-Status report.
     Degrades gracefully when either source is unreachable."""
+    # manual overrides (admins edit KH in the report) — loaded fresh every call (small
+    # table) and applied client-side by home_id; they ALWAYS win over the matched date.
+    overrides = {}
+    try:
+        async with acquire() as conn:
+            orows = await conn.fetch(
+                "SELECT home_id, key_handover_date FROM kh_overrides WHERE key_handover_date IS NOT NULL")
+        overrides = {r["home_id"]: r["key_handover_date"].isoformat() for r in orows if r["home_id"]}
+    except Exception as e:  # noqa: BLE001 — never let overrides break the page
+        log.warning("kh overrides fetch failed: %s", e)
+
     now = time.monotonic()
     if _kh_cache["items"] is not None and (now - _kh_cache["at"]) < _KH_TTL:
-        return {"items": _kh_cache["items"], "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
+        return {"items": _kh_cache["items"], "overrides": overrides, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
 
     def _row_to_item(r):
         return {"society": (r["society_name"] or "").strip(), "unit": (r["unit_no"] or "").strip(),
@@ -304,8 +315,44 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
     _kh_cache["items"] = items
     _kh_cache["at"] = now
     source = "connected" if (acq_source == "connected" or sheet_items) else acq_source
-    return {"items": items, "source": source, "count": len(items),
+    return {"items": items, "overrides": overrides, "source": source, "count": len(items),
             "acquisitions": len(acq_items), "sheet": len(sheet_items)}
+
+
+class KhOverrideBody(BaseModel):
+    home_id: str
+    society_name: Optional[str] = None
+    unit_no: Optional[str] = None
+    kh_date: Optional[str] = None     # "YYYY-MM-DD" to set, empty/None to clear
+
+
+@app.post("/api/kh-override")
+async def set_kh_override(body: KhOverrideBody, user: dict = Depends(auth.current_user)):
+    """Admins edit a unit's key-handover date in the Property Status report. Recorded
+    in kh_overrides (keyed by home_id) and wins over the matched date. Empty → clear."""
+    _require_admin(user)
+    home_id = (body.home_id or "").strip()
+    if not home_id:
+        raise HTTPException(400, "home_id is required")
+    raw = (body.kh_date or "").strip()
+    d = _date_or_none(raw) if raw else None
+    if raw and d is None:
+        raise HTTPException(400, "Invalid kh_date (expected YYYY-MM-DD)")
+    async with acquire() as conn:
+        if d:
+            await conn.execute(
+                """
+                INSERT INTO kh_overrides (home_id, society_name, unit_no, key_handover_date, set_by, updated_at)
+                VALUES ($1, $2, $3, $4, $5, now())
+                ON CONFLICT (home_id) DO UPDATE SET
+                    society_name = EXCLUDED.society_name, unit_no = EXCLUDED.unit_no,
+                    key_handover_date = EXCLUDED.key_handover_date, set_by = EXCLUDED.set_by, updated_at = now()
+                """,
+                home_id, (body.society_name or "").strip(), (body.unit_no or "").strip(), d, user["slug"],
+            )
+        else:
+            await conn.execute("DELETE FROM kh_overrides WHERE home_id = $1", home_id)
+    return {"ok": True, "home_id": home_id, "kh_date": d.isoformat() if d else ""}
 
 
 # ============================================================================

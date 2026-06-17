@@ -38,7 +38,13 @@ export async function setTopBrokerPhone(id, phone) {
 export async function loadKeyHandovers() {
   const res = await apiFetch('/api/key-handovers');
   if (!res.ok) throw new Error(`key-handovers failed (HTTP ${res.status})`);
-  return res.json();   // { items:[{society,unit,kh_date}], source, count }
+  return res.json();   // { items:[{society,unit,kh_date}], overrides:{home_id:kh_date}, source, count }
+}
+// Admin: set/clear a manual KH-date override for a unit (by home_id). kh_date '' clears.
+export async function setKhOverride(body) {
+  const res = await apiFetch('/api/kh-override', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }
 
 export async function saveFollowup(body) {

@@ -238,7 +238,7 @@ export default function AnalyticsView({ seed }) {
       </div>
 
       {/* ---- Property Status report ---- */}
-      <PropertyStatusTable seed={seed} filters={f} khItems={kh.items} khSource={kh.source} />
+      <PropertyStatusTable seed={seed} filters={f} khItems={kh.items} khOverrides={kh.overrides} khSource={kh.source} />
 
       {/* ---- chart 9: raw data ---- */}
       <div className="an-card an-card-wide">
