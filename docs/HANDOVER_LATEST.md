@@ -317,6 +317,16 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-17 (Claude session — 3 fixes, frontend-only, PR #8):** (1) **Tazim → super-admin** — added `tazim` to
+  `SUPER_ADMINS` in `App.jsx` (Book Visits access; he was already team=Admin). (2) **Mobile broker-modal "freeze" fixed** —
+  on mobile the popup body was `height:auto`/`overflow:visible`, so a long visit list overflowed the clipped `100vh` modal
+  with no scroll container (looked frozen). Made `#modal-broker .bp` a flex column with a bounded, momentum-scrolling body
+  (`overflow-y:auto`, `100dvh` for the iOS toolbar) — scoped to ≤900px, desktop/other modals untouched (`theme.css`).
+  ⚠ verify on a real iOS device. (3) **Analytics Property Status corrected** — was counting cancelled/upcoming visits by
+  actual `visit_date`; now **completed visits only** (`isVisitCompleted`) bucketed by the **scheduled date** (`selected_date`,
+  same convention as the raw visit table). Added trend columns **Last Week · 2/3/4 Weeks Ago · Last Month** (prev calendar
+  month). Read-only; `weekWindows`/`buildPropertyStatusRows`/`PS_COLUMNS` are used solely by `PropertyStatusTable`. Validated
+  vs live data (last-week 618→445, total 4254→3342). NOTE: "completed-only" now also applies to Hot/Warm/Cold and to Total.
 - **2026-06-16 (Claude session — AI Suggestions tab, ALL roles · beta):** new per-user daily **morning brief**
   (`backend/api/ai_suggestions.py` + `views/AiSuggestionsView.jsx` + **migration 013** `ai_suggestions` + render.yaml
   09:30-IST cron). Reuses `scope_for_user` for who-sees-what, computes deterministic signals (near-closing / overdue /
