@@ -60,7 +60,7 @@ Openhouse_Demand_CRM/
 │   │   ├── import_top_brokers.py      99acres top-brokers import
 │   │   ├── bootstrap.py      one-shot schema + users + first sync
 │   │   ├── db.py / config.py / sheets.py
-│   │   └── migrations/ 001…013 (latest: 011 old_lead_recency_guard · 012 hiring_mm_overrides · 013 ai_suggestions)
+│   │   └── migrations/ 001…014 (latest: 012 hiring_mm_overrides · 013 ai_suggestions · 014 kh_overrides)
 ├── lsq_sync/                 one-shot LeadSquared → CRM migration + write-back (DONE)
 │   ├── migrate.py · writeback.py · README.md · backups/ (gitignored)
 ├── render.yaml               Render blueprint (web + cron)
@@ -212,7 +212,8 @@ Writes (all persisted, permission-checked): `POST /api/followups`, `/api/nudges`
 `/api/top-brokers/{id}/phone`, `POST /api/hiring/mm-override` (**admin** — fills a blank MM),
 `POST /api/reports/property` (**admin** — build a seller report: metrics + Claude summary + rendered HTML; read-only),
 `POST /api/reports/property/draft` (**admin** — save that report as a Gmail **draft** in the caller's own mailbox; `503` until SA delegation is enabled),
-`POST /api/ai-suggestions/refresh` (**admin only** — force-regenerate the caller's own brief; gated because it triggers an expensive full-snapshot regen. The button is hidden for non-admins in the view too).
+`POST /api/ai-suggestions/refresh` (**admin only** — force-regenerate the caller's own brief; gated because it triggers an expensive full-snapshot regen. The button is hidden for non-admins in the view too),
+`POST /api/kh-override` (**admin only** — set/clear a unit's key-handover date in the Property Status report, persisted to `kh_overrides` by `home_id`; wins over the matched date. `GET /api/key-handovers` also returns these `overrides`).
 Auth: `/auth/google/start|callback`, `/auth/logout`,
 `/auth/dev_login` (only when `DEV_MODE=1`). Ops: `POST /admin/sync`, `POST /admin/generate-suggestions` (daily 09:30-IST cron, token-gated — pre-generates every user's brief), `GET /health`.
 
@@ -317,6 +318,19 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-17 (Claude session — KH dates: matching fix + editable override, PR #9, migration 014):**
+  Two Property-Status improvements. **(1) KH match fix** (`lib/propertyStatus.js`): the society-name join was exact-only,
+  so units whose society carries a suffix/plural ("Godrej Aria, Sector 79" vs "Godrej Aria", "Gardens" vs "Garden",
+  "Ph-1", appended cluster names) never matched an available KH date. `buildKhMap` now also indexes by unit, and a new
+  `lookupKh()` does exact-first, else a **UNIQUE** society-PREFIX match (≥7 chars) for the same flat — recovers variants
+  but never maps a *different* society's date. Validated vs live: **116→123** matches, 0 exact changed, every recovery
+  verified correct (Godrej Aria, Sare Crescent Parc, Emaar Palm Garden(s), 16th Avenue, SVP Gulmohur, Skytech Merion).
+  **(2) Editable KH date** (**migration 014** `kh_overrides` by `home_id` + `POST /api/kh-override` admin-gated):
+  admins click the KH cell in the Property Status report → native date picker → persisted; the override **always wins**
+  over the matched date and recomputes Days-Since-KH. `GET /api/key-handovers` now also returns `overrides` (loaded fresh,
+  not cached; degrades gracefully if the table is absent). Non-admins are read-only. `buildPropertyStatusRows` gained a 4th
+  `overrides` arg + `home_id`/`kh_overridden` on each row. CSS byte-unchanged (KH cell uses inline styles). Files: `main.py`,
+  `propertyStatus.js`, `PropertyStatusTable.jsx`, `api.js`, `AnalyticsView.jsx` + migration 014.
 - **2026-06-17 (Claude session — 3 fixes, frontend-only, PR #8):** (1) **Tazim → super-admin** — added `tazim` to
   `SUPER_ADMINS` in `App.jsx` (Book Visits access; he was already team=Admin). (2) **Mobile broker-modal "freeze" fixed** —
   on mobile the popup body was `height:auto`/`overflow:visible`, so a long visit list overflowed the clipped `100vh` modal
