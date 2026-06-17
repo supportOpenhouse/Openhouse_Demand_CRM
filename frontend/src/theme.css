@@ -812,8 +812,14 @@ table.prop-t tbody tr:hover{background:#FFFAF3}
   #modal-broker .modal,#modal-property .modal,#modal-filters .modal,#modal-bulk .modal{
     width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;
   }
-  /* Broker popup mobile layout */
-  #modal-broker .bp-body{display:block;height:auto}
+  /* Broker popup mobile layout. FIX (mobile "screen freeze" on opening a lead):
+     the body used to be height:auto + overflow:visible, so the visit list overflowed
+     the clipped 100vh modal with NO scroll container — it looked frozen. Make `.bp`
+     a flex column (head + tab toggle pinned, body fills the rest) and give the body a
+     bounded, smooth-scrolling region. dvh keeps it inside the iOS toolbar (vh fallback). */
+  #modal-broker .modal{height:100dvh;max-height:100dvh}
+  #modal-broker .bp{display:flex;flex-direction:column}
+  #modal-broker .bp-body{display:block;flex:1 1 auto;min-height:0;height:auto;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
   #modal-broker .bp-head{padding:12px 14px;gap:10px;flex-wrap:wrap}
   #modal-broker .bp-head .avatar.lg{width:42px;height:42px;font-size:14px}
   #modal-broker .bp-head .bp-name{font-size:17px}
