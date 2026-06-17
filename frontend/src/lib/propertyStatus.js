@@ -46,17 +46,47 @@ export const flatNo = (s) => {
   const runs = ((s || '').match(/\d+/g) || []).map((d) => d.replace(/^0+(?=\d)/, ''));
   return runs.length ? runs.reduce((a, b) => (b.length >= a.length ? b : a)) : '';
 };
-const khKey = (society, unit) => `${normSoc(society)}#${unitDigitKey(unit)}`;
+// society-name match tolerant to a trailing suffix/plural: exact, or one normalised
+// name is a PREFIX of the other (shorter ≥7 chars so short names can't collide).
+// Conservative on purpose — recovers "Godrej Aria" ⊂ "Godrej Aria Sector 79",
+// "Emaar Palm Garden" ⊂ "…Gardens", "Skytech Merion Residency" ⊂ "…Ph-1" — but NEVER
+// two different names ("Raj Nagar Residency" vs "Raj Nagar Extension" never match).
+function socPrefixMatch(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+  return s.length >= 7 && l.startsWith(s);
+}
 
 export function buildKhMap(items = []) {
-  const m = {};
+  const exact = {};   // "normSoc#unitDigitKey" -> earliest KH date (the strict, safest match)
+  const byUnit = {};  // unitDigitKey -> { normSoc: earliest date } (society-prefix fallback)
   items.forEach((it) => {
     const dk = unitDigitKey(it.unit);
     if (!dk || !it.kh_date) return;                 // need a flat number + date
-    const k = `${normSoc(it.society)}#${dk}`;
-    if (!m[k] || it.kh_date < m[k]) m[k] = it.kh_date;   // earliest wins → deterministic
+    const ns = normSoc(it.society);
+    const k = `${ns}#${dk}`;
+    if (!exact[k] || it.kh_date < exact[k]) exact[k] = it.kh_date;   // earliest wins → deterministic
+    const u = (byUnit[dk] = byUnit[dk] || {});
+    if (!u[ns] || it.kh_date < u[ns]) u[ns] = it.kh_date;
   });
-  return m;
+  return { exact, byUnit };
+}
+
+// Resolve a property's KH date: exact society+unit first; else the SAME unit with a
+// UNIQUE society-prefix match (unique → it can't map a different society's date).
+// Returns '' when there's no match OR more than one candidate society (never guesses).
+export function lookupKh(khMap, society, unit) {
+  if (!khMap || !khMap.exact) return '';            // tolerate empty / legacy shape
+  const dk = unitDigitKey(unit);
+  if (!dk) return '';
+  const ns = normSoc(society);
+  const ex = khMap.exact[`${ns}#${dk}`];
+  if (ex) return ex;
+  const u = khMap.byUnit[dk];
+  if (!u) return '';
+  const socs = Object.keys(u).filter((kns) => socPrefixMatch(kns, ns));
+  return socs.length === 1 ? u[socs[0]] : '';       // 0 or ambiguous → blank
 }
 
 export function weekWindows(today = TODAY) {
@@ -111,7 +141,7 @@ export function visitsForProperty(p, idx) {
   return (idx.bySoc[normSoc(p.society_name)] || []).filter((v) => visitUnitKey(v) === uk);
 }
 
-export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}) {
+export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}) {
   const w = weekWindows();
   const idx = indexVisitsByProperty(visits);
   return properties.map((p) => {
@@ -139,13 +169,17 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
       const b = stageBucket(visitStage(v));
       if (b) c[b] += 1;
     });
-    const kh = khMap[khKey(p.society_name, unit)] || '';
+    const homeId = String(p.home_id || '').trim();
+    const matchedKh = lookupKh(khMap, p.society_name, unit) || '';
+    // a manual override (edited in the table, persisted to the backend) always wins
+    const ovr = homeId && overrides[homeId] ? overrides[homeId] : '';
+    const kh = ovr || matchedKh;
     return {
       region: p.micro_market || '', society: p.society_name || '', unit,
       config: p.configuration || '', flat_status: p.listing_status || '',
       ask_price: p.listing_price || '', responsible: p.sales_manager || '',
-      city: p.city_name || p.city || '',
-      kh_date: kh, days_since_kh: kh ? daysBetween(kh) : null,
+      city: p.city_name || p.city || '', home_id: homeId,
+      kh_date: kh, days_since_kh: kh ? daysBetween(kh) : null, kh_overridden: !!ovr,
       ...c,
     };
   });
