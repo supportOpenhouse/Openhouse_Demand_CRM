@@ -1,5 +1,6 @@
 -- ============================================================================
--- 008 · users.core_sales_manager_id — Core app SalesManager.id per CRM user
+-- 015 · users.core_sales_manager_id — Core app SalesManager.id per CRM user
+-- (renumbered from 008 to resolve a duplicate 008; content unchanged & already applied)
 -- ============================================================================
 -- For the CRM→Core visit-booking flow (docs/CRM_VISIT_BOOKING_GUIDE.md): the
 -- schedule-visits / buyer Core APIs require a `sales_manager_id` (Core integer)
