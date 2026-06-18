@@ -64,7 +64,7 @@ const VISIT_COLS = [
   { k: 'nextActivity', label: 'Next Activity', sort: true },
 ];
 
-export default function VisitsView({ seed, onOpenBroker, search = '', filters = {} }) {
+export default function VisitsView({ seed, onOpenBroker, search = '', filters = {}, visitsUi = null, onVisitsUiChange }) {
   const isMobile = useIsMobile();
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
@@ -102,18 +102,25 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   const isAdminOrTL = me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').includes('tl');
   const isAdmin = me.team === 'Admin' || me.role === 'admin';
 
-  // --- filter state (multi-select chip-bars) ---
-  const [statuses, setStatuses] = useState([]);
-  const [stages, setStages] = useState([]);
-  const [lastFus, setLastFus] = useState([]); // default: show all FU states (the "Not taken yet" chip is still there to focus)
-  const [priorities, setPriorities] = useState([]);
-  const [leadSet, setLeadSet] = useState('active');  // #6 Active | Old Leads | All — default hides old leads
+  // --- filter state (multi-select chip-bars). Initial values come from `visitsUi`
+  // (lifted to App so they survive this view unmounting on a tab switch); changes are
+  // reported back up via onVisitsUiChange. page/selectMode/selected stay local. ---
+  const [statuses, setStatuses] = useState(() => visitsUi?.statuses ?? []);
+  const [stages, setStages] = useState(() => visitsUi?.stages ?? []);
+  const [lastFus, setLastFus] = useState(() => visitsUi?.lastFus ?? []); // default: show all FU states (the "Not taken yet" chip is still there to focus)
+  const [priorities, setPriorities] = useState(() => visitsUi?.priorities ?? []);
+  const [leadSet, setLeadSet] = useState(() => visitsUi?.leadSet ?? 'active');  // #6 Active | Old Leads | All — default hides old leads
   // city + unit filters now live in the Filters modal (filters.cities / filters.unit)
-  const [sortField, setSortField] = useState('visit_date');
-  const [sortDir, setSortDir] = useState('desc');  // default visit_date desc
+  const [sortField, setSortField] = useState(() => visitsUi?.sortField ?? 'visit_date');
+  const [sortDir, setSortDir] = useState(() => visitsUi?.sortDir ?? 'desc');  // default visit_date desc
   const [page, setPage] = useState(1);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
+
+  // persist the chip-bar + sort selections up to App so returning to this tab restores them
+  useEffect(() => {
+    onVisitsUiChange?.({ statuses, stages, lastFus, priorities, leadSet, sortField, sortDir });
+  }, [statuses, stages, lastFus, priorities, leadSet, sortField, sortDir]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // owner resolver (legacy USERS_BY_ID[store.cpOwner[cp]])
   const ownerFor = (v) => ubs[cpOwner[v.cp_code]] || null;
