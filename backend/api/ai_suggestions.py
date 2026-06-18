@@ -125,6 +125,8 @@ def compute_signals(scoped: dict, user: dict) -> dict:
     """Deterministic facts from the user's SCOPED visits. No Claude, no I/O."""
     today = _today()
     visits = scoped.get("visits", [])
+    # current-inventory liveness per unit (Ready/Coming Soon = True); see seed_snapshot.build
+    live_by_home_id = scoped.get("live_by_home_id") or {}
 
     near_closing: list[dict] = []
     overdue: list[dict] = []          # follow-up date in the past
@@ -138,6 +140,14 @@ def compute_signals(scoped: dict, user: dict) -> dict:
     for v in visits:
         if v.get("is_old_lead"):
             continue                  # dead inventory — not actionable
+        # hide dead / dropped leads (status Dead, or stage not-interested / future-prospect)
+        if is_closed_lead(v, today):
+            continue
+        # show only leads whose unit is still in LIVE inventory; skip only when we
+        # positively know it's off-market (Sold / Booked / Archived). Unknown unit → keep.
+        hid = v.get("home_id")
+        if hid and live_by_home_id.get(hid) is False:
+            continue
         stage = visit_stage(v, today)
         status = visit_status(v)
         completed = stage not in ("upcoming", "cancelled")

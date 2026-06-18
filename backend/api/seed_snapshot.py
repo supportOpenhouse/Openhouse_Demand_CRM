@@ -268,13 +268,19 @@ async def build(conn: asyncpg.Connection) -> dict:
     # home_id → authoritative city from the inventory mirror. A visit's own `city`
     # (Visitors sheet) is sometimes mis-entered (e.g. Ghaziabad societies tagged
     # Noida); when the visit maps to a known unit, trust the inventory city.
-    home_city = {
-        r["home_id"]: r["city"]
-        for r in await conn.fetch(
-            "SELECT home_id, city FROM all_properties "
-            "WHERE home_id IS NOT NULL AND home_id <> '' AND city IS NOT NULL AND city <> ''"
-        )
-    }
+    # Also live_by_home_id: the unit's CURRENT inventory status (Ready / Coming Soon =
+    # live), the authoritative source the AI-Suggestions "live inventory only" filter
+    # reads — same mirror that maintains visits.is_old_lead. Kept server-side only
+    # (get_seed pops it; it never reaches the browser).
+    home_city = {}
+    live_by_home_id = {}
+    for r in await conn.fetch(
+        "SELECT home_id, city, listing_status FROM all_properties "
+        "WHERE home_id IS NOT NULL AND home_id <> ''"
+    ):
+        if r["city"]:
+            home_city[r["home_id"]] = r["city"]
+        live_by_home_id[r["home_id"]] = (r["listing_status"] or "").strip().lower() in ("ready", "coming soon")
     visits = []
     for r in visit_rows:
         intent = r["intent"] or {}
@@ -648,6 +654,7 @@ async def build(conn: asyncpg.Connection) -> dict:
         "brokers": brokers,
         "visits": visits,
         "properties": properties,
+        "live_by_home_id": live_by_home_id,   # server-side only (AI-Suggestions filter); popped by get_seed
         "to_assign_cps": to_assign_cps,
         "cp_owner": cp_owner,
         "pm_by_property": pm_by_property,

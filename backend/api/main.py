@@ -157,6 +157,7 @@ async def get_seed(user: dict = Depends(auth.current_user)):
     # own role filters so no view breaks, but stops a non-admin reading data
     # outside their scope from the raw payload.
     snapshot = seed_snapshot.scope_for_user(snapshot, user)
+    snapshot.pop("live_by_home_id", None)   # server-side only (AI-Suggestions filter) — not part of the seed contract
     snapshot["current_user_slug"] = user["slug"]
     snapshot["current_user"] = {
         "id": user["slug"],                   # frontend convention: id == slug
