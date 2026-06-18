@@ -60,7 +60,7 @@ Openhouse_Demand_CRM/
 │   │   ├── import_top_brokers.py      99acres top-brokers import
 │   │   ├── bootstrap.py      one-shot schema + users + first sync
 │   │   ├── db.py / config.py / sheets.py
-│   │   └── migrations/ 001…015 (latest: 013 ai_suggestions · 014 kh_overrides · 015 user_core_sales_manager_id [renumbered from a dup 008])
+│   │   └── migrations/ 001…016 (latest: 014 kh_overrides · 015 user_core_sales_manager_id [renumbered from a dup 008] · 016 team_perf_manual)
 ├── lsq_sync/                 one-shot LeadSquared → CRM migration + write-back (DONE)
 │   ├── migrate.py · writeback.py · README.md · backups/ (gitignored)
 ├── render.yaml               Render blueprint (web + cron)
@@ -213,7 +213,8 @@ Writes (all persisted, permission-checked): `POST /api/followups`, `/api/nudges`
 `POST /api/reports/property` (**admin** — build a seller report: metrics + Claude summary + rendered HTML; read-only),
 `POST /api/reports/property/draft` (**admin** — save that report as a Gmail **draft** in the caller's own mailbox; `503` until SA delegation is enabled),
 `POST /api/ai-suggestions/refresh` (**admin only** — force-regenerate the caller's own brief; gated because it triggers an expensive full-snapshot regen. The button is hidden for non-admins in the view too),
-`POST /api/kh-override` (**admin only** — set/clear a unit's key-handover date in the Property Status report, persisted to `kh_overrides` by `home_id`; wins over the matched date. `GET /api/key-handovers` also returns these `overrides`).
+`POST /api/kh-override` (**admin only** — set/clear a unit's key-handover date in the Property Status report, persisted to `kh_overrides` by `home_id`; wins over the matched date. `GET /api/key-handovers` also returns these `overrides`),
+`GET|POST /api/team-performance/manual` (**admin only** — read / set-clear the hand-entered Team Performance cells, persisted to `team_perf_manual` by (person, metric). Backend-computed columns are never written here, so they stay read-only).
 Auth: `/auth/google/start|callback`, `/auth/logout`,
 `/auth/dev_login` (only when `DEV_MODE=1`). Ops: `POST /admin/sync`, `POST /admin/generate-suggestions` (daily 09:30-IST cron, token-gated — pre-generates every user's brief), `GET /health`.
 
@@ -318,6 +319,25 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-17 (Claude session — AI-suggestion filters · Visits filter memory · migration renumber · Team Performance, PRs #11–#14):**
+  - **AI Suggestions** (PR #11, `ai_suggestions.py` + `seed_snapshot.py`): the daily brief now shows **only live-inventory
+    units** — a lead is skipped when its unit is positively off-market (Sold/Booked/Archived per the `all_properties` mirror,
+    joined by `home_id`; unknown unit → kept, never over-filters) — and **hides dead/dropped leads** (`is_closed_lead`:
+    status Dead, or stage not-interested/future-prospect). A server-side `live_by_home_id` map is built in
+    `seed_snapshot.build` and **popped in `get_seed`** so it never reaches the browser. Validated on the full prod dataset
+    (all 41 users): no brief emptied; the live regenerated counts matched the local computation exactly.
+  - **Visits filter memory** (PR #12, `App.jsx` + `VisitsView.jsx`): the chip-bar + sort selections are lifted into App as
+    `visitsUi` so they survive the view unmounting on a tab switch — per-tab, in-session (resets on a hard reload). No CSS change.
+  - **Migration renumber** (PR #13): Saransh's duplicate `008` booking migration → **015** (`user_core_sales_manager_id`);
+    his edits verified byte-identical, sequence now `001…016` with no duplicate numbers.
+  - **Team Performance** (PR #14, **migration 016** `team_perf_manual`, `views/TeamPerformanceView.jsx` + `lib/teamPerf.js`
+    + `GET|POST /api/team-performance/manual`): new **admin-only** 📈 tab. **Ground** = one row per PM grouped by their dominant
+    micro-market (per-MM subtotals + grand total); **KAM** = flat list + Overall. Backend columns computed client-side from the
+    admin seed using **completed visits only** (Total Properties assigned, Visit/property, Visits/CP, T3&T4-CP visit-contribution
+    count, Negotiation Aligned [future date] + Conducted, Visit→sale conversion %, Sale=Booking/ATS); Date + City filters apply.
+    Manual columns (Engagement Meetings, Total Dialled, Connected %, Sales pending L1/L2/L3) are admin-editable, persisted to
+    `team_perf_manual`; backend cells are read-only. CP Activation tab intentionally deferred. Additive only; `app.css`/`theme.css`
+    byte-unchanged (scoped `tp-` styles). SSR-validated; backend gating + persistence smoke-tested live (admin 200 / non-admin 403).
 - **2026-06-17 (Claude session — KH dates: matching fix + editable override, PR #9, migration 014):**
   Two Property-Status improvements. **(1) KH match fix** (`lib/propertyStatus.js`): the society-name join was exact-only,
   so units whose society carries a suffix/plural ("Godrej Aria, Sector 79" vs "Godrej Aria", "Gardens" vs "Garden",
