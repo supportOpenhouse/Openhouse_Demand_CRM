@@ -363,6 +363,58 @@ async def set_kh_override(body: KhOverrideBody, user: dict = Depends(auth.curren
 
 
 # ============================================================================
+# Team Performance · admin-entered manual cells (backend metrics stay read-only)
+# ============================================================================
+
+class TeamPerfManualBody(BaseModel):
+    person_slug: str
+    metric_key: str
+    value: Optional[str] = None     # display text to set; empty/None clears it
+
+
+@app.get("/api/team-performance/manual")
+async def get_team_perf_manual(user: dict = Depends(auth.current_user)):
+    """All admin-entered Team Performance cells, as {person_slug: {metric_key: value}}.
+    Admin-only. Degrades gracefully (returns {}) if the table isn't present yet."""
+    _require_admin(user)
+    out: dict = {}
+    try:
+        async with acquire() as conn:
+            rows = await conn.fetch("SELECT person_slug, metric_key, value FROM team_perf_manual")
+        for r in rows:
+            out.setdefault(r["person_slug"], {})[r["metric_key"]] = r["value"] or ""
+    except Exception as e:  # noqa: BLE001 — table may not exist yet
+        log.warning("team_perf_manual read failed (%s) — returning empty", e)
+    return {"manual": out}
+
+
+@app.post("/api/team-performance/manual")
+async def set_team_perf_manual(body: TeamPerfManualBody, user: dict = Depends(auth.current_user)):
+    """Admins set/clear one manual cell (e.g. Total Dialled). Backend-computed columns
+    are never written here, so they stay read-only. Empty value → clear."""
+    _require_admin(user)
+    slug = (body.person_slug or "").strip()
+    key = (body.metric_key or "").strip()
+    if not slug or not key:
+        raise HTTPException(400, "person_slug and metric_key are required")
+    val = (body.value or "").strip()
+    async with acquire() as conn:
+        if val:
+            await conn.execute(
+                """
+                INSERT INTO team_perf_manual (person_slug, metric_key, value, updated_by, updated_at)
+                VALUES ($1, $2, $3, $4, now())
+                ON CONFLICT (person_slug, metric_key) DO UPDATE SET
+                    value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+                """,
+                slug, key, val, user["slug"],
+            )
+        else:
+            await conn.execute("DELETE FROM team_perf_manual WHERE person_slug = $1 AND metric_key = $2", slug, key)
+    return {"ok": True, "person_slug": slug, "metric_key": key, "value": val}
+
+
+# ============================================================================
 # Write · followups
 # ============================================================================
 
