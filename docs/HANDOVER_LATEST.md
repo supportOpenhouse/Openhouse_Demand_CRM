@@ -60,7 +60,7 @@ Openhouse_Demand_CRM/
 │   │   ├── import_top_brokers.py      99acres top-brokers import
 │   │   ├── bootstrap.py      one-shot schema + users + first sync
 │   │   ├── db.py / config.py / sheets.py
-│   │   └── migrations/ 001…014 (latest: 012 hiring_mm_overrides · 013 ai_suggestions · 014 kh_overrides)
+│   │   └── migrations/ 001…015 (latest: 013 ai_suggestions · 014 kh_overrides · 015 user_core_sales_manager_id [renumbered from a dup 008])
 ├── lsq_sync/                 one-shot LeadSquared → CRM migration + write-back (DONE)
 │   ├── migrate.py · writeback.py · README.md · backups/ (gitignored)
 ├── render.yaml               Render blueprint (web + cron)
