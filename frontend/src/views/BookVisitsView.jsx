@@ -10,9 +10,11 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { parsePrice } from '../lib/legacy.js';
 import { TODAY, ymd } from '../lib/format.js';
+import { bookVisits } from '../api.js';
+import { toast } from '../lib/toast.js';
 
 const MAX_BOOK = 10;
-const BOOKING_LIVE = false;   // ← flip to true ONLY after the app booking API is connected
+const BOOKING_LIVE = true;   // app booking API connected (CRM → Core /crm/schedule-visits)
 const TIME_SLOTS = ['9-11 AM', '11-1 PM', '1-3 PM', '3-5 PM', '5-7 PM', '7-9 PM'];
 const SLOT_START_HR = { '9-11 AM': 9, '11-1 PM': 11, '1-3 PM': 13, '3-5 PM': 15, '5-7 PM': 17, '7-9 PM': 19 };
 const CITY_ORDER = ['Gurgaon', 'Noida', 'Ghaziabad'];
@@ -25,6 +27,16 @@ function next7() {
   const out = []; const base = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate());
   for (let i = 0; i < 7; i++) { const d = new Date(base); d.setDate(base.getDate() + i); out.push(d); }
   return out;
+}
+// human label for a failed booking row
+function errLabel(r) {
+  if (r.error === 'locked') return `Locked — buyer registered with another CP${r.remaining_days != null ? ` for ${r.remaining_days} more day${r.remaining_days === 1 ? '' : 's'}` : ''}`;
+  const m = {
+    home_not_found: 'Home not found on the app', broker_not_found: 'Broker not found on the app',
+    buyer_create_failed: 'Could not create the buyer', lock_check_failed: 'Buyer lock-check failed',
+    no_result: 'No response from the app',
+  };
+  return m[r.error] || (r.error ? String(r.error).replace(/_/g, ' ') : 'Failed');
 }
 
 /* ---- compact searchable multi-select (same look as the rest of the CRM filters) ---- */
@@ -100,6 +112,8 @@ function CpPicker({ cps, value, onPick }) {
 
 export default function BookVisitsView({ seed }) {
   const me = seed.current_user || {};
+  // mapped to a Core SalesManager? (undefined on an older seed → assume yes so we don't block pre-deploy)
+  const canBook = me.can_book_visits === undefined ? true : !!me.can_book_visits;
   // live inventory only, and only units that map to an app home_id (needed to book)
   const units = useMemo(() => (seed.properties || [])
     .filter((p) => (p.listing_status === 'Ready' || p.listing_status === 'Coming Soon') && p.home_id)
@@ -184,6 +198,12 @@ export default function BookVisitsView({ seed }) {
         {!BOOKING_LIVE && <span className="bv-pill-preview">Preview — API not live</span>}
       </div>
 
+      {!canBook && (
+        <div className="bv-warn" style={{ marginBottom: 14 }}>
+          ⚠ <b>You're not set up to book yet.</b> Your account isn't linked to an OpenHouse Sales Manager, so bookings will be rejected. Ask the app team to add you (and confirm your Sales Manager ID), then reload.
+        </div>
+      )}
+
       {/* filters */}
       <div className="bv-filters">
         <span className="bv-flbl">Filter inventory</span>
@@ -231,7 +251,7 @@ export default function BookVisitsView({ seed }) {
 
       {draft && (
         <BookingDrawer
-          draft={draft} setDraft={setDraft} cps={cps} me={me}
+          draft={draft} setDraft={setDraft} cps={cps} me={me} canBook={canBook}
           onClose={closeDrawer}
           onDone={() => { setSelected(new Set()); closeDrawer(); }}
         />
@@ -262,8 +282,9 @@ function FragmentGroup({ city, mm, rows, selected, atCap, onToggle, onBook }) {
 }
 
 /* ============================ booking drawer ============================ */
-function BookingDrawer({ draft, setDraft, cps, me, onClose, onDone }) {
+function BookingDrawer({ draft, setDraft, cps, me, canBook, onClose, onDone }) {
   const d = draft; const bulk = d.units.length > 1;
+  const [submitting, setSubmitting] = useState(false);
   const cpObj = d.shared.cp ? cps.find((c) => c.cp_code === d.shared.cp) : null;
   const set = (mut) => setDraft((cur) => { const n = { ...cur, shared: { ...cur.shared }, rows: { ...cur.rows } }; mut(n); return n; });
   const isToday = d.shared.date === ymd(next7()[0]);
@@ -280,10 +301,38 @@ function BookingDrawer({ draft, setDraft, cps, me, onClose, onDone }) {
     return { unit: u, cp: cpObj, buyer: r.buyer.trim(), mobile: r.mobile, date: d.shared.date, time: d.shared.time };
   }), [d, bulk, cpObj]);
 
-  // PREVIEW ONLY — no network, no writes. Replace this with the real API call when BOOKING_LIVE.
-  const confirm = () => {
-    const results = payloads.map((p) => ({ unit: p.unit, ok: true, preview: !BOOKING_LIVE }));
-    setDraft((cur) => ({ ...cur, step: 3, results }));
+  const confirm = async () => {
+    if (submitting) return;
+    if (!canBook) { toast("You're not set up to book — ask the app team to add you as a Sales Manager.", 'bad'); return; }
+    if (!BOOKING_LIVE) {   // preview fallback when the flag is off
+      setDraft((cur) => ({ ...cur, step: 3, results: payloads.map((p) => ({ unit: p.unit, ok: true, preview: true })) }));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const body = { visits: payloads.map((p) => ({
+        home_id: p.unit.home_id,
+        broker_id: p.cp.broker_id != null ? String(p.cp.broker_id) : undefined,
+        cp_code: p.cp.cp_code,
+        buyer_name: p.buyer,
+        buyer_mobile: p.mobile,
+        selected_date: p.date,
+        selected_time: p.time,
+        source: 'channel_partner',
+      })) };
+      const resp = await bookVisits(body);
+      const byHome = {};
+      (resp.results || []).forEach((r) => { byHome[String(r.home_id)] = r; });
+      const results = payloads.map((p) => {
+        const r = byHome[String(p.unit.home_id)] || {};
+        return { unit: p.unit, ok: !!r.ok, error: r.error, remaining_days: r.remaining_days, visit: r.visit };
+      });
+      setDraft((cur) => ({ ...cur, step: 3, results }));
+    } catch (e) {
+      toast('Booking failed: ' + String(e.message || e).slice(0, 160), 'bad');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -376,14 +425,26 @@ function BookingDrawer({ draft, setDraft, cps, me, onClose, onDone }) {
             </>
           )}
 
-          {d.step === 3 && (
-            <>
-              <div className="bv-doneh">{BOOKING_LIVE ? '🎉' : '👀'} {BOOKING_LIVE ? `Booked ${d.results.length} visit${d.results.length > 1 ? 's' : ''}.` : `Preview complete — ${d.results.length} visit${d.results.length > 1 ? 's' : ''} would be booked. Nothing was created.`}</div>
-              {d.results.map((r) => (
-                <div className="bv-result" key={r.unit.home_id}><div className="bv-res-ic">{r.preview ? '👁' : '✓'}</div><div><div className="bv-res-nm">{r.unit.society} · {r.unit.unit}</div><div className="bv-mut">{r.preview ? 'Would be scheduled (preview)' : 'Visit scheduled'}</div></div></div>
-              ))}
-            </>
-          )}
+          {d.step === 3 && (() => {
+            const booked = d.results.filter((r) => r.ok).length;
+            const failed = d.results.length - booked;
+            const preview = d.results.some((r) => r.preview);
+            return (
+              <>
+                <div className="bv-doneh">{preview ? '👀 Preview — nothing created.' : `${booked > 0 ? '🎉' : '⚠'} Booked ${booked} of ${d.results.length}${failed ? ` · ${failed} failed` : ''}.`}</div>
+                {d.results.map((r) => (
+                  <div className="bv-result" key={r.unit.home_id}>
+                    <div className="bv-res-ic" style={(r.ok || r.preview) ? undefined : { background: '#FEE2E2', color: '#B91C1C' }}>{r.preview ? '👁' : (r.ok ? '✓' : '✕')}</div>
+                    <div>
+                      <div className="bv-res-nm">{r.unit.society} · {r.unit.unit}</div>
+                      <div className="bv-mut">{r.preview ? 'Would be scheduled (preview)' : (r.ok ? (r.visit?.id ? `Visit #${r.visit.id} scheduled` : 'Visit scheduled') : errLabel(r))}</div>
+                    </div>
+                  </div>
+                ))}
+                {failed > 0 && !preview && <div className="bv-note preview">Failed rows were not created. Fix and rebook just those.</div>}
+              </>
+            );
+          })()}
         </div>
 
         <div className="bv-dfoot">
@@ -395,9 +456,9 @@ function BookingDrawer({ draft, setDraft, cps, me, onClose, onDone }) {
           )}
           {d.step === 2 && (
             <>
-              <button type="button" className="bv-btn" onClick={() => setDraft((c) => ({ ...c, step: 1 }))}>← Back</button>
-              <button type="button" className={'bv-btn ' + (BOOKING_LIVE ? 'danger' : 'primary')} onClick={confirm}>
-                {BOOKING_LIVE ? `Confirm & book ${payloads.length}` : `Confirm (preview)`}
+              <button type="button" className="bv-btn" disabled={submitting} onClick={() => setDraft((c) => ({ ...c, step: 1 }))}>← Back</button>
+              <button type="button" className={'bv-btn ' + (BOOKING_LIVE ? 'danger' : 'primary')} disabled={submitting || !canBook} onClick={confirm}>
+                {submitting ? 'Booking…' : (!canBook ? 'Not set up to book' : (BOOKING_LIVE ? `Confirm & book ${payloads.length}` : 'Confirm (preview)'))}
               </button>
             </>
           )}

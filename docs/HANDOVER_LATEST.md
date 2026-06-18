@@ -707,6 +707,26 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 
 ---
 
+- **2026-06-18 (Claude session — CRM→Core visit booking WIRED):** Built the live booking path per
+  `docs/CRM_VISIT_BOOKING_GUIDE.md`. **Migration 008** + `sheet_sync.sync_sales_manager_ids()` map CRM users
+  → Core `SalesManager.id` (`users.core_sales_manager_id`) from the inventory "Sales managers" tab (phone,
+  name fallback). New **`POST /api/visits/book`** (`main.py`, admin-only) orchestrates Core's 3 server-to-server
+  APIs with `X-CRM-Key`: per unit `check-existing-buyer-for-home` (45-day lock + buyer reuse) → `buyer/`
+  (create if needed) → batched `crm/schedule-visits/`; resolves `sales_manager_id` from the logged-in RM;
+  merges locked/error rows with schedule results into ordered per-row output; verbose `[book]` logs (mobiles
+  masked, key never logged). Config: `CRM_BOOKING_API_BASE_URL`, `CRM_API_KEY` (`config.py`). Seed
+  `current_user` gains `can_book_visits` + `phone`. Frontend `BookVisitsView` flipped live (`BOOKING_LIVE=true`),
+  `confirm()` calls `bookVisits()` and renders real ✓booked / ✗locked-or-error rows; "not set up" guard when
+  unmapped. **Deploy: backend (Render env: base URL + `CRM_API_KEY`) + frontend (`vercel deploy`).**
+  **✅ TESTED end-to-end on staging** (env on Render + local): as Saransh (`sm_id 82`, the STAGING test SM) +
+  CP00670 (`broker_id 765`) → created staging visits **7451/7452/7453**; single, 2-visit batch, buyer
+  create + reuse, and per-row results all verified; the `[book]` trace is clean (mobile masked). The 45-day
+  `locked` branch couldn't be reproduced on staging (lock needs a *completed* visit; ours are `upcoming`).
+  **Note:** sheet `sales_manager_id`s are PROD ids (real for everyone except Saransh, whose **82 is a STAGING
+  placeholder**). Current Render env points at **staging Core**, so test with **Saransh** there. For PROD
+  go-live: swap Render env to the prod Core URL + key, and set Saransh's REAL prod SalesManager id.
+  **Deploy backend (Render) + frontend (`vercel deploy`) to expose it in the CRM UI.**
+
 ## 10. Pending / TODO
 1. **Analytics "View in Google Sheets"** export — needs a backend endpoint (service account writes a Sheet from the filtered rows) + buyer-PII sign-off.
 2. **Connect `akshit-openhouse` GitHub to the Vercel team** so frontend deploys aren't owner-token-only.

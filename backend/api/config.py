@@ -87,6 +87,13 @@ SYNC_INTERVAL_SECONDS = int(os.environ.get("SYNC_INTERVAL_SECONDS", "900"))
 # Internal token for cron-triggered endpoints (Render Cron Job hits /admin/sync with this header).
 INTERNAL_CRON_TOKEN = os.environ.get("INTERNAL_CRON_TOKEN", "")
 
+# Core app "visit booking" integration (docs/CRM_VISIT_BOOKING_GUIDE.md). The CRM
+# backend calls Core server-to-server with the shared X-CRM-Key. Base URL ends in
+# /api/v1/oh/ (the 3 booking endpoints are relative to it). Both unset = booking
+# returns 503 (feature off) — never logged.
+CRM_BOOKING_API_BASE_URL = os.environ.get("CRM_BOOKING_API_BASE_URL", "").rstrip("/")
+CRM_API_KEY = os.environ.get("CRM_API_KEY", "")
+
 # backend/ root (this file is backend/api/config.py)
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS_DIR = BACKEND_ROOT / "migrations"

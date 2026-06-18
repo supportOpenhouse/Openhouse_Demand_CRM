@@ -888,6 +888,55 @@ async def sync_key_handovers(conn: asyncpg.Connection) -> dict:
     return {"seen": seen, "upserted": upserted, "skipped": skipped, "failed": failed, "tab_errors": len(errors)}
 
 
+# ---- SALES-MANAGER IDS (Core SalesManager.id per CRM user, for visit booking) ----
+
+def _last10(s: str | None) -> str:
+    d = "".join(ch for ch in (s or "") if ch.isdigit())
+    return d[-10:] if len(d) >= 10 else ""
+
+
+def _norm_name(s: str | None) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+async def sync_sales_manager_ids(conn: asyncpg.Connection) -> dict:
+    """Map CRM users → Core SalesManager.id from the inventory 'Sales managers'
+    tab (cols: sales_manager_id, sales_manager_phone, sales_manager_name). Match
+    by PHONE (last-10), with an UNAMBIGUOUS-name fallback for users with no phone
+    on file (e.g. Akshit). Powers visit-booking attribution
+    (users.core_sales_manager_id → schedule-visits `sales_manager_id`). Idempotent;
+    only writes rows whose mapping actually changed."""
+    rows = sheets.read_tab(config.SHEET_ID_INVENTORY, "Sales managers")
+    if not rows or len(rows) < 3:
+        return {"seen": 0, "updated": 0, "note": "tab empty/missing"}
+    body = rows[2:]                       # row 1 = "Last refreshed" banner, row 2 = header
+    sm = []
+    for r in body:
+        sid = _safe(r[0]) if len(r) > 0 else ""
+        if not sid.isdigit():
+            continue
+        nm = _norm_name(r[2]) if len(r) > 2 else ""
+        sm.append({"id": int(sid), "ph": _last10(r[1] if len(r) > 1 else ""),
+                   "full": nm, "first": nm.split(" ")[0] if nm else ""})
+    by_phone = {s["ph"]: s["id"] for s in sm if s["ph"]}
+    users = await conn.fetch("SELECT id, name, phone, core_sales_manager_id FROM users WHERE active")
+    updated = 0
+    for u in users:
+        p = _last10(u["phone"])
+        smid = by_phone.get(p) if p else None
+        if smid is None and not p:        # name fallback only when no phone to match on
+            full = _norm_name(u["name"]); fn = full.split(" ")[0] if full else ""
+            cands = {s["id"] for s in sm if s["full"] == full or s["first"] == fn}
+            if len(cands) == 1:
+                smid = next(iter(cands))
+        if smid is not None and smid != u["core_sales_manager_id"]:
+            await conn.execute("UPDATE users SET core_sales_manager_id = $1, updated_at = now() WHERE id = $2",
+                               smid, u["id"])
+            updated += 1
+    log.info("[book] sync_sales_manager_ids: %d sheet SMs, %d users updated", len(sm), updated)
+    return {"seen": len(sm), "updated": updated}
+
+
 async def run_all() -> dict:
     """Run brokers → tiers → properties → visits in that order (FK dependencies),
     then reclassify old/dead leads off the freshly-synced property statuses."""
@@ -907,6 +956,8 @@ async def run_all() -> dict:
         # MUST be last: re-derives old/dead from the just-synced all_properties,
         # overriding any lead_status the sheet upsert above restored.
         out["inactive_leads"] = await sync_inactive_leads(conn)
+        # Core SalesManager.id per user (for CRM visit-booking attribution).
+        out["sales_manager_ids"] = await sync_sales_manager_ids(conn)
         # Key-handover sheet: refresh once per UTC day (first /admin/sync after
         # midnight ≈ 5:30 AM IST), not every 15 min — it reads ~1,165 rows.
         last_kh = await conn.fetchval(

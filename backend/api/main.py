@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import asyncpg
+import httpx
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -150,6 +151,8 @@ async def get_seed(user: dict = Depends(auth.current_user)):
     users that aren't in its hardcoded USERS array (admins added via DB)."""
     async with acquire() as conn:
         snapshot = await seed_snapshot.build(conn)
+        # booking-relevant bits for the logged-in user (not part of the auth row)
+        _bk = await conn.fetchrow("SELECT phone, core_sales_manager_id FROM users WHERE id = $1", user["id"])
     # Trim to the viewer's scope (Admin gets everything). Mirrors the frontend's
     # own role filters so no view breaks, but stops a non-admin reading data
     # outside their scope from the raw payload.
@@ -160,12 +163,15 @@ async def get_seed(user: dict = Depends(auth.current_user)):
         "slug": user["slug"],
         "email": user["email"],
         "name": user["name"],
+        "phone": (_bk["phone"] if _bk else "") or "",
         "team": user["team"],
         "role": user["role"],
         "cities": list(user["cities"] or []),
         "micro_markets": list(user.get("micro_markets") or []),
         "extra_cities": list(user.get("extra_cities") or []),
         "extra_cities_enabled": bool(user.get("extra_cities_enabled")),
+        # true when this RM is mapped to a Core SalesManager → may book visits
+        "can_book_visits": bool(_bk and _bk["core_sales_manager_id"]),
     }
     return snapshot
 
@@ -439,6 +445,156 @@ async def save_followup(body: FollowupBody, user: dict = Depends(auth.current_us
             )
 
     return {"ok": True, "followup_id": str(fu["id"]), "resolved_nudges": len(nudges)}
+
+
+# ============================================================================
+# Write · book visits on the Core app (CRM → Core; docs/CRM_VISIT_BOOKING_GUIDE.md)
+# ============================================================================
+# Thin server-to-server orchestrator over Core's 3 booking APIs. Per unit:
+#   1) GET  check-existing-buyer-for-home  (45-day lock + reusable buyer)
+#   2) POST buyer/                          (only if no buyer came back)
+#   3) POST crm/schedule-visits/            (batched, with resolved buyer_id)
+# All calls use the shared X-CRM-Key (never exposed to the browser). The booking
+# RM is the logged-in admin → their users.core_sales_manager_id. Verbose [book]
+# logging at each hop (mobiles masked, key never logged) — easy to strip later.
+
+VALID_BOOKING_SLOTS = {"9-11 AM", "11-1 PM", "1-3 PM", "3-5 PM", "5-7 PM", "7-9 PM"}
+
+
+class BookVisitItem(BaseModel):
+    home_id: str
+    broker_id: Optional[str] = None        # Core Broker.id (= our broker.external_id)
+    cp_code: Optional[str] = None          # fallback if broker_id is stale
+    buyer_name: str
+    buyer_mobile: str                      # last 5–10 digits (partial by design)
+    selected_date: str                     # YYYY-MM-DD
+    selected_time: str
+    source: str = "channel_partner"
+
+
+class BookVisitsBody(BaseModel):
+    visits: list[BookVisitItem]
+
+
+def _mask_mobile(m: str) -> str:
+    d = "".join(ch for ch in (m or "") if ch.isdigit())
+    return ("•" * max(0, len(d) - 2) + d[-2:]) if d else "—"
+
+
+@app.post("/api/visits/book")
+async def book_visits(body: BookVisitsBody, user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    if not config.CRM_BOOKING_API_BASE_URL or not config.CRM_API_KEY:
+        raise HTTPException(503, "Visit booking is not configured (CRM_BOOKING_API_BASE_URL / CRM_API_KEY).")
+
+    visits = body.visits
+    if not visits or len(visits) > 10:
+        raise HTTPException(400, "Send 1–10 visits.")
+    import datetime as _d
+    for v in visits:
+        if v.selected_time not in VALID_BOOKING_SLOTS:
+            raise HTTPException(400, f"Invalid time slot: {v.selected_time!r}")
+        try:
+            _d.date.fromisoformat(v.selected_date)
+        except ValueError:
+            raise HTTPException(400, f"Invalid selected_date (need YYYY-MM-DD): {v.selected_date!r}")
+        if not (v.home_id and v.buyer_name.strip() and v.buyer_mobile.strip()):
+            raise HTTPException(400, "Each visit needs home_id, buyer_name, buyer_mobile.")
+
+    # the booking RM = the logged-in admin → their Core SalesManager.id
+    async with acquire() as conn:
+        sm_id = await conn.fetchval("SELECT core_sales_manager_id FROM users WHERE id = $1", user["id"])
+    if not sm_id:
+        raise HTTPException(422, "You're not set up to book visits yet — ask the app team to add you as a Sales Manager.")
+
+    log.info("[book] start admin=%s sm_id=%s visits=%d", user.get("slug"), sm_id, len(visits))
+    base = config.CRM_BOOKING_API_BASE_URL
+    headers = {"X-CRM-Key": config.CRM_API_KEY}
+    row_results: dict[str, dict] = {}     # home_id -> result for skipped (locked/error) rows
+    to_schedule: list[dict] = []          # visits with a resolved buyer_id
+
+    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+        for v in visits:
+            last5 = "".join(ch for ch in v.buyer_mobile if ch.isdigit())[-5:]
+            log.info("[book] home=%s lock-check last5=%s name=%r broker=%s", v.home_id, last5, v.buyer_name, v.broker_id)
+            try:
+                chk = await client.get(f"{base}/check-existing-buyer-for-home/",
+                                       params={"home_id": v.home_id, "last_five_digits": last5, "name": v.buyer_name})
+            except Exception as e:  # noqa: BLE001
+                log.warning("[book] home=%s lock-check FAILED: %s", v.home_id, e)
+                row_results[v.home_id] = {"home_id": v.home_id, "ok": False, "error": "lock_check_failed"}
+                continue
+            if chk.status_code == 404:
+                row_results[v.home_id] = {"home_id": v.home_id, "ok": False, "error": "home_not_found"}
+                continue
+            if chk.status_code != 200:
+                log.warning("[book] home=%s lock-check http %s: %s", v.home_id, chk.status_code, chk.text[:200])
+                row_results[v.home_id] = {"home_id": v.home_id, "ok": False, "error": f"lock_check_http_{chk.status_code}"}
+                continue
+            data = chk.json()
+            if data.get("exists") is True:
+                log.info("[book] home=%s LOCKED remaining=%s", v.home_id, data.get("remainingDays"))
+                row_results[v.home_id] = {"home_id": v.home_id, "ok": False, "error": "locked",
+                                          "remaining_days": data.get("remainingDays")}
+                continue
+            buyer_id = data.get("buyerId")
+            if not buyer_id:
+                log.info("[book] home=%s create buyer mobile=%s broker=%s", v.home_id, _mask_mobile(v.buyer_mobile), v.broker_id)
+                try:
+                    br = await client.post(f"{base}/buyer/", json={
+                        "sales_manager_id": sm_id, "name": v.buyer_name,
+                        "mobile_number": v.buyer_mobile, "broker_id": v.broker_id, "profession": ""})
+                except Exception as e:  # noqa: BLE001
+                    log.warning("[book] home=%s buyer-create FAILED: %s", v.home_id, e)
+                    row_results[v.home_id] = {"home_id": v.home_id, "ok": False, "error": "buyer_create_failed"}
+                    continue
+                if br.status_code not in (200, 201):
+                    log.warning("[book] home=%s buyer-create http %s: %s", v.home_id, br.status_code, br.text[:200])
+                    row_results[v.home_id] = {"home_id": v.home_id, "ok": False, "error": f"buyer_create_http_{br.status_code}"}
+                    continue
+                buyer_id = br.json().get("id")
+            log.info("[book] home=%s buyer_id=%s → queued for schedule", v.home_id, buyer_id)
+            to_schedule.append({"buyer_id": buyer_id, "broker_id": v.broker_id, "home_id": v.home_id,
+                                "selected_date": v.selected_date, "selected_time": v.selected_time,
+                                "source": v.source or "channel_partner", "cp_code": v.cp_code})
+
+    sched_by_home: dict[str, dict] = {}
+    if to_schedule:
+        log.info("[book] schedule %d visit(s)", len(to_schedule))
+        try:
+            async with httpx.AsyncClient(timeout=90.0, headers=headers) as client:
+                sr = await client.post(f"{base}/crm/schedule-visits/",
+                                       json={"sales_manager_id": sm_id, "visits": to_schedule})
+        except Exception as e:  # noqa: BLE001
+            log.warning("[book] schedule call FAILED: %s", e)
+            raise HTTPException(502, "Core schedule call failed — no visits were created in this batch.")
+        if sr.status_code == 401:
+            raise HTTPException(502, "Core rejected the CRM key.")
+        if sr.status_code == 422:
+            raise HTTPException(422, "Core rejected the sales_manager_id.")
+        if sr.status_code not in (200, 201):
+            log.warning("[book] schedule http %s: %s", sr.status_code, sr.text[:300])
+            raise HTTPException(400, f"Core schedule rejected the batch: {sr.text[:200]}")
+        sdata = sr.json()
+        for x in (sdata.get("results") or []):
+            sched_by_home[str(x.get("homeId"))] = x
+        log.info("[book] schedule done booked=%s failed=%s", sdata.get("booked"), sdata.get("failed"))
+
+    # merge skipped rows + schedule results, preserving input order
+    out: list[dict] = []
+    for v in visits:
+        if v.home_id in row_results:
+            out.append(row_results[v.home_id])
+            continue
+        x = sched_by_home.get(str(v.home_id))
+        if x is not None:
+            out.append({"home_id": v.home_id, "ok": bool(x.get("ok", True)),
+                        "visit": x.get("visit"), "error": x.get("error")})
+        else:
+            out.append({"home_id": v.home_id, "ok": False, "error": "no_result"})
+    booked = sum(1 for r in out if r.get("ok"))
+    log.info("[book] DONE admin=%s booked=%d failed=%d", user.get("slug"), booked, len(out) - booked)
+    return {"booked": booked, "failed": len(out) - booked, "results": out}
 
 
 # ============================================================================
