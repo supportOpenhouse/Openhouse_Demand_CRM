@@ -109,6 +109,18 @@ export async function setHiringMmOverride(body) {
   return res.json();
 }
 
+// --- Team Performance manual cells (Admin only on the backend) ---
+export async function loadTeamPerfManual() {
+  const res = await apiFetch('/api/team-performance/manual');
+  if (!res.ok) throw new Error(`team-performance failed (HTTP ${res.status})`);
+  return res.json();   // { manual: { person_slug: { metric_key: value } } }
+}
+export async function setTeamPerfManual(body) {
+  const res = await apiFetch('/api/team-performance/manual', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // --- Property Report mailer (Admin only on the backend) ---
 // Pull the human-readable FastAPI {detail} out of an error response.
 async function _errDetail(res) {
