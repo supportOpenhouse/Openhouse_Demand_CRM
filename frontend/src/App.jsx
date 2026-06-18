@@ -60,6 +60,9 @@ export default function App() {
   const [search, setSearch] = useState('');          // global topbar search (like crm.html)
   const [filters, setFilters] = useState({});         // advanced Visits filters
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Visits chip-bar + sort selections, lifted here so they survive the view
+  // unmounting on a tab switch (per-tab, in-session). null = use VisitsView defaults.
+  const [visitsUi, setVisitsUi] = useState(null);
   const [impersonate, setImpersonate] = useState(null); // admin: view as another user (slug)
   const [switcherOpen, setSwitcherOpen] = useState(false);
   // clear search when switching views — UNLESS a deep-link (AI Suggestions) set a
@@ -217,7 +220,7 @@ export default function App() {
               ) : view === 'ai' ? (
                 <AiSuggestionsView seed={vseed} onOpenBroker={setOpenCp} onNavigate={navigateWithSearch} />
               ) : view === 'visits' ? (
-                <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} />
+                <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} visitsUi={visitsUi} onVisitsUiChange={setVisitsUi} />
               ) : view === 'cps' ? (
                 <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'properties' ? (
