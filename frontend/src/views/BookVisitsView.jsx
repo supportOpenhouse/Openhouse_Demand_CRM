@@ -288,7 +288,7 @@ function BookingDrawer({ draft, setDraft, cps, me, canBook, onClose, onDone }) {
   const cpObj = d.shared.cp ? cps.find((c) => c.cp_code === d.shared.cp) : null;
   const set = (mut) => setDraft((cur) => { const n = { ...cur, shared: { ...cur.shared }, rows: { ...cur.rows } }; mut(n); return n; });
   const isToday = d.shared.date === ymd(next7()[0]);
-  const nowH = new Date().getHours();
+  const nowMin = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
 
   const detailsValid = useMemo(() => {
     if (!d.shared.cp || !d.shared.date || !d.shared.time) return false;
@@ -363,7 +363,8 @@ function BookingDrawer({ draft, setDraft, cps, me, canBook, onClose, onDone }) {
                     </button>))}</div></div>
                 <div className="bv-field"><label className="bv-lbl">Time slot <span className="bv-req">*</span></label>
                   <div className="bv-slots">{TIME_SLOTS.map((s) => {
-                    const dis = isToday && SLOT_START_HR[s] <= nowH;
+                    // today: a slot stays bookable until 1 hour into it (e.g. 7-9 PM until 8:00, 9-11 AM until 10:00)
+                    const dis = isToday && nowMin >= (SLOT_START_HR[s] + 1) * 60;
                     return <button type="button" key={s} disabled={dis} className={'bv-slot' + (d.shared.time === s ? ' on' : '') + (dis ? ' dis' : '')} onClick={() => set((n) => { n.shared.time = s; })}>{s}</button>;
                   })}</div></div>
               </div>
