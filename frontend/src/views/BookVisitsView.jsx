@@ -514,8 +514,8 @@ function BvStyles() {
 .bv-countrow{padding:2px 4px 10px;font-size:13px}
 .bv-countrow b{color:#1A1A1A}
 .bv-selnote{color:var(--bv-brand);font-weight:800}
-.bv-tablecard{background:var(--bv-panel);border:1px solid var(--bv-line);border-radius:13px;overflow:hidden}
-.bv-tbl{width:100%;border-collapse:collapse}
+.bv-tablecard{background:var(--bv-panel);border:1px solid var(--bv-line);border-radius:13px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.bv-tbl{width:100%;min-width:760px;border-collapse:collapse}
 .bv-tbl thead th{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--bv-faint);text-align:left;padding:11px 12px;background:#FBFAF8;border-bottom:1px solid var(--bv-line)}
 .bv-tbl th.bv-right,.bv-tbl td.bv-right{text-align:right}
 .bv-tbl th.bv-cb,.bv-tbl td.bv-cb{width:38px;text-align:center}
