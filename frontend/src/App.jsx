@@ -39,7 +39,7 @@ const NAV = [
   { k: 'snapshot',      icon: '📤', label: 'Inventory Snapshot' },
   { k: 'team',          icon: '👤', label: 'My Day' },
   { k: 'notifications', icon: '🔔', label: 'Notifications' },
-  { k: 'book',          icon: '📅', label: 'Book Visits', superAdmin: true },
+  { k: 'book',          icon: '📅', label: 'Book Visits' },
   { k: 'hiring',        icon: '🧮', label: 'Hiring', adminOnly: true },
   { k: 'reports',       icon: '📧', label: 'Report Share', adminOnly: true },
   { k: 'teamperf',      icon: '📈', label: 'Team Performance', adminOnly: true },
@@ -234,7 +234,7 @@ export default function App() {
               ) : view === 'snapshot' ? (
                 <SnapshotView seed={vseed} />
               ) : view === 'book' ? (
-                isSuperAdmin ? <BookVisitsView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
+                <BookVisitsView seed={seed} />
               ) : view === 'hiring' ? (
                 isAdmin ? <HiringView /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'reports' ? (
