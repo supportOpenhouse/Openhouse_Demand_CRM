@@ -229,6 +229,9 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
     <div id="modal-broker" className={'modal-bg' + (isMobile && showSide ? ' show-side' : '')} style={{ zIndex: 210 }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal">
         <div className="bp">
+          {/* Always-top-right close — clear & prominent on mobile, where the header
+              stacks and the small action-row ✕ gets buried (hidden there on mobile). */}
+          <button className="bp-close" onClick={onClose} aria-label="Close">✕</button>
           {/* HEAD */}
           <div className="bp-head">
             <div className="avatar lg">{initials(broker.name)}</div>
