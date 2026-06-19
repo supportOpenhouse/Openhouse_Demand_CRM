@@ -12,6 +12,7 @@ import { parsePrice } from '../lib/legacy.js';
 import { TODAY, ymd } from '../lib/format.js';
 import { bookVisits } from '../api.js';
 import { toast } from '../lib/toast.js';
+import useIsMobile from '../lib/useIsMobile.js';
 
 const MAX_BOOK = 10;
 const BOOKING_LIVE = true;   // app booking API connected (CRM → Core /crm/schedule-visits)
@@ -115,6 +116,7 @@ function CpPicker({ cps, value, onPick }) {
 
 export default function BookVisitsView({ seed }) {
   const me = seed.current_user || {};
+  const isMobile = useIsMobile();   // ≤900px → render tappable cards instead of the wide table
   // mapped to a Core SalesManager? (undefined on an older seed → assume yes so we don't block pre-deploy)
   const canBook = me.can_book_visits === undefined ? true : !!me.can_book_visits;
   // live inventory only, and only units that map to an app home_id (needed to book)
@@ -227,21 +229,34 @@ export default function BookVisitsView({ seed }) {
         <span className="bv-mut"><b>{filtered.length}</b> units · <b>{ready}</b> ready · <b>{filtered.length - ready}</b> coming soon{selected.size ? <span className="bv-selnote"> · {selected.size} of {MAX_BOOK} selected</span> : null}</span>
       </div>
 
-      <div className="bv-tablecard">
-        <table className="bv-tbl">
-          <thead><tr><th className="bv-cb"></th><th>Society</th><th>Unit</th><th>Config</th><th>Area</th><th>Locality</th><th>Status</th><th className="bv-right">Ask Price</th><th></th></tr></thead>
-          <tbody>
-            {filtered.length === 0 && <tr><td colSpan={9}><div className="bv-empty">📦 No live units match these filters</div></td></tr>}
-            {cityKeys.map((city) => {
-              const groups = {}; byCity[city].forEach((u) => { (groups[u.mm] = groups[u.mm] || []).push(u); });
-              return Object.keys(groups).sort().map((mm) => (
-                <FragmentGroup key={city + '|' + mm} city={city} mm={mm} rows={groups[mm]}
-                  selected={selected} atCap={atCap} onToggle={toggleSel} onBook={(u) => openDrawer([u])} />
-              ));
-            })}
-          </tbody>
-        </table>
-      </div>
+      {isMobile ? (
+        <div className="bv-cards">
+          {filtered.length === 0 && <div className="bv-empty">📦 No live units match these filters</div>}
+          {cityKeys.map((city) => {
+            const groups = {}; byCity[city].forEach((u) => { (groups[u.mm] = groups[u.mm] || []).push(u); });
+            return Object.keys(groups).sort().map((mm) => (
+              <CardGroup key={city + '|' + mm} city={city} mm={mm} rows={groups[mm]}
+                selected={selected} atCap={atCap} onToggle={toggleSel} onBook={(u) => openDrawer([u])} />
+            ));
+          })}
+        </div>
+      ) : (
+        <div className="bv-tablecard">
+          <table className="bv-tbl">
+            <thead><tr><th className="bv-cb"></th><th>Society</th><th>Unit</th><th>Config</th><th>Area</th><th>Locality</th><th>Status</th><th className="bv-right">Ask Price</th><th></th></tr></thead>
+            <tbody>
+              {filtered.length === 0 && <tr><td colSpan={9}><div className="bv-empty">📦 No live units match these filters</div></td></tr>}
+              {cityKeys.map((city) => {
+                const groups = {}; byCity[city].forEach((u) => { (groups[u.mm] = groups[u.mm] || []).push(u); });
+                return Object.keys(groups).sort().map((mm) => (
+                  <FragmentGroup key={city + '|' + mm} city={city} mm={mm} rows={groups[mm]}
+                    selected={selected} atCap={atCap} onToggle={toggleSel} onBook={(u) => openDrawer([u])} />
+                ));
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* sticky bulk bar */}
       {selected.size > 0 && (
@@ -278,6 +293,33 @@ function FragmentGroup({ city, mm, rows, selected, atCap, onToggle, onBook }) {
             <td className="bv-right bv-ask">{u.price}</td>
             <td><button type="button" className="bv-book" onClick={() => onBook(u)}>Book</button></td>
           </tr>
+        );
+      })}
+    </>
+  );
+}
+
+// Mobile card layout — one tappable card per unit (no horizontal scrolling). Mirrors
+// FragmentGroup's grouping/selection; the Book button stays visible on every card.
+function CardGroup({ city, mm, rows, selected, atCap, onToggle, onBook }) {
+  return (
+    <>
+      <div className="bv-cgrp">{city} · {mm} · {rows.length}</div>
+      {rows.slice().sort((a, b) => a.society.localeCompare(b.society)).map((u) => {
+        const on = selected.has(u.home_id);
+        return (
+          <div key={u.home_id} className={'bv-card' + (on ? ' on' : '')}>
+            <input type="checkbox" className="bv-card-cb" checked={on} disabled={!on && atCap} onChange={() => onToggle(u.home_id)} />
+            <div className="bv-card-b">
+              <div className="bv-card-soc">{u.status === 'Coming Soon' ? <span className="bv-new">NEW</span> : null}{u.society}</div>
+              <div className="bv-card-m">{u.unit} · {u.cfg} · {u.sqft} sqft</div>
+              <div className="bv-card-m">{u.mm} · <span className={'bv-status ' + (u.status === 'Ready' ? 'r' : 'cs')}>{u.status}</span></div>
+              <div className="bv-card-f">
+                <span className="bv-ask">{u.price}</span>
+                <button type="button" className="bv-book" onClick={() => onBook(u)}>Book →</button>
+              </div>
+            </div>
+          </div>
         );
       })}
     </>
@@ -533,6 +575,19 @@ function BvStyles() {
 .bv-tbl input[type=checkbox]{width:16px;height:16px;accent-color:var(--bv-brand);cursor:pointer}
 .bv-tbl input[type=checkbox]:disabled{cursor:not-allowed;opacity:.4}
 .bv-empty{text-align:center;padding:44px 20px;color:var(--bv-mut)}
+/* Mobile card list (≤900px; rendered instead of the table) */
+.bv-cards{display:flex;flex-direction:column;gap:9px}
+.bv-cgrp{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--bv-brand);padding:8px 2px 1px}
+.bv-card{display:flex;gap:11px;background:var(--bv-panel);border:1px solid var(--bv-line);border-radius:13px;padding:13px 14px}
+.bv-card.on{background:var(--bv-tint);border-color:var(--bv-brand)}
+.bv-card-cb{width:18px;height:18px;accent-color:var(--bv-brand);margin-top:3px;flex:0 0 auto;cursor:pointer}
+.bv-card-cb:disabled{opacity:.4}
+.bv-card-b{flex:1;min-width:0}
+.bv-card-soc{font-weight:800;font-size:15px;line-height:1.3}
+.bv-card-m{font-size:12.5px;color:var(--bv-mut);margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.bv-card-f{display:flex;align-items:center;justify-content:space-between;margin-top:11px;gap:10px}
+.bv-card-f .bv-ask{font-weight:800;font-size:15.5px;color:var(--bv-ink2)}
+.bv-card-f .bv-book{background:var(--bv-brand);color:#fff;border-color:var(--bv-brand);padding:9px 18px;font-size:13px;border-radius:9px}
 .bv-bulkbar{position:fixed;left:50%;transform:translateX(-50%);bottom:74px;z-index:50;display:flex;align-items:center;gap:13px;background:#1A1A1A;color:#fff;border-radius:13px;padding:11px 15px;box-shadow:0 22px 48px -16px rgba(0,0,0,.5)}
 .bv-bb-n{font-size:13.5px;font-weight:700}.bv-bb-n b{color:#FB6A2E}
 .bv-clr{color:#bbb;font-size:12.5px;font-weight:600;background:none;border:none;cursor:pointer}
