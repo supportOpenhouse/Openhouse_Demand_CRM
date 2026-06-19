@@ -84,12 +84,12 @@ function CpPicker({ cps, value, onPick }) {
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
   }, [open]);
-  const shown = (q ? cps.filter((c) => `${c.name} ${c.cp_code}`.toLowerCase().includes(q.toLowerCase())) : cps).slice(0, 60);
+  const shown = (q ? cps.filter((c) => `${c.name} ${c.cp_code} ${c.company} ${c.phone}`.toLowerCase().includes(q.toLowerCase())) : cps).slice(0, 60);
   return (
     <div className="bv-cpsel" ref={ref}>
       <button type="button" className="bv-inp bv-cpbtn" onClick={() => setOpen((o) => !o)}>
         {value
-          ? <span className="bv-cpopt" style={{ padding: 0 }}><span className="bv-av">{initials(value.name)}</span><span><b>{value.name}</b> <span className="bv-mut">{value.cp_code} · {value.city || '—'}</span></span></span>
+          ? <span className="bv-cpopt" style={{ padding: 0 }}><span className="bv-av">{initials(value.name)}</span><span style={{ minWidth: 0 }}><b>{value.name}</b> <span className="bv-mut">{value.cp_code} · {value.city || '—'}{value.phone ? ' · 📞 ' + value.phone : ''}{value.company ? ' · ' + value.company : ''}</span></span></span>
           : <span className="bv-mut">Select channel partner…</span>}
         <span style={{ marginLeft: 'auto', color: 'var(--mut)' }}>▾</span>
       </button>
@@ -99,7 +99,10 @@ function CpPicker({ cps, value, onPick }) {
           {shown.map((c) => (
             <div key={c.cp_code} className="bv-cpopt" onClick={() => { onPick(c); setOpen(false); }}>
               <span className="bv-av">{initials(c.name)}</span>
-              <span><b>{c.name}</b><div className="bv-mut">{c.cp_code} · {c.city || '—'}</div></span>
+              <span style={{ minWidth: 0 }}><b>{c.name}</b>
+                <div className="bv-mut">{c.cp_code} · {c.city || '—'}</div>
+                {(c.company || c.phone) && <div className="bv-mut">{[c.company, c.phone && ('📞 ' + c.phone)].filter(Boolean).join(' · ')}</div>}
+              </span>
               <span className={'bv-tier ' + (c.tier || 'T4')}>{c.tier || '—'}</span>
             </div>
           ))}
@@ -124,7 +127,7 @@ export default function BookVisitsView({ seed }) {
     })), [seed]);
   const cps = useMemo(() => (seed.brokers || [])
     .filter((b) => b.cp_code)
-    .map((b) => ({ cp_code: b.cp_code, name: b.name || b.cp_code, city: b.city || '', tier: b.tier || '', broker_id: b.id }))
+    .map((b) => ({ cp_code: b.cp_code, name: b.name || b.cp_code, city: b.city || '', tier: b.tier || '', broker_id: b.id, company: b.company_name || '', phone: b.phone_number || '' }))
     .sort((a, b) => (a.tier > b.tier ? 1 : a.tier < b.tier ? -1 : (a.name || '').localeCompare(b.name || ''))), [seed]);
 
   const [fCity, setFCity] = useState([]); const [fCfg, setFCfg] = useState([]); const [fRegion, setFRegion] = useState([]);
@@ -290,16 +293,16 @@ function BookingDrawer({ draft, setDraft, cps, me, canBook, onClose, onDone }) {
   const isToday = d.shared.date === ymd(next7()[0]);
   const nowMin = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
 
+  // One buyer (name + mobile) is used for EVERY selected unit — per-unit buyers
+  // are not offered.
   const detailsValid = useMemo(() => {
     if (!d.shared.cp || !d.shared.date || !d.shared.time) return false;
-    if (bulk && d.shared.sameBuyer) return !!(d.shared.buyer.trim() && d.shared.mobile.length >= 5);
-    return d.units.every((u) => { const r = d.rows[u.home_id]; return r.buyer.trim() && r.mobile.length >= 5; });
-  }, [d, bulk]);
+    return !!(d.shared.buyer.trim() && d.shared.mobile.length >= 5);
+  }, [d]);
 
-  const payloads = useMemo(() => d.units.map((u) => {
-    const r = (bulk && d.shared.sameBuyer) ? d.shared : d.rows[u.home_id];
-    return { unit: u, cp: cpObj, buyer: r.buyer.trim(), mobile: r.mobile, date: d.shared.date, time: d.shared.time };
-  }), [d, bulk, cpObj]);
+  const payloads = useMemo(() => d.units.map((u) => (
+    { unit: u, cp: cpObj, buyer: d.shared.buyer.trim(), mobile: d.shared.mobile, date: d.shared.date, time: d.shared.time }
+  )), [d, cpObj]);
 
   const confirm = async () => {
     if (submitting) return;
@@ -342,7 +345,7 @@ function BookingDrawer({ draft, setDraft, cps, me, canBook, onClose, onDone }) {
         <div className="bv-dhead">
           <div style={{ flex: 1 }}>
             <div className="bv-dh-title">{d.step === 1 ? (bulk ? `Book ${d.units.length} visits` : 'Book a visit') : d.step === 2 ? 'Review & confirm' : 'Done'}</div>
-            <div className="bv-dh-sub">{d.step === 1 ? (bulk ? 'Set a shared partner, date & time, then add each buyer.' : `${d.units[0].society} · ${d.units[0].unit}`) : d.step === 2 ? 'Check every detail — this cannot be undone.' : ''}</div>
+            <div className="bv-dh-sub">{d.step === 1 ? (bulk ? 'Set the partner, date, time & one buyer for all units.' : `${d.units[0].society} · ${d.units[0].unit}`) : d.step === 2 ? 'Check every detail — this cannot be undone.' : ''}</div>
           </div>
           <button type="button" className="bv-xbtn" onClick={onClose}>✕</button>
         </div>
@@ -369,29 +372,22 @@ function BookingDrawer({ draft, setDraft, cps, me, canBook, onClose, onDone }) {
                   })}</div></div>
               </div>
 
-              {bulk && (
-                <label className="bv-toggle" onClick={() => set((n) => { n.shared.sameBuyer = !n.shared.sameBuyer; })}>
-                  <span className={'bv-sw' + (d.shared.sameBuyer ? ' on' : '')} /> One buyer touring all {d.units.length} units
-                </label>
-              )}
+              <div className="bv-sect">
+                <div className="bv-sect-t">Buyer{bulk ? ` (same for all ${d.units.length})` : ''} <span className="bv-req">*</span></div>
+                <BuyerInputs r={d.shared} onName={(v) => set((n) => { n.shared.buyer = v; })} onMobile={(v) => set((n) => { n.shared.mobile = v; })} />
+              </div>
 
-              {bulk && d.shared.sameBuyer ? (
+              {bulk && (
                 <div className="bv-sect">
-                  <div className="bv-sect-t">Buyer (same for all {d.units.length}) <span className="bv-req">*</span></div>
-                  <BuyerInputs r={d.shared} onName={(v) => set((n) => { n.shared.buyer = v; })} onMobile={(v) => set((n) => { n.shared.mobile = v; })} />
-                </div>
-              ) : (
-                <div className="bv-sect">
-                  <div className="bv-sect-t">{bulk ? 'Buyer per unit' : 'Buyer'} <span className="bv-req">*</span></div>
+                  <div className="bv-sect-t">Units ({d.units.length})</div>
                   {d.units.map((u) => (
                     <div className="bv-urow" key={u.home_id}>
                       <div className="bv-urow-top">
                         <div><div className="bv-urow-soc">{u.society}</div><div className="bv-urow-un">{u.unit} · {u.cfg} · {u.price} · home {u.home_id}</div></div>
-                        {bulk && d.units.length > 1 && <button type="button" className="bv-rm" title="Remove" onClick={() => set((n) => {
+                        {d.units.length > 1 && <button type="button" className="bv-rm" title="Remove" onClick={() => set((n) => {
                           n.units = n.units.filter((x) => x.home_id !== u.home_id); delete n.rows[u.home_id];
                         })}>×</button>}
                       </div>
-                      <BuyerInputs r={d.rows[u.home_id]} onName={(v) => set((n) => { n.rows[u.home_id] = { ...n.rows[u.home_id], buyer: v }; })} onMobile={(v) => set((n) => { n.rows[u.home_id] = { ...n.rows[u.home_id], mobile: v }; })} />
                     </div>
                   ))}
                 </div>

@@ -536,7 +536,8 @@ def _mask_mobile(m: str) -> str:
 
 @app.post("/api/visits/book")
 async def book_visits(body: BookVisitsBody, user: dict = Depends(auth.current_user)):
-    _require_admin(user)
+    # Available to any signed-in CRM user. The real gate is being mapped to a Core
+    # SalesManager (users.core_sales_manager_id) — enforced below (422 otherwise).
     if not config.CRM_BOOKING_API_BASE_URL or not config.CRM_API_KEY:
         raise HTTPException(503, "Visit booking is not configured (CRM_BOOKING_API_BASE_URL / CRM_API_KEY).")
 
