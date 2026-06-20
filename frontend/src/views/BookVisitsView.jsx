@@ -596,8 +596,8 @@ function BvStyles() {
 .bv-btn.primary:hover{background:var(--bv-brand-press)}
 .bv-btn.danger{background:#B91C1C;border-color:#B91C1C;color:#fff}
 .bv-btn:disabled{opacity:.5;cursor:not-allowed}
-.bv-scrim{position:fixed;inset:0;background:rgba(20,12,4,.42);z-index:60}
-.bv-drawer{position:fixed;top:0;right:0;height:100%;width:560px;max-width:96vw;background:var(--bv-bg);z-index:70;display:flex;flex-direction:column;box-shadow:-22px 0 50px -20px rgba(0,0,0,.4)}
+.bv-scrim{position:fixed;inset:0;background:rgba(20,12,4,.42);z-index:100}
+.bv-drawer{position:fixed;top:0;right:0;height:100%;width:560px;max-width:96vw;background:var(--bv-bg);z-index:101;display:flex;flex-direction:column;box-shadow:-22px 0 50px -20px rgba(0,0,0,.4)}
 .bv-dhead{display:flex;align-items:flex-start;gap:12px;padding:17px 19px 13px;background:#fff;border-bottom:1px solid var(--bv-line)}
 .bv-dh-title{font-size:18px;font-weight:800;letter-spacing:-.02em}
 .bv-dh-sub{font-size:12.5px;color:var(--bv-mut);margin-top:3px}
@@ -653,6 +653,10 @@ function BvStyles() {
 .bv-res-ic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:#E7F6EC;color:#147A3D;font-size:15px;flex:0 0 auto}
 .bv-res-nm{font-weight:700;font-size:13px}
 @media(max-width:560px){.bv-rev-grid{grid-template-columns:1fr}.bv-u2{grid-template-columns:1fr}}
+/* Mobile/tablet: the fixed bottom tab bar (z-index 90) used to paint over the drawer's
+   footer — the Review/Confirm CTA. The drawer now sits above it (z-index 101); use the
+   dynamic viewport + safe-area so that footer always clears the iOS toolbar & home bar. */
+@media(max-width:900px){.bv-drawer{height:100dvh;max-height:100dvh}.bv-dfoot{padding-bottom:calc(13px + env(safe-area-inset-bottom,0))}}
 `}</style>
   );
 }
