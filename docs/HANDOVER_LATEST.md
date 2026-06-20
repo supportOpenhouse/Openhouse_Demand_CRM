@@ -188,12 +188,19 @@ to diagnose "user X can't see Y" bugs (e.g., the Ayush properties bug — §8).
   (`ENABLE_TIER_SYNC=0`). It DOES keep overwriting `properties.sales_manager`/`brokers` text from the sheets.
 - **`scope_for_user()`** (`seed_snapshot.py`) filters `/api/seed` per role: Admin = all; TL = their cities;
   KAM = own CPs (+ all properties for inventory); Ground = own CPs + visits/properties they're the PM of.
-  Two opt-in extensions (both default off → no one affected unless set):
+  Three opt-in extensions (all default to nobody → no one affected unless set):
   - **MM-managers** — a user with `users.micro_markets` set (usually TLs) sees every property+visit in those
     micro-markets, overriding team/city (migration 008).
   - **KAM extra-cities** — a KAM with `users.extra_cities` + `extra_cities_enabled` also sees (and edits) ALL
     visits in those cities, on top of their own CPs (migration 010; admin toggle in the User modal). Live:
     Saket → Noida+Ghaziabad, Mukul → Gurgaon.
+  - **No-KAM cities** — `NO_KAM_GROUND_CITIES` (a code constant in `seed_snapshot.py`, mirrored in
+    `lib/visits.js` + `lib/brokers.js`) = **`{Ghaziabad}`**. In a city with no KAM structure, every **Ground**
+    PM whose `cities` include it sees **every lead and every CP (all tiers, not just T3/T4)** in that city, not
+    just their assigned societies — there's no KAM to own the channel partners. Gated on `cities ∩
+    NO_KAM_GROUND_CITIES`, so it is a **no-op for every non-Ghaziabad user** (and for KAMs/TL/Admin). It grants
+    *visibility* only — edit rights are unchanged (the city has no KAM, so its CPs were already Ground-owned in
+    practice). To onboard another KAM-less city, add it to the set in all three files and redeploy both.
   **Edit permission** is a SEPARATE check — `_can_edit_visit()` in `main.py` (mirrored by `canEdit` in the
   modals): Admin/TL, the CP owner, the RM who ran the visit, a Ground PM at_my_property, or a KAM with the
   extra-city grant. Granting *visibility* does not grant *edit* — keep them in sync (see §9, 2026-06-14).
@@ -319,6 +326,29 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-20 (Claude session — Ghaziabad no-KAM city scope, PR #19):** Ghaziabad has **no KAM structure yet**,
+  so its **Ground PMs must see every lead + every CP (all tiers, not just T3/T4)** in the city — not only their
+  assigned societies. Introduced **`NO_KAM_GROUND_CITIES = {Ghaziabad}`** in `seed_snapshot.py` (`scope_for_user`,
+  Ground branch), mirrored in `lib/visits.js` (`scopeVisits`) + `lib/brokers.js` (`ownedCpCodes`). Every added
+  clause is gated on `cities ∩ NO_KAM_GROUND_CITIES`, **empty for all non-Ghaziabad users → byte-identical scope**.
+  Validated vs the full prod snapshot (9,458 visits): **only the 7 Ghaziabad Ground PMs change** (Aditya, Ankush,
+  Anuj, Atishay, Hashim, Manish, Sahil — each now sees 595/595 city visits + 563/563 city CPs); "non-Ghaziabad-Ground
+  changed = NONE"; KAM **Saket (kept)**, other KAMs, non-Ghaziabad Ground, TL, Admin all byte-identical. Live
+  cookie smoke test confirmed the PM's Ghaziabad view == admin's Ghaziabad view; controls unchanged. See §5 (3rd
+  scoping extension). **To add another KAM-less city, extend the set in all three files + redeploy both.**
+- **2026-06-19 (Claude session — Book Visits opened up + 3 mobile fixes, PRs #15–#18):**
+  - **Book Visits → all users** (PR #15, `main.py` + `BookVisitsView.jsx`): removed `_require_admin` from
+    `POST /api/visits/book`; the gate is now **`core_sales_manager_id`** (any RM mapped to a Core SalesManager can
+    book; **422** if unmapped). The nav tab now shows for everyone (gated by `can_book_visits` in the seed).
+    Dropped the per-visit-buyer toggle — bookings always use **one shared buyer** (option 2 wasn't supported). The
+    **CP picker now shows company + 📞 phone** in the dropdown, selected value and search, so the RM picks the right CP.
+  - **Mobile modal close** (PR #16, `BrokerModal.jsx` + `theme.css`): added a clear **✕ pinned top-right** (40px
+    circle) on the CP/lead modal for ≤900px, hiding the easy-to-miss action-row close. Desktop untouched.
+  - **Mobile Book Visits h-scroll** (PR #17): `.bv-tablecard{overflow-x:auto}` + `.bv-tbl{min-width:760px}` so the
+    wide inventory table scrolls sideways instead of clipping.
+  - **Mobile Book Visits cards** (PR #18, `BookVisitsView.jsx` + `useIsMobile`): on ≤900px the inventory renders as
+    **one tappable card per unit** (checkbox + society + unit·cfg·sqft + MM·status + price + Book→) instead of the
+    h-scroll table. `bv-` styles inline in the view so `app.css`/`theme.css` stay byte-unchanged.
 - **2026-06-17 (Claude session — AI-suggestion filters · Visits filter memory · migration renumber · Team Performance, PRs #11–#14):**
   - **AI Suggestions** (PR #11, `ai_suggestions.py` + `seed_snapshot.py`): the daily brief now shows **only live-inventory
     units** — a lead is skipped when its unit is positively off-market (Sold/Booked/Archived per the `all_properties` mirror,
