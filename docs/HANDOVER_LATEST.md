@@ -329,6 +329,21 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-20 (Claude session — Book Visits: Booked inventory + full CP directory, PRs #23–#24):**
+  - **Booked units** (PR #23, `BookVisitsView.jsx`): the inventory filter listed only Ready + Coming Soon;
+    now shows **Ready + Coming Soon + Booked** (distinct neutral "Booked" badge; count row breaks out
+    ready/coming-soon/booked). Sold/Archived stay hidden. Frontend-only; the seed already carries every
+    `listing_status` (no status filter in `scope_for_user`), so booked units just appear within each viewer's
+    existing property scope. Live: 101 Ready / 40 Coming Soon / 15 Booked (14 with a home_id → bookable).
+  - **Full CP directory in the picker** (PR #24, new **`GET /api/cps`** + `BookVisitsView.jsx` + `api.js`):
+    the booking CP picker only searched the viewer's SCOPED brokers (`seed.brokers` = own/added/T3-T4/visit-
+    linked), so a CP outside scope (a KAM-owned T1/T2 with no synced visit at the RM's society) was unfindable.
+    Vipul couldn't find "Manju" (CP01722, T1, owner shubham) because her only link to him was a not-yet-synced
+    Tulip Orange visit; admins (all brokers) could. Now `BookVisitsView` loads the **full directory** (5341 CPs,
+    minimal fields) from `/api/cps` (auth-required, read-only) and feeds it to the picker, **falling back to the
+    scoped `seed.brokers`** until it loads / on error. Additive — only the Book Visits picker changes; every
+    other view keeps the scoped brokers, no seed/scoping/data change. Live-verified: Vipul's `/api/cps` returns
+    5341 CPs and the picker search matches "Manju" by both name and phone.
 - **2026-06-20 (Claude session — edit-permission mirrors visibility, "see ⟹ edit", PR #22):** users hit
   *"You don't have permission to edit this visit"* on leads they could clearly see (Saket — KAM; Rajnish — had
   been made Admin as a workaround; and, post-PR #19, the Ghaziabad PMs). Root cause: `_can_edit_visit` /
