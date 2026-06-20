@@ -6,13 +6,23 @@ import { useState } from 'react';
 const SHORT = {
   home: 'Home', visits: 'Visits', cps: 'Partners', properties: 'Property',
   analytics: 'Analytics', snapshot: 'Inventory', team: 'My Day', notifications: 'Alerts',
+  book: 'Book Visit',
 };
+
+// Mobile bottom-bar primary tabs, in order. Book Visits is promoted into the bar (in
+// place of AI Suggestions, which moves into the "More" sheet) — every other view, incl.
+// AI, stays reachable via More. Keys absent from `nav` are skipped; anything not listed
+// here drops to More in its original nav order. Desktop is unaffected: the sidebar
+// (App.jsx) renders `nav` directly and this whole bar is CSS-hidden above 900px.
+const PRIMARY_KEYS = ['home', 'book', 'visits', 'cps'];
 
 export default function BottomTabBar({ nav, view, setView, unread = 0 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const items = Array.isArray(nav) ? nav : [];
-  const primary = items.slice(0, 4);
-  const more = items.slice(4);
+  const byKey = Object.fromEntries(items.map((n) => [n.k, n]));
+  const primary = PRIMARY_KEYS.map((k) => byKey[k]).filter(Boolean);
+  const primaryK = new Set(primary.map((n) => n.k));
+  const more = items.filter((n) => !primaryK.has(n.k));
   const moreActive = more.some((n) => n.k === view);
   const moreBadge = more.some((n) => n.k === 'notifications') && unread > 0;
   const go = (k) => { setMoreOpen(false); setView(k); };
