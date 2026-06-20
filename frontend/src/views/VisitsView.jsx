@@ -189,6 +189,20 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
       }
       if (!ok) return false;
     }
+    // Next activity = the next scheduled negotiation / revisit date (nextActivityFor).
+    // Same day-bucket semantics as Next followup; daysBetween strips the time component.
+    if (F.activityDate?.length) {
+      const ad = nextActivityFor(v)?.date || null;
+      let ok = F.activityDate.includes('none') && !ad;
+      if (ad != null) {
+        const d = daysBetween(ad);
+        if (F.activityDate.includes('overdue') && d > 0) ok = true;
+        if (F.activityDate.includes('today') && d === 0) ok = true;
+        if (F.activityDate.includes('tomorrow') && d === -1) ok = true;
+        if (F.activityDate.includes('week') && d <= 0 && d > -7) ok = true;
+      }
+      if (!ok) return false;
+    }
     return true;
   }), [scoped, filters, leadSet, dq, propBySociety, brokersByCode]);
 
