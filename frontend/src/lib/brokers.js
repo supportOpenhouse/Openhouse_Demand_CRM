@@ -1,6 +1,7 @@
 // Channel-partner scoping + a one-pass per-CP index. The legacy CP table was slow
 // because every row re-scanned all visits (lastFU, societies, last visit). Here we
 // build those once (buildCpIndex) so each row is O(1) — the real fix for #1.
+import { NO_KAM_GROUND_CITIES } from './visits.js';
 
 export function usersBySlug(seed) {
   const m = {};
@@ -31,6 +32,9 @@ export function ownedCpCodes(brokers, me, cpOwner, properties, visits) {
     brokers.forEach((b) => { if (cpOwner[b.cp_code] === me.id) codes.add(b.cp_code); });
     visits.forEach((v) => { if (socs.has(v.society_name) && v.cp_code) codes.add(v.cp_code); });
     brokers.forEach((b) => { if (b.added_by === me.name) codes.add(b.cp_code); });
+    // no-KAM cities (Ghaziabad): the PM sees every CP (all tiers) operating there.
+    const noKam = new Set((me.cities || []).filter((c) => NO_KAM_GROUND_CITIES.has(c)));
+    if (noKam.size) brokers.forEach((b) => { if (noKam.has(b.city)) codes.add(b.cp_code); });
     return codes;
   }
   return codes;

@@ -189,6 +189,10 @@ export function matchesUnit(v, q) {
 function isAdminOrTL(me) {
   return me.team === 'Admin' || me.team === 'TL' || me.role === 'admin' || (me.role || '').startsWith('tl');
 }
+// Cities with no KAM: the Ground PMs there see EVERY visit in the city (not just their
+// assigned societies). KEEP IN SYNC with backend NO_KAM_GROUND_CITIES (seed_snapshot.py).
+export const NO_KAM_GROUND_CITIES = new Set(['Ghaziabad']);
+
 export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByProperty = {}) {
   if (!me || !me.id) return visits;
   // MM-manager: micro-market scope takes precedence over team/city (mirrors the
@@ -221,8 +225,10 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
     const socs = new Set(properties
       .filter((p) => pmByProperty[p.property_name] === me.slug || isPm(p.sales_manager))
       .map((p) => p.society_name));
+    // no-KAM cities (Ghaziabad): the PM also sees EVERY visit in those cities.
+    const noKam = new Set((me.cities || []).filter((c) => NO_KAM_GROUND_CITIES.has(c)));
     // also: visits the PM personally ran (they are the RM), even at others' properties.
-    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || isPm(v.sales_manager_raw ?? v.sales_manager));
+    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || isPm(v.sales_manager_raw ?? v.sales_manager) || noKam.has(v.city));
   }
   return [];
 }
