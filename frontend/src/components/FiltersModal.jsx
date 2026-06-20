@@ -10,10 +10,13 @@ const BHK = ['1 BHK', '2 BHK', '3 BHK', '4 BHK'];
 const TIERS = [['T1', 'Tier 1 (Gold)'], ['T2', 'Tier 2 (Silver)'], ['T3', 'Tier 3'], ['T4', 'Tier 4']];
 const SOURCES = [['channel_partner', 'via CP'], ['direct', 'Direct']];
 const FU = [['overdue', 'Overdue'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'Next 7 days'], ['none', 'No FU set']];
+// Next activity = the next scheduled negotiation / revisit (nextActivityFor). Same
+// date semantics as Next followup, just a different source date.
+const ACT = [['overdue', 'Overdue'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'Next 7 days'], ['none', 'No activity']];
 const DATE_PRESETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This week'], ['month', 'This month'], ['last7', 'Last 7 days'], ['last30', 'Last 30 days']];
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-const EMPTY = { cities: [], unit: '', society: '', locality: '', bhk: [], tier: [], cp: '', rm: '', source: [], visitFrom: '', visitTo: '', followupDate: [] };
+const EMPTY = { cities: [], unit: '', society: '', locality: '', bhk: [], tier: [], cp: '', rm: '', source: [], visitFrom: '', visitTo: '', followupDate: [], activityDate: [] };
 
 export default function FiltersModal({ seed, value, onApply, onClose }) {
   const [f, setF] = useState({ ...EMPTY, ...(value || {}) });
@@ -196,6 +199,10 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
             <div className="rx-flt-full">
               <label style={lbl}>Next followup</label>
               <Pills items={FU} sel={f.followupDate} onToggle={(v) => togglePill('followupDate', v)} />
+            </div>
+            <div className="rx-flt-full">
+              <label style={lbl}>Next activity</label>
+              <Pills items={ACT} sel={f.activityDate} onToggle={(v) => togglePill('activityDate', v)} />
             </div>
           </div>
         </div>
