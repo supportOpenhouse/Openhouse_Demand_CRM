@@ -201,9 +201,12 @@ to diagnose "user X can't see Y" bugs (e.g., the Ayush properties bug — §8).
     NO_KAM_GROUND_CITIES`, so it is a **no-op for every non-Ghaziabad user** (and for KAMs/TL/Admin). It grants
     *visibility* only — edit rights are unchanged (the city has no KAM, so its CPs were already Ground-owned in
     practice). To onboard another KAM-less city, add it to the set in all three files and redeploy both.
-  **Edit permission** is a SEPARATE check — `_can_edit_visit()` in `main.py` (mirrored by `canEdit` in the
-  modals): Admin/TL, the CP owner, the RM who ran the visit, a Ground PM at_my_property, or a KAM with the
-  extra-city grant. Granting *visibility* does not grant *edit* — keep them in sync (see §9, 2026-06-14).
+  **Edit permission** (`_can_edit_visit()` in `main.py`, mirrored by `canEdit` in `PropertyModal`) is a
+  deliberate MIRROR of visibility — **see ⟹ edit** for every role: Admin/TL, CP owner, the RM who ran the
+  visit, a Ground PM at_my_property, a KAM with the extra-city grant, a Ground PM in a **no-KAM city**, and
+  **micro-market managers**. It keys on the SAME inventory-corrected city the seed uses (home_id→inventory;
+  raw `visits.city` is sometimes mis-entered) — a drift here was the 2026-06-20 "can't edit a lead I can
+  see" bug (§9). If you extend `scope_for_user`, extend `_can_edit_visit` + `canEdit` in lock-step.
   **Lesson learned:** scope by the *assignment tables* (slug), not by matching sheet name-text to a
   user's full name (sheets store some PMs by first name → silent zero-results; see §8).
 
@@ -326,6 +329,20 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-20 (Claude session — edit-permission mirrors visibility, "see ⟹ edit", PR #22):** users hit
+  *"You don't have permission to edit this visit"* on leads they could clearly see (Saket — KAM; Rajnish — had
+  been made Admin as a workaround; and, post-PR #19, the Ghaziabad PMs). Root cause: `_can_edit_visit` /
+  `PropertyModal.canEdit` had drifted from `scope_for_user`. Three drifts, one fix each: **(1) city** — the
+  seed corrects a visit's city via the inventory mirror (`home_id → all_properties.city`; raw `visits.city` is
+  often mis-entered, e.g. a Ghaziabad society tagged Noida/Gurgaon), but the edit check read the RAW city, so a
+  KAM saw a lead via his extra-city (corrected) yet couldn't edit it (raw). The edit check now keys on the SAME
+  corrected city. **(2) no-KAM city** — Ground PMs in Ghaziabad now also *edit* every city lead (PR #19 only
+  gave visibility). **(3) MM-managers** (`Ground`+`micro_markets`, e.g. Ankit Jangir, Vikrant Sengar) now edit
+  every lead in their micro-markets. Purely **additive** (no grant removed; edit only within visibility).
+  Validated over all 40 active users on the live snapshot: see-but-can't-edit **13 → 0** users, 0 reachable
+  edit lost, 0 new over-grant. Live spot-test: Saket's failing leads now editable; an out-of-scope Gurgaon lead
+  and a Gurgaon PM on a Ghaziabad lead stay denied. Files: `main.py` `_can_edit_visit`, `PropertyModal.jsx`
+  `canEdit`. **Lesson:** the prior "Rajnish made Admin" was a symptom-patch — fix the see/edit drift instead.
 - **2026-06-20 (Claude session — Ghaziabad no-KAM city scope, PR #19):** Ghaziabad has **no KAM structure yet**,
   so its **Ground PMs must see every lead + every CP (all tiers, not just T3/T4)** in the city — not only their
   assigned societies. Introduced **`NO_KAM_GROUND_CITIES = {Ghaziabad}`** in `seed_snapshot.py` (`scope_for_user`,
