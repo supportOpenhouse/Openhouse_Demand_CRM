@@ -119,9 +119,9 @@ export default function BookVisitsView({ seed }) {
   const isMobile = useIsMobile();   // ≤900px → render tappable cards instead of the wide table
   // mapped to a Core SalesManager? (undefined on an older seed → assume yes so we don't block pre-deploy)
   const canBook = me.can_book_visits === undefined ? true : !!me.can_book_visits;
-  // live inventory only, and only units that map to an app home_id (needed to book)
+  // bookable inventory — Ready, Coming Soon and Booked units that map to an app home_id
   const units = useMemo(() => (seed.properties || [])
-    .filter((p) => (p.listing_status === 'Ready' || p.listing_status === 'Coming Soon') && p.home_id)
+    .filter((p) => (p.listing_status === 'Ready' || p.listing_status === 'Coming Soon' || p.listing_status === 'Booked') && p.home_id)
     .map((p) => ({
       society: p.society_name || '—', unit: unitOf(p), city: p.city_name || '', mm: p.micro_market || '—',
       cfg: p.configuration || '—', sqft: p.super_sqft || '—', price: p.listing_price || '—',
@@ -163,6 +163,8 @@ export default function BookVisitsView({ seed }) {
   }, [byCity]);
 
   const ready = filtered.filter((u) => u.status === 'Ready').length;
+  const comingSoon = filtered.filter((u) => u.status === 'Coming Soon').length;
+  const booked = filtered.filter((u) => u.status === 'Booked').length;
   const unitByHome = useMemo(() => Object.fromEntries(units.map((u) => [u.home_id, u])), [units]);
 
   const toggleSel = useCallback((home_id) => {
@@ -226,12 +228,12 @@ export default function BookVisitsView({ seed }) {
       </div>
 
       <div className="bv-countrow">
-        <span className="bv-mut"><b>{filtered.length}</b> units · <b>{ready}</b> ready · <b>{filtered.length - ready}</b> coming soon{selected.size ? <span className="bv-selnote"> · {selected.size} of {MAX_BOOK} selected</span> : null}</span>
+        <span className="bv-mut"><b>{filtered.length}</b> units · <b>{ready}</b> ready · <b>{comingSoon}</b> coming soon{booked ? <> · <b>{booked}</b> booked</> : null}{selected.size ? <span className="bv-selnote"> · {selected.size} of {MAX_BOOK} selected</span> : null}</span>
       </div>
 
       {isMobile ? (
         <div className="bv-cards">
-          {filtered.length === 0 && <div className="bv-empty">📦 No live units match these filters</div>}
+          {filtered.length === 0 && <div className="bv-empty">📦 No units match these filters</div>}
           {cityKeys.map((city) => {
             const groups = {}; byCity[city].forEach((u) => { (groups[u.mm] = groups[u.mm] || []).push(u); });
             return Object.keys(groups).sort().map((mm) => (
@@ -245,7 +247,7 @@ export default function BookVisitsView({ seed }) {
           <table className="bv-tbl">
             <thead><tr><th className="bv-cb"></th><th>Society</th><th>Unit</th><th>Config</th><th>Area</th><th>Locality</th><th>Status</th><th className="bv-right">Ask Price</th><th></th></tr></thead>
             <tbody>
-              {filtered.length === 0 && <tr><td colSpan={9}><div className="bv-empty">📦 No live units match these filters</div></td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={9}><div className="bv-empty">📦 No units match these filters</div></td></tr>}
               {cityKeys.map((city) => {
                 const groups = {}; byCity[city].forEach((u) => { (groups[u.mm] = groups[u.mm] || []).push(u); });
                 return Object.keys(groups).sort().map((mm) => (
@@ -289,7 +291,7 @@ function FragmentGroup({ city, mm, rows, selected, atCap, onToggle, onBook }) {
             <td className="bv-cb"><input type="checkbox" checked={on} disabled={!on && atCap} onChange={() => onToggle(u.home_id)} /></td>
             <td><span className="bv-soc">{u.status === 'Coming Soon' ? <span className="bv-new">NEW</span> : null}{u.society}</span></td>
             <td>{u.unit}</td><td>{u.cfg}</td><td>{u.sqft} sqft</td><td>{u.mm}</td>
-            <td><span className={'bv-status ' + (u.status === 'Ready' ? 'r' : 'cs')}>{u.status}</span></td>
+            <td><span className={'bv-status ' + (u.status === 'Ready' ? 'r' : u.status === 'Booked' ? 'bk' : 'cs')}>{u.status}</span></td>
             <td className="bv-right bv-ask">{u.price}</td>
             <td><button type="button" className="bv-book" onClick={() => onBook(u)}>Book</button></td>
           </tr>
@@ -313,7 +315,7 @@ function CardGroup({ city, mm, rows, selected, atCap, onToggle, onBook }) {
             <div className="bv-card-b">
               <div className="bv-card-soc">{u.status === 'Coming Soon' ? <span className="bv-new">NEW</span> : null}{u.society}</div>
               <div className="bv-card-m">{u.unit} · {u.cfg} · {u.sqft} sqft</div>
-              <div className="bv-card-m">{u.mm} · <span className={'bv-status ' + (u.status === 'Ready' ? 'r' : 'cs')}>{u.status}</span></div>
+              <div className="bv-card-m">{u.mm} · <span className={'bv-status ' + (u.status === 'Ready' ? 'r' : u.status === 'Booked' ? 'bk' : 'cs')}>{u.status}</span></div>
               <div className="bv-card-f">
                 <span className="bv-ask">{u.price}</span>
                 <button type="button" className="bv-book" onClick={() => onBook(u)}>Book →</button>
@@ -567,7 +569,7 @@ function BvStyles() {
 .bv-soc{font-weight:700}
 .bv-new{display:inline-block;background:#1FA251;color:#fff;font-size:9px;font-weight:800;padding:2px 5px;border-radius:5px;margin-right:6px;vertical-align:middle}
 .bv-status{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px}
-.bv-status.r{background:#E7F6EC;color:#147A3D}.bv-status.cs{background:#FBF0DA;color:#B45309}
+.bv-status.r{background:#E7F6EC;color:#147A3D}.bv-status.cs{background:#FBF0DA;color:#B45309}.bv-status.bk{background:#E7E5E4;color:#57534E}
 .bv-ask{font-weight:800;white-space:nowrap}
 .bv-book{background:#fff;border:1px solid var(--bv-brand);color:var(--bv-brand);font-weight:700;font-size:12px;padding:6px 13px;border-radius:8px;white-space:nowrap;cursor:pointer}
 .bv-book:hover{background:var(--bv-brand);color:#fff}
