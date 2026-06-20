@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TODAY, ymd, fmtDate, fmtDay, fmtDateTime, initials } from '../lib/format.js';
-import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor } from '../lib/visits.js';
+import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor, NO_KAM_GROUND_CITIES } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import { top99ForSociety } from '../lib/properties.js';
 import { TEAM_PILL, nextFuClass, classifyClosingSignal, visitIntentItems } from '../lib/legacy.js';
@@ -383,7 +383,13 @@ function PropVisitRow({
   // KAM with admin-granted extra-city access can edit visits in those cities (mirrors
   // backend _can_edit_visit + the visibility grant). Default off → no effect.
   const kamExtra = me.team === 'KAM' && me.extra_cities_enabled && (me.extra_cities || []).includes(v.city);
-  const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit || (me.team === 'Ground' && isMyProperty) || kamExtra;
+  // No-KAM city (Ghaziabad): a Ground PM there edits every lead in the city. v.city is the
+  // seed's inventory-corrected city — the same value the backend now keys on. No-op elsewhere.
+  const noKam = me.team === 'Ground' && NO_KAM_GROUND_CITIES.has(v.city) && (me.cities || []).includes(v.city);
+  // Micro-market manager: they only ever see leads inside their micro-markets (scopeVisits),
+  // and the backend grants edit on every one — so any lead shown to them is editable.
+  const mmManager = (me.micro_markets || []).length > 0;
+  const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit || (me.team === 'Ground' && isMyProperty) || kamExtra || noKam || mmManager;
   const nfc = nextFuClass(nextFuFor(v));
   const nudgeOk = (!isMine && !!owner);
   const stDef = STATUSES.find((s) => s.k === status);
