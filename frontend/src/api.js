@@ -20,6 +20,15 @@ export async function loadSeed() {
   return res.json();
 }
 
+// Full CP directory for the Book Visits picker (any signed-in user) — lets an RM pick
+// any channel partner, not just the ones in their scoped seed. Callers fall back to the
+// scoped seed.brokers if this fails, so the picker always works.
+export async function loadAllCps() {
+  const res = await apiFetch('/api/cps');
+  if (!res.ok) throw new Error(`cps failed (HTTP ${res.status})`);
+  return res.json();
+}
+
 export async function loadTopBrokers() {
   const res = await apiFetch('/api/top-brokers');
   if (!res.ok) throw new Error(`top-brokers failed (HTTP ${res.status})`);

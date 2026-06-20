@@ -10,7 +10,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { parsePrice } from '../lib/legacy.js';
 import { TODAY, ymd } from '../lib/format.js';
-import { bookVisits } from '../api.js';
+import { bookVisits, loadAllCps } from '../api.js';
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
 
@@ -127,10 +127,19 @@ export default function BookVisitsView({ seed }) {
       cfg: p.configuration || '—', sqft: p.super_sqft || '—', price: p.listing_price || '—',
       status: p.listing_status, home_id: String(p.home_id),
     })), [seed]);
-  const cps = useMemo(() => (seed.brokers || [])
+  // Book against ANY channel partner: pull the full CP directory (any signed-in user),
+  // falling back to the scoped seed.brokers until it loads / if it fails — so the picker
+  // always works and an RM is never blocked from finding a CP outside their own scope.
+  const [allCps, setAllCps] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    loadAllCps().then((d) => alive && setAllCps(d.items || [])).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const cps = useMemo(() => (allCps || seed.brokers || [])
     .filter((b) => b.cp_code)
     .map((b) => ({ cp_code: b.cp_code, name: b.name || b.cp_code, city: b.city || '', tier: b.tier || '', broker_id: b.id, company: b.company_name || '', phone: b.phone_number || '' }))
-    .sort((a, b) => (a.tier > b.tier ? 1 : a.tier < b.tier ? -1 : (a.name || '').localeCompare(b.name || ''))), [seed]);
+    .sort((a, b) => (a.tier > b.tier ? 1 : a.tier < b.tier ? -1 : (a.name || '').localeCompare(b.name || ''))), [allCps, seed]);
 
   const [fCity, setFCity] = useState([]); const [fCfg, setFCfg] = useState([]); const [fRegion, setFRegion] = useState([]);
   const [pmin, setPmin] = useState(''); const [pmax, setPmax] = useState(''); const [q, setQ] = useState('');

@@ -219,6 +219,38 @@ async def get_top_brokers(user: dict = Depends(auth.current_user)):
     return {"items": items, "count": len(items)}
 
 
+@app.get("/api/cps")
+async def get_cps(user: dict = Depends(auth.current_user)):
+    """Full channel-partner directory (minimal fields) for the Book Visits CP picker, so
+    ANY signed-in user can attribute a booking to ANY CP — not only the ones in their
+    scoped seed (own / added / T3-T4 / visit-linked). Without this, a CP outside the
+    viewer's scope (e.g. a KAM-owned T1/T2) is unfindable until a visit happens to pull it
+    in — the exact "can't find the broker" bug. Auth-required but otherwise open: it is
+    only surfaced in the Book Visits picker. Read-only — no scoping or data change; the
+    rest of the app keeps using the scoped `seed.brokers`."""
+    async with acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT b.cp_code, b.name, b.phone, b.company, b.city, b.external_id,
+                   b.id::text AS id_text, COALESCE(ta.tier, 'T4') AS tier
+              FROM brokers b
+         LEFT JOIN v_broker_current_tier ta ON ta.broker_id = b.id
+             WHERE b.deleted_at IS NULL AND COALESCE(b.cp_code, '') <> ''
+             ORDER BY b.name
+            """
+        )
+    items = [{
+        "cp_code": r["cp_code"],
+        "name": r["name"] or r["cp_code"],
+        "city": r["city"] or "",
+        "tier": r["tier"] or "T4",
+        "id": r["external_id"] or r["id_text"],
+        "company_name": r["company"] or "",
+        "phone_number": r["phone"] or "",
+    } for r in rows]
+    return {"items": items, "count": len(items)}
+
+
 class TopBrokerPhoneBody(BaseModel):
     phone: Optional[str] = None
 
