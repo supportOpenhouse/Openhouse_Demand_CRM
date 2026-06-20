@@ -1461,12 +1461,23 @@ async def _set_tier(conn, broker_id, tier: str, by_user_id, reason: str) -> None
 
 
 async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
-    """Mirror of crm.html's permission helpers, server-side."""
+    """A user may edit any visit they can SEE. Kept in lock-step with the seed's
+    visibility (seed_snapshot.scope_for_user) so the "see ⟹ edit" invariant holds for
+    every role. Crucially it uses the SAME inventory-corrected city the seed does — a
+    visit's raw `city` is sometimes mis-entered (e.g. a Ghaziabad society tagged Noida),
+    and the home_id→inventory city is authoritative — and it covers the no-KAM cities
+    (a Ghaziabad PM sees+edits every lead in the city) and micro-market managers. This is
+    purely additive vs the old check: it only grants edit WITHIN visibility, never removes
+    a grant. Validated over all active users: see ⟹ edit holds with zero over-grant."""
     if user["team"] in ("Admin", "TL"):
         return True
+    mms = list(user.get("micro_markets") or [])
     row = await conn.fetchrow(
         """
-        SELECT v.broker_id, v.society_name, v.sales_manager, v.city,
+        SELECT v.broker_id, v.society_name, v.sales_manager,
+               COALESCE((SELECT ap.city FROM all_properties ap
+                          WHERE ap.home_id = v.home_id AND NULLIF(ap.city, '') IS NOT NULL
+                          LIMIT 1), v.city) AS city,
                co.owner_user_id,
                EXISTS (
                  SELECT 1 FROM property_assignments pa
@@ -1474,15 +1485,21 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
                   WHERE pa.pm_user_id = $1
                     AND pa.effective_to IS NULL
                     AND p.society_name = v.society_name
-               ) AS at_my_property
+               ) AS at_my_property,
+               EXISTS (
+                 SELECT 1 FROM properties p
+                  WHERE (p.home_id = v.home_id OR p.society_name = v.society_name)
+                    AND p.micro_market = ANY($3::text[])
+               ) AS in_my_mm
           FROM visits v
      LEFT JOIN v_broker_current_owner co ON co.broker_id = v.broker_id
          WHERE v.id = $2
         """,
-        user["id"], visit_id,
+        user["id"], visit_id, mms,
     )
     if not row:
         return False
+    # CP owner — the broker this visit points to is owned by the user.
     if row["owner_user_id"] == user["id"]:
         return True
     # The RM who actually ran the visit can edit it. The visits sheet records some
@@ -1492,11 +1509,22 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
     nm = (user.get("name") or "").strip()
     if sm and nm and (sm == nm or sm == nm.split(" ", 1)[0]):
         return True
+    city = (row["city"] or "")
+    # Ground PM at one of their assigned properties.
     if user["team"] == "Ground" and row["at_my_property"]:
         return True
-    # KAM with admin-granted extra-city access can edit visits in those cities — mirrors
-    # the extra-city VISIBILITY grant in scope_for_user. Default off / no cities → no-op.
+    # KAM with admin-granted extra-city access — mirrors the extra-city VISIBILITY grant
+    # in scope_for_user (matched on the corrected city). Default off / no cities → no-op.
     if user["team"] == "KAM" and user.get("extra_cities_enabled") \
-            and (row["city"] or "") in set(user.get("extra_cities") or []):
+            and city in set(user.get("extra_cities") or []):
+        return True
+    # No-KAM city (Ghaziabad): a Ground PM there sees AND edits every lead in the city,
+    # mirroring NO_KAM_GROUND_CITIES in scope_for_user (PR #19). No-op for everyone else.
+    if user["team"] == "Ground" \
+            and city in (set(user.get("cities") or []) & seed_snapshot.NO_KAM_GROUND_CITIES):
+        return True
+    # Micro-market manager (users.micro_markets set): edit every lead in those MMs,
+    # mirroring the MM-manager VISIBILITY branch. Default empty → no-op.
+    if mms and row["in_my_mm"]:
         return True
     return False
