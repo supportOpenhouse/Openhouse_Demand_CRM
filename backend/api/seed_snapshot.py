@@ -27,6 +27,14 @@ def _intent_str(intent: dict | None, key: str) -> str:
     return str(intent.get(key, "") or "")
 
 
+# Cities with no KAM structure: the Ground property managers there see EVERY lead +
+# every CP (all tiers) in the city, not just their assigned societies (there's no KAM
+# to own the channel partners). Only Ground PMs whose `cities` include one of these are
+# affected — every other user, role and city stays byte-identical, and KAMs are untouched.
+# KEEP IN SYNC with the frontend NO_KAM_GROUND_CITIES (lib/visits.js, lib/brokers.js).
+NO_KAM_GROUND_CITIES = {"Ghaziabad"}
+
+
 def scope_for_user(snap: dict, user: dict) -> dict:
     """Trim the full snapshot to what `user` is allowed to see, mirroring the
     frontend's visitsForUser()/brokersForUser()/propertiesForUser() exactly so
@@ -134,21 +142,28 @@ def scope_for_user(snap: dict, user: dict) -> dict:
         my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
         my_socs = {p["society_name"] for p in properties
                    if p["property_name"] in my_props or _is_pm(p["sales_manager"])}
+        # Cities with no KAM (Ghaziabad): this PM sees every lead + every CP (all tiers)
+        # there. Empty for PMs whose cities aren't in NO_KAM_GROUND_CITIES → no change.
+        no_kam = cities & NO_KAM_GROUND_CITIES
         codes = set()
         for b in brokers:
-            if cp_owner.get(b["cp_code"]) == slug or b.get("added_by") == name:
+            if (cp_owner.get(b["cp_code"]) == slug or b.get("added_by") == name
+                    or (no_kam and b.get("city") in no_kam)):
                 codes.add(b["cp_code"])
         for v in visits:
             if (v["society_name"] in my_socs
-                    or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))) and v["cp_code"]:
+                    or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))
+                    or (no_kam and v.get("city") in no_kam)) and v["cp_code"]:
                 codes.add(v["cp_code"])
         keep_brokers(codes)
         snap["properties"] = [p for p in properties if p["society_name"] in my_socs]
         # A Ground PM also sees visits they personally ran (they are the RM), even when
-        # the property is managed by someone else and the CP isn't theirs (e.g. VST8592).
+        # the property is managed by someone else and the CP isn't theirs (e.g. VST8592);
+        # plus EVERY visit in a no-KAM city (Ghaziabad), since there's no KAM to route them.
         snap["visits"] = [v for v in visits
                           if v["society_name"] in my_socs or cp_owner.get(v["cp_code"]) == slug
-                          or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))]
+                          or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))
+                          or (no_kam and v.get("city") in no_kam)]
         _scope_personal(snap, slug)
         return snap
 
