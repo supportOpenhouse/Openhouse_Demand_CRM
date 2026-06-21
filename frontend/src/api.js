@@ -29,6 +29,15 @@ export async function loadAllCps() {
   return res.json();
 }
 
+// Full live bookable inventory for the Book Visits list (any signed-in user) — so a PM
+// can book at any property, not just their own. Callers fall back to the scoped
+// seed.properties if this fails, so the list always works.
+export async function loadInventory() {
+  const res = await apiFetch('/api/inventory');
+  if (!res.ok) throw new Error(`inventory failed (HTTP ${res.status})`);
+  return res.json();
+}
+
 export async function loadTopBrokers() {
   const res = await apiFetch('/api/top-brokers');
   if (!res.ok) throw new Error(`top-brokers failed (HTTP ${res.status})`);

@@ -10,7 +10,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { parsePrice } from '../lib/legacy.js';
 import { TODAY, ymd } from '../lib/format.js';
-import { bookVisits, loadAllCps } from '../api.js';
+import { bookVisits, loadAllCps, loadInventory } from '../api.js';
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
 
@@ -119,14 +119,23 @@ export default function BookVisitsView({ seed }) {
   const isMobile = useIsMobile();   // ≤900px → render tappable cards instead of the wide table
   // mapped to a Core SalesManager? (undefined on an older seed → assume yes so we don't block pre-deploy)
   const canBook = me.can_book_visits === undefined ? true : !!me.can_book_visits;
-  // bookable inventory — Ready, Coming Soon and Booked units that map to an app home_id
-  const units = useMemo(() => (seed.properties || [])
+  // bookable inventory — Ready, Coming Soon and Booked units that map to an app home_id.
+  // Pull the FULL live inventory (any signed-in user) so a PM can book at ANY property, not
+  // just their own scoped societies; fall back to the scoped seed.properties until it loads
+  // / if it fails, so the list always works.
+  const [allInv, setAllInv] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    loadInventory().then((d) => alive && setAllInv(d.items || [])).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const units = useMemo(() => (allInv || seed.properties || [])
     .filter((p) => (p.listing_status === 'Ready' || p.listing_status === 'Coming Soon' || p.listing_status === 'Booked') && p.home_id)
     .map((p) => ({
       society: p.society_name || '—', unit: unitOf(p), city: p.city_name || '', mm: p.micro_market || '—',
       cfg: p.configuration || '—', sqft: p.super_sqft || '—', price: p.listing_price || '—',
       status: p.listing_status, home_id: String(p.home_id),
-    })), [seed]);
+    })), [allInv, seed]);
   // Book against ANY channel partner: pull the full CP directory (any signed-in user),
   // falling back to the scoped seed.brokers until it loads / if it fails — so the picker
   // always works and an RM is never blocked from finding a CP outside their own scope.

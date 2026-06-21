@@ -251,6 +251,39 @@ async def get_cps(user: dict = Depends(auth.current_user)):
     return {"items": items, "count": len(items)}
 
 
+@app.get("/api/inventory")
+async def get_inventory(user: dict = Depends(auth.current_user)):
+    """All live bookable inventory — Ready / Coming Soon / Booked units with a home_id —
+    in the same shape as `seed.properties`, for the Book Visits inventory list. So ANY
+    signed-in user (esp. Ground PMs, who are otherwise scoped to just their own societies)
+    can book a visit at ANY property, not only their own. Auth-required, read-only, surfaced
+    only in Book Visits. Every other view keeps the scoped `seed.properties` — no scoping,
+    seed or data change."""
+    async with acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT p.property_name, p.society_name, p.city, p.micro_market, p.configuration,
+                   p.super_sqft, p.listing_price, p.listing_status, p.home_id
+              FROM properties p
+             WHERE p.deleted_at IS NULL AND COALESCE(p.home_id, '') <> ''
+               AND p.listing_status IN ('Ready', 'Coming Soon', 'Booked')
+             ORDER BY p.society_name, p.property_name
+            """
+        )
+    items = [{
+        "property_name": r["property_name"] or "",
+        "society_name": r["society_name"] or "",
+        "city_name": r["city"] or "",
+        "micro_market": r["micro_market"] or "",
+        "configuration": r["configuration"] or "",
+        "super_sqft": r["super_sqft"] or "",
+        "listing_price": r["listing_price"] or "",
+        "listing_status": r["listing_status"] or "",
+        "home_id": r["home_id"] or "",
+    } for r in rows]
+    return {"items": items, "count": len(items)}
+
+
 class TopBrokerPhoneBody(BaseModel):
     phone: Optional[str] = None
 
