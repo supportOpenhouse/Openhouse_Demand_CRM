@@ -329,6 +329,17 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-22 (Claude session — "To action" refined to the actionable queue, PR #31):**
+  - Follow-up to PR #30. User reported the "🎯 To action" badge (~2505) didn't match the manual filter he applies
+    (~768). Root-caused on live data: **not a bug** — PR #30's preset was literally "all completed · CP · 45d",
+    while his manual filter additionally selected buyer status Hot/Warm/Cold + follow-up {Overdue, Due Today,
+    No-next-FU} (305+58+405 = 768 exactly). Per his call, **also include Not-Updated leads**.
+  - **New `isToAction`** (`VisitsView.jsx`): completed · `channel_partner` · visit_date∈[today-45,today] · buyer
+    status ∈ **{hot, warm, cold, unc}** (Dead/Future-Prospect excluded) · next-FU is **Overdue OR Due-Today OR
+    not-set** (`matchFuFilter` already enforces completed+not-closed). Due-Tomorrow/This-Week excluded.
+  - Two added clauses on the existing predicate; sole consumers are the badge count + `actionMode` in `filtered`.
+    Live-validated: **1156** (overdue 322 + today 61 + no-FU 773), statuses limited to hot/warm/cold/unc, 0
+    dead/future/direct/out-of-window/tomorrow-only leakage. Frontend-only; bundle `index-Dsb6YU7X.js` live.
 - **2026-06-22 (Claude session — Hiring count fix + Visits "To action" preset, PRs #29, #30):**
   - **Hiring "To hire"** (PR #29, `main.py` get_hiring): now `ceil(total / 5) − existing PMs` over **ALL**
     properties (Ready + Coming Soon + **Archived**), not just active — e.g. 47 props → 10 required, 5 PMs → 5 to
