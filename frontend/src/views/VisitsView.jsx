@@ -20,6 +20,10 @@ const PAGE_SIZE = 60;
 const STATUS_OPTS = [{ k: 'all', label: 'All', cls: '' }, ...STATUSES];
 // "Visit Completed" = every operational stage except Upcoming + Cancelled.
 const COMPLETED_EXCLUDE = new Set(['upcoming', 'cancelled']);
+// Buyer statuses that count as "to action": active temperatures (Hot/Warm/Cold) plus
+// Not-Updated leads (visited but never triaged — they still owe an update). Dead and
+// Future-Prospect are intentionally excluded — they're parked/closed, not actionable.
+const TO_ACTION_STATUSES = new Set(['hot', 'warm', 'cold', 'unc']);
 // Two-tier stage filter. Top tier = the visit's lifecycle (Completed / Upcoming /
 // Cancelled); second tier = where a COMPLETED visit sits in the pipeline. These used to
 // be one flat bar, which mixed "did the visit happen?" with "where is it in the pipeline?".
@@ -40,8 +44,9 @@ const PRIORITY_OPTS = [
   { k: 'all', label: 'All', cls: '' },
   { k: 'nudged', label: '🔔 Nudged', cls: 'pr-nudged' },
   { k: 'tl_ask', label: '📌 TL Ask', cls: 'pr-tl' },
-  // One-click preset: completed visits, via CP, visited in the last 45 days. When picked
-  // it overrides the other chip-bars (see `filtered`), so it always shows exactly that set.
+  // One-click preset: the immediate-action queue — completed visits via CP in the last 45
+  // days, on an actionable lead (Hot/Warm/Cold/Not-Updated) whose follow-up is Overdue, due
+  // Today, or not-yet-set. When picked it overrides the other chip-bars (see `filtered`).
   { k: 'to_action', label: '🎯 To action', cls: '' },
 ];
 
@@ -131,13 +136,19 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   // --- per-row helpers reused across counts/sort/render ---
   const tierFor = (v) => (brokersByCode[v.cp_code]?.tier) || 'T4';
 
-  // "🎯 To action" preset predicate: a completed visit, booked via a CP, with a visit
-  // date in the last 45 days — the window [today-45, today] (matching the app's other
-  // "last N days" presets, which cap at today). Plain YYYY-MM-DD string compares.
+  // "🎯 To action" preset predicate — the immediate-action queue. A visit qualifies when it
+  // is: completed, booked via a CP, visited in the last 45 days (window [today-45, today],
+  // matching the app's other "last N days" presets), on an actionable buyer status
+  // (Hot/Warm/Cold or Not-Updated — see TO_ACTION_STATUSES), AND its next follow-up is
+  // Overdue, due Today, or not-yet-set (matchFuFilter itself already requires the lead be
+  // completed & not closed). "Due Tomorrow"/"This Week" are deliberately out — this is the
+  // now-queue. Plain YYYY-MM-DD string compares for the date window.
   const cutoff45 = ymd(new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate() - 45));
   const today45Top = ymd(TODAY);
   const isToAction = (v) => isVisitCompleted(v) && v.source === 'channel_partner'
-    && !!v.visit_date && v.visit_date >= cutoff45 && v.visit_date <= today45Top;
+    && !!v.visit_date && v.visit_date >= cutoff45 && v.visit_date <= today45Top
+    && TO_ACTION_STATUSES.has(visitStatus(v))
+    && (matchFuFilter(v, 'overdue') || matchFuFilter(v, 'today') || matchFuFilter(v, 'no_fu'));
 
   const oldCount = useMemo(() => scoped.filter(isOldLead).length, [scoped]);
   // deferred search keeps typing responsive (non-blocking recompute of the base)
