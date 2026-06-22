@@ -1021,7 +1021,7 @@ async def bulk_reassign_visits(body: VisitBulkReassignBody, user: dict = Depends
 # Write · Users / roster (Admin only)
 # ============================================================================
 
-VALID_TEAMS = {"Admin", "TL", "KAM", "Ground"}
+VALID_TEAMS = {"Admin", "TL", "KAM", "Ground", "Report"}
 
 
 class UserCreateBody(BaseModel):
@@ -1324,7 +1324,7 @@ class ReportDraftBody(BaseModel):
 
 @app.post("/api/reports/property")
 async def report_preview(body: ReportPreviewBody, user: dict = Depends(auth.current_user)):
-    _require_admin(user)
+    _require_report_access(user)
     async with acquire() as conn:
         data = await reports.build_report_data(conn, body.home_id)
     if not data:
@@ -1351,7 +1351,7 @@ async def report_preview(body: ReportPreviewBody, user: dict = Depends(auth.curr
 
 @app.post("/api/reports/property/draft")
 async def report_draft(body: ReportDraftBody, user: dict = Depends(auth.current_user)):
-    _require_admin(user)
+    _require_report_access(user)
     async with acquire() as conn:
         data = await reports.build_report_data(conn, body.home_id)
     if not data:
@@ -1507,6 +1507,13 @@ def _ts_or_none(s: Optional[str]) -> Optional[_dt.datetime]:
 def _require_admin(user: dict) -> None:
     if user["team"] != "Admin":
         raise HTTPException(403, "Admin only")
+
+
+def _require_report_access(user: dict) -> None:
+    """Report Share is open to admins and the dedicated report-only team (e.g. supply).
+    Report-team users have no other privileges — every _require_admin route still 403s."""
+    if user["team"] not in ("Admin", "Report"):
+        raise HTTPException(403, "Report access only")
 
 
 def _require_admin_or_tl(user: dict) -> None:

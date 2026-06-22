@@ -125,8 +125,14 @@ export default function App() {
   // Hiring (beta) is for all team=Admin users (incl. the super-admins). Gated on the
   // effective user, like the other admin tabs.
   const isAdmin = me.team === 'Admin';
-  const nav = NAV.filter((n) => (!n.adm || isAdmTL) && (!n.superAdmin || isSuperAdmin) && (!n.adminOnly || isAdmin))
-    .map((n) => (n.k === 'team' ? { ...n, label: isAdmTL ? 'Team & Assignments' : 'My Day' } : n));
+  // Report-only viewers (e.g. supply team) get EXACTLY one tab: Report Share. They
+  // have no other CRM access — the backend scopes their seed to properties-only and
+  // 403s every admin route — so we surface no other view to them.
+  const isReportViewer = me.team === 'Report';
+  const nav = isReportViewer
+    ? NAV.filter((n) => n.k === 'reports')
+    : NAV.filter((n) => (!n.adm || isAdmTL) && (!n.superAdmin || isSuperAdmin) && (!n.adminOnly || isAdmin))
+        .map((n) => (n.k === 'team' ? { ...n, label: isAdmTL ? 'Team & Assignments' : 'My Day' } : n));
   const unread = (seed.notifications || []).filter((n) => (n.to === me.slug || n.to === me.id) && !n.read).length;
   const counts = {
     visits: (seed.visits || []).length,
@@ -219,7 +225,9 @@ export default function App() {
             <div key={view} className="rx-view">
               <h2 style={{ margin: '2px 0 12px', letterSpacing: '-.3px' }}>{active?.label}</h2>
               <ErrorBoundary resetKey={view}>
-              {view === 'home' ? (
+              {isReportViewer ? (
+                <ReportShareView seed={vseed} />
+              ) : view === 'home' ? (
                 <HomeView seed={vseed} onOpenBroker={setOpenCp} />
               ) : view === 'ai' ? (
                 <AiSuggestionsView seed={vseed} onOpenBroker={setOpenCp} onNavigate={navigateWithSearch} />
