@@ -894,6 +894,23 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     post-change roster: Admin 9 / Ground 30 / KAM 4 / TL 3 / **Report 4** (total 50); all existing rows untouched.
     Open boundary: like any non-admin, a Report user could still call secondary read endpoints (`/api/cps`,
     `/api/inventory`) directly — the UI exposes only Report Share; hard server-side denial on those is a future option.
+17. ~~**Negotiations tab + removed the negotiation auto-advance**~~ **✅ DONE 2026-06-22 (PR #33).** New **Negotiations**
+    tab (`frontend/src/views/NegotiationsView.jsx`, NAV key `negotiations`) for the funnel negotiation / after_negotiation_fu /
+    booking: per-lead **"Did the meeting happen?"** Yes/No → next step or reschedule; for after-neg / booking leads a forward
+    next-step editor; captures **booking-received date** (required when the resulting stage is `booking` — enforced in the
+    tab UI only) and surfaces derived **scheduled-on** / **moved-to-booking** timestamps (from `seed.followups`, no new
+    storage). Reuses the shared Visits `filters` + search, adds a **negotiation-meeting-date range**. Scoped per user like
+    Visits; auto-hidden for the `Report` team. **Removed the display-time auto-advance** `negotiation → after_negotiation_fu`
+    in BOTH `lib/visits.js` (`visitStage`) and the Python AI-brief port `ai_suggestions.py` (`visit_stage`) — the lead stays
+    `negotiation` until the team acts; the parallel **revisit** auto-advance is intentionally kept. **Migration 018** added
+    nullable `negotiation_happened` + `booking_received_date` to `followups` + `visits` and extended
+    `project_followup_onto_visit()` (full body reproduced verbatim; applied to prod BEFORE the new backend went live so
+    `save_followup` never 500'd). `save_followup` persists both with **no new hard validation** → existing
+    BrokerModal/PropertyModal booking saves are unchanged. Follow-ons: `teamPerf.js` keeps "Negotiation conducted" counting
+    past-dated negotiations (admin metric numerically unchanged); stale "auto-moves" hints fixed in BrokerModal/PropertyModal.
+    **Impact (verified):** 9 past-dated negotiation leads now display as *Negotiation* (was *After Negotiation FU*) in Visits
+    + the new tab — display only, no data change; Property Performance "Negotiation" column rises by ≤9 (accepted). Funnel
+    counts unchanged (neg 30 / after-neg 6 / booking 21); 0 rows written to the new columns at deploy.
 
 ---
 
