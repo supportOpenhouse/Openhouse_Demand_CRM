@@ -37,8 +37,8 @@ export default function HiringView() {
 
   const grand = useMemo(() => rows.reduce((g, r) => ({
     ready: g.ready + r.ready, coming_soon: g.coming_soon + r.coming_soon,
-    archived: g.archived + r.archived, total: g.total + r.total,
-  }), { ready: 0, coming_soon: 0, archived: 0, total: 0 }), [rows]);
+    archived: g.archived + r.archived, total: g.total + r.total, to_hire: g.to_hire + (r.to_hire || 0),
+  }), { ready: 0, coming_soon: 0, archived: 0, total: 0, to_hire: 0 }), [rows]);
 
   const blanks = useMemo(() => (data?.blanks || []).slice().sort(
     (a, b) => cityRank(a.city) - cityRank(b.city) || b.n - a.n
@@ -81,11 +81,11 @@ export default function HiringView() {
                 <tr>
                   <th>City</th><th>Micro-market</th>
                   <th className="hr-r">Ready</th><th className="hr-r">Coming Soon</th><th className="hr-r">Archived</th>
-                  <th className="hr-r">Total</th><th className="hr-r">PMs assigned</th>
+                  <th className="hr-r">Total</th><th className="hr-r">PMs assigned</th><th className="hr-r">To hire</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 && <tr><td colSpan={7}><div className="hr-empty">No properties found.</div></td></tr>}
+                {rows.length === 0 && <tr><td colSpan={8}><div className="hr-empty">No properties found.</div></td></tr>}
                 {rows.map((r, i) => {
                   const firstOfCity = i === 0 || rows[i - 1].city !== r.city;
                   return (
@@ -97,6 +97,7 @@ export default function HiringView() {
                       <td className="hr-r">{r.archived}</td>
                       <td className="hr-r hr-total">{r.total}</td>
                       <td className="hr-r"><span className={'hr-pm' + (r.pms === 0 ? ' zero' : '')}>{r.pms}</span></td>
+                      <td className="hr-r"><span className={'hr-hire' + (r.to_hire > 0 ? ' on' : '')}>{r.to_hire > 0 ? '+' + r.to_hire : '—'}</span></td>
                     </tr>
                   );
                 })}
@@ -108,12 +109,13 @@ export default function HiringView() {
                     <td className="hr-r">{grand.ready}</td><td className="hr-r">{grand.coming_soon}</td>
                     <td className="hr-r">{grand.archived}</td><td className="hr-r hr-total">{grand.total}</td>
                     <td className="hr-r hr-dash">—</td>
+                    <td className="hr-r"><span className={'hr-hire' + (grand.to_hire > 0 ? ' on' : '')}>{grand.to_hire > 0 ? '+' + grand.to_hire : '—'}</span></td>
                   </tr>
                 </tfoot>
               )}
             </table>
           </div>
-          <div className="hr-note">PMs assigned = distinct property managers with a current assignment in that micro-market (authoritative). Per-MM, so the total row doesn’t sum them (a PM can cover several MMs).</div>
+          <div className="hr-note">PMs assigned = distinct property managers with a current assignment in that micro-market (authoritative). Per-MM, so the total row doesn’t sum them (a PM can cover several MMs). <b>To hire</b> = target of 1 PM per 5 active properties (Ready + Coming&nbsp;Soon, archived excluded) minus PMs already there — this one <i>is</i> additive across MMs.</div>
 
           {/* fill missing micro-markets */}
           <div className="hr-fillcard">
@@ -129,22 +131,25 @@ export default function HiringView() {
                 {blanks.map((b) => {
                   const key = b.city + '|' + b.society_name;
                   const listId = 'hr-mm-' + b.city.replace(/\W/g, '');
+                  // pre-fill the suggested MM; the admin reviews it and clicks Save (nothing auto-applies)
+                  const val = drafts[key] ?? (b.suggested_mm || '');
                   return (
                     <div className="hr-fill-row" key={key}>
                       <div className="hr-fill-soc">
                         <b>{b.society_name}</b>
-                        <span className="hr-fill-meta">{b.city} · {b.n} unit{b.n > 1 ? 's' : ''}</span>
+                        <span className="hr-fill-meta">{b.city}{b.locality ? ' · ' + b.locality : ''} · {b.n} unit{b.n > 1 ? 's' : ''}</span>
+                        {b.suggested_mm ? <span className="hr-fill-sugg" title={'Suggested from ' + b.suggested_from}>💡 {b.suggested_mm} <span className="hr-fill-sugg-src">· {b.suggested_from}</span></span> : null}
                       </div>
                       <input
                         className="hr-fill-in" list={listId} placeholder="Micro-market…"
-                        value={drafts[key] ?? ''}
+                        value={val}
                         onChange={(e) => setDrafts((d) => ({ ...d, [key]: e.target.value }))}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && (drafts[key] || '').trim()) save(b.city, b.society_name, drafts[key].trim()); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && val.trim()) save(b.city, b.society_name, val.trim()); }}
                       />
                       <button
                         type="button" className="hr-btn primary"
-                        disabled={busy === key || !(drafts[key] || '').trim()}
-                        onClick={() => save(b.city, b.society_name, (drafts[key] || '').trim())}
+                        disabled={busy === key || !val.trim()}
+                        onClick={() => save(b.city, b.society_name, val.trim())}
                       >{busy === key ? 'Saving…' : 'Save'}</button>
                     </div>
                   );
@@ -203,6 +208,8 @@ function HrStyles() {
 .hr-total{font-weight:800}
 .hr-pm{display:inline-block;min-width:24px;text-align:center;font-weight:700;padding:2px 8px;border-radius:7px;background:#E7F6EC;color:#147A3D}
 .hr-pm.zero{background:#FCEBEB;color:#B91C1C}
+.hr-hire{display:inline-block;min-width:24px;text-align:center;font-weight:700;padding:2px 8px;border-radius:7px;color:var(--hr-faint)}
+.hr-hire.on{background:#FEE7D9;color:#C2410C}
 .hr-tbl tfoot td{padding:11px 12px;font-size:13px;background:#FBFAF8;border-top:2px solid var(--hr-line2);font-weight:800}
 .hr-dash{color:var(--hr-faint)}
 .hr-note{font-size:11.5px;color:var(--hr-mut);margin:8px 2px 16px;line-height:1.5}
@@ -214,6 +221,8 @@ function HrStyles() {
 .hr-fill-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--hr-line)}
 .hr-fill-soc{flex:1;min-width:0;font-size:13px}
 .hr-fill-meta{color:var(--hr-mut);font-size:11.5px;margin-left:7px}
+.hr-fill-sugg{display:inline-block;margin-left:7px;font-size:11.5px;color:#147A3D;background:#E7F6EC;border-radius:7px;padding:1px 8px;font-weight:700;cursor:default}
+.hr-fill-sugg-src{font-weight:400;color:#5a8a6a}
 .hr-fill-in{width:200px;border:1px solid var(--hr-line2);border-radius:9px;padding:8px 11px;font-size:13px;outline:none;font-family:inherit}
 .hr-fill-in:focus{border-color:var(--hr-brand)}
 .hr-btn{background:#fff;border:1px solid var(--hr-line2);border-radius:9px;padding:8px 14px;font-size:13px;font-weight:700;color:var(--hr-ink2);cursor:pointer}
