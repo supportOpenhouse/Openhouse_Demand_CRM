@@ -118,7 +118,7 @@ export default function ReportShareView({ seed }) {
       <div className="rp-beta">
         <div className="rp-beta-ic">📧</div>
         <div className="rp-beta-tx">
-          <div className="rp-kick">Beta · Admins only</div>
+          <div className="rp-kick">Beta</div>
           <div className="rp-beta-h">Report Share</div>
           <div className="rp-beta-d">Generate a seller performance report and save it as a <b>draft in your own Gmail</b> ({me.email || me.name}). Add the recipient and send from there — nothing is emailed automatically.</div>
         </div>

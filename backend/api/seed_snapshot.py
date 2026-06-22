@@ -50,6 +50,24 @@ def scope_for_user(snap: dict, user: dict) -> dict:
     if team == "Admin":
         return snap
 
+    # Report-only viewer (e.g. supply team): can browse the full property list to
+    # generate seller reports, but sees nothing else — no leads, brokers, visits,
+    # queues or notifications. The report itself is built server-side per home_id
+    # (POST /api/reports/property), so the empty visits list here doesn't limit it.
+    # Deny-by-default: 'Report' != 'Admin', so every _require_admin route already 403s.
+    if team == "Report":
+        snap["brokers"] = []
+        snap["cp_owner"] = {}
+        snap["engagements"] = {}
+        snap["followups"] = []
+        snap["visits"] = []
+        snap["to_assign_cps"] = []
+        snap["nudges_by_visit"] = {}
+        snap["notifications"] = []
+        snap["team_tasks"] = {}
+        # properties left intact — the picker needs every live unit (Booked/Ready/Coming Soon).
+        return snap
+
     role = user.get("role")
     slug = user["slug"]                       # frontend convention: broker owner id == slug
     name = user.get("name") or ""

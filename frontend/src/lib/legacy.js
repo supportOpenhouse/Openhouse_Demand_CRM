@@ -4,8 +4,8 @@
 // (the legacy read globals `store.*`).
 import { daysBetween, fmtDate } from './format.js';
 
-export const TEAM_PILL = { Admin: 'admin', TL: 'tl', KAM: 'kam', Ground: 'ground' };
-export const TEAM_LABEL = { Admin: 'Admin', TL: 'Team Lead', KAM: 'Key Account Manager', Ground: 'Ground Team' };
+export const TEAM_PILL = { Admin: 'admin', TL: 'tl', KAM: 'kam', Ground: 'ground', Report: 'report' };
+export const TEAM_LABEL = { Admin: 'Admin', TL: 'Team Lead', KAM: 'Key Account Manager', Ground: 'Ground Team', Report: 'Report (view-only)' };
 
 // ---- price parsing / formatting (e.g. "1.2 Cr", "85 L") ----
 export const parsePrice = (s) => {

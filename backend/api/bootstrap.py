@@ -52,6 +52,13 @@ USERS: list[dict] = [
     {"slug": "harsh",    "email": "harsh.arora@openhouse.in",    "name": "Harsh Arora",     "role": "ground", "team": "Ground", "cities": ["Gurgaon"]},
     {"slug": "ankitg",   "email": "ankit.gupta@openhouse.in",    "name": "Ankit Gupta",     "role": "ground", "team": "Ground", "cities": ["Gurgaon"]},
     {"slug": "udit",     "email": "udit.gangwar@openhouse.in",   "name": "Udit Gangwar",    "role": "ground", "team": "Ground", "cities": ["Gurgaon"]},
+    # Report (view-only) — supply-team members with access to the Report Share feature
+    # ONLY. team="Report" grants no other CRM access (see seed_snapshot.scope_for_user
+    # and _require_report_access). cities is unused for this team (scope is global).
+    {"slug": "shashank", "email": "shashank.kumar@openhouse.in", "name": "Shashank Kumar", "role": "report_viewer", "team": "Report", "cities": []},
+    {"slug": "rupali",   "email": "rupali.prasad@openhouse.in",  "name": "Rupali Prasad",   "role": "report_viewer", "team": "Report", "cities": []},
+    {"slug": "abhishekr","email": "abhishek.rathore@openhouse.in","name": "Abhishek Rathore","role": "report_viewer", "team": "Report", "cities": []},  # 'abhishek' slug already taken by Abhishek Dwivedi (Ground)
+    {"slug": "animesh",  "email": "animesh.singh@openhouse.in",  "name": "Animesh Singh",   "role": "report_viewer", "team": "Report", "cities": []},
 ]
 
 KAM_BUCKETS = {
