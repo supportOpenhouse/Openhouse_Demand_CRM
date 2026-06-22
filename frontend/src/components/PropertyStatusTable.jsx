@@ -1,7 +1,13 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { buildKhMap, buildPropertyStatusRows, PS_COLUMNS, sortRows, psToCsv } from '../lib/propertyStatus.js';
 import { setKhOverride } from '../api.js';
+import { parsePrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
+
+// Days-since-KH bucket for a row (mirrors the Property Performance filter pills).
+export function khBucketOf(d) {
+  return d == null ? 'none' : d <= 30 ? '0-30' : d <= 60 ? '31-60' : d <= 90 ? '61-90' : '91+';
+}
 
 const INVENTORY_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1-kxlCnXUv7absl4rpWeMoYIxSAHpWykyjpd9v_5df-o/edit';
 const int = (n) => (n || 0).toLocaleString('en-IN');
@@ -81,13 +87,28 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
     [seed, khMap, overrides],
   );
 
-  // respect the page's City / Society filters (buyer-name box is visit-only)
+  // Apply the page filters. Every dimension is additive — an empty/unset filter is a
+  // no-op, so the legacy City/Society keys keep working unchanged.
   const filtered = useMemo(() => {
-    const cities = filters.cities || [];
-    const socs = filters.societies || [];
+    const F = filters || {};
+    const has = (a) => Array.isArray(a) && a.length;
+    const socQ = (F.societyQuery || '').trim().toLowerCase();
+    const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+    const pmin = num(F.priceMin), pmax = num(F.priceMax);   // in Cr → rupees below
     return allRows.filter((r) => {
-      if (cities.length && !cities.includes(r.city)) return false;
-      if (socs.length && !socs.includes(r.society)) return false;
+      if (has(F.cities) && !F.cities.includes(r.city)) return false;
+      if (has(F.societies) && !F.societies.includes(r.society)) return false;
+      if (socQ && !(r.society || '').toLowerCase().includes(socQ)) return false;
+      if (has(F.regions) && !F.regions.includes(r.region)) return false;
+      if (has(F.flatStatuses) && !F.flatStatuses.includes(r.flat_status)) return false;
+      if (has(F.configs) && !F.configs.includes(r.config)) return false;
+      if (F.responsible && r.responsible !== F.responsible) return false;
+      if (pmin != null || pmax != null) {
+        const p = parsePrice(r.ask_price);
+        if (pmin != null && p < pmin * 1e7) return false;
+        if (pmax != null && p > pmax * 1e7) return false;
+      }
+      if (has(F.khBuckets) && !F.khBuckets.includes(khBucketOf(r.days_since_kh))) return false;
       return true;
     });
   }, [allRows, filters]);
@@ -114,7 +135,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
         <div>
           <div className="an-card-t">Property Status <span className="an-card-s">({int(rows.length)} properties)</span></div>
           <div className="an-card-s" style={{ marginTop: 3 }}>
-            Completed visits only, by scheduled visit date. Respects City / Society filters.
+            Completed visits only, by scheduled visit date. Respects the filters above.
             {khSource === 'connected' && ` · ${int(matched)} matched a key-handover date.`}
             {khSource === 'unset' && ' · KH date: set PROPERTIES_DATABASE_URL to enable.'}
             {khSource === 'error' && ' · KH source unreachable.'}
