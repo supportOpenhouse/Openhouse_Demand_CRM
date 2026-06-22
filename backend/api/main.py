@@ -1250,9 +1250,10 @@ async def get_hiring(user: dict = Depends(auth.current_user)):
             "ready": r["ready"], "coming_soon": r["coming_soon"], "archived": r["archived"],
             "total": r["ready"] + r["coming_soon"] + r["archived"],
             "pms": pmmap.get((r["city"], r["mm"]), 0),
-            # to-hire: 1 PM per 5 ACTIVE (Ready + Coming Soon) properties, minus PMs already
-            # in that micro-market. ceil(active/5) == (active + 4) // 5. Floored at 0.
-            "to_hire": max(0, (r["ready"] + r["coming_soon"] + 4) // 5 - pmmap.get((r["city"], r["mm"]), 0)),
+            # to-hire: 1 PM per 5 properties (ALL statuses, incl. Archived), minus PMs already
+            # in that micro-market. ceil(total/5) == (total + 4) // 5. Floored at 0.
+            # e.g. 47 properties → ceil(47/5)=10 required; 4 PMs already → 6 to hire.
+            "to_hire": max(0, (r["ready"] + r["coming_soon"] + r["archived"] + 4) // 5 - pmmap.get((r["city"], r["mm"]), 0)),
         }
         for r in rows
     ]
