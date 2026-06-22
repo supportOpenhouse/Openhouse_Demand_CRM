@@ -500,7 +500,7 @@ function VisitRow({ v, visits, open, isPriority, onToggle, draft, setDraft, onSa
               <label style={{ color: '#1E40AF' }}>Negotiation meeting date &amp; time <span style={{ color: 'var(--bad)', fontWeight: 700 }}>*</span></label>
               <input type="datetime-local" value={draft.negotiation_date || ''} onChange={(e) => setDraft({ negotiation_date: e.target.value })}
                 style={{ padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 7, background: '#fff', fontSize: 13, width: 240, maxWidth: '100%' }} />
-              <div style={{ fontSize: 11, color: '#1E40AF', marginTop: 4 }}>Once this date passes, the visit auto-moves to "After Negotiation FU".</div>
+              <div style={{ fontSize: 11, color: '#1E40AF', marginTop: 4 }}>The lead stays in "Negotiation" until the team confirms the meeting outcome in the Negotiations tab.</div>
             </div>
           )}
           <div className="fu-grp">

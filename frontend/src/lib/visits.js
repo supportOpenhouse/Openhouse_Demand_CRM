@@ -113,8 +113,9 @@ export function visitStage(v) {
       if (v._revisit_date && v._revisit_date < ymd(TODAY)) return 'after_revisit_fu';
       return 'revisit_scheduled';
     }
-    // once the negotiation-meeting date passes, the visit auto-moves to After Negotiation FU
-    if (v._stage === 'negotiation' && v._negotiation_date && v._negotiation_date < ymd(TODAY)) return 'after_negotiation_fu';
+    // Negotiation does NOT auto-advance when the meeting date passes — the team confirms
+    // whether the meeting happened in the Negotiations tab, so the lead stays 'negotiation'
+    // until they act. (The revisit auto-advance above is intentionally unchanged.)
     return v._stage;
   }
   const s = (v.status || '').toLowerCase();

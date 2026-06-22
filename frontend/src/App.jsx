@@ -5,6 +5,7 @@ import AppSkeleton from './components/AppSkeleton.jsx';
 import Logo from './components/Logo.jsx';
 import HomeView from './views/HomeView.jsx';
 import VisitsView from './views/VisitsView.jsx';
+import NegotiationsView from './views/NegotiationsView.jsx';
 import CpView from './views/CpView.jsx';
 import PropertiesView from './views/PropertiesView.jsx';
 import NotificationsView from './views/NotificationsView.jsx';
@@ -23,7 +24,7 @@ import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
 import BottomTabBar from './components/BottomTabBar.jsx';
 import { TEAM_PILL } from './lib/legacy.js';
 
-const SEARCH_VIEWS = new Set(['visits', 'cps', 'properties']);
+const SEARCH_VIEWS = new Set(['visits', 'negotiations', 'cps', 'properties']);
 
 // Book Visits (beta) is restricted to these super-admins BY SLUG until the app
 // booking API is connected. Deliberately NOT gated by team/role — several other users
@@ -34,6 +35,7 @@ const NAV = [
   { k: 'home',          icon: '🏠', label: 'Home' },
   { k: 'ai',            icon: '✨', label: 'AI Suggestions' },
   { k: 'visits',        icon: '📋', label: 'Visits' },
+  { k: 'negotiations',  icon: '💬', label: 'Negotiations' },
   { k: 'cps',           icon: '🤝', label: 'Channel Partners' },
   { k: 'properties',    icon: '🏠', label: 'Properties' },
   { k: 'analytics',     icon: '📊', label: 'Analytics' },
@@ -163,7 +165,7 @@ export default function App() {
                        placeholder="Search visit, society, CP, buyer, phone…" />
               </div>
             )}
-            {view === 'visits' && (
+            {(view === 'visits' || view === 'negotiations') && (
               <button className="rx-filters-btn" type="button" onClick={() => setFiltersOpen(true)}>
                 Filters{activeFilterCount(filters) > 0 && <span className="rx-filters-badge">{activeFilterCount(filters)}</span>}
               </button>
@@ -233,6 +235,8 @@ export default function App() {
                 <AiSuggestionsView seed={vseed} onOpenBroker={setOpenCp} onNavigate={navigateWithSearch} />
               ) : view === 'visits' ? (
                 <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} visitsUi={visitsUi} onVisitsUiChange={setVisitsUi} />
+              ) : view === 'negotiations' ? (
+                <NegotiationsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} />
               ) : view === 'cps' ? (
                 <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'properties' ? (
