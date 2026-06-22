@@ -276,6 +276,7 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.all_feedback, v.reminder_status, v.profession, v.intent, v.metadata,
           v.lead_status, v.current_stage, v.latest_followup_at, v.latest_followup_note,
           v.latest_followup_date, v.next_followup_date, v.revisit_date, v.negotiation_date,
+          v.negotiation_happened, v.booking_received_date,
           v.created_at, v.updated_at, v.home_id, v.is_old_lead
           FROM visits v
          ORDER BY COALESCE(v.visit_date, v.selected_date) DESC NULLS LAST, v.created_at DESC
@@ -383,6 +384,11 @@ async def build(conn: asyncpg.Connection) -> dict:
             # visits the source sheet hasn't mapped yet (frontend falls back to
             # society/unit matching there).
             "home_id": r["home_id"] or "",
+            # Negotiations tab: did the scheduled meeting happen (bool|None), and the
+            # captured booking-received date ("" when unset). Projected from the latest
+            # follow-up by the project_followup_onto_visit() trigger (migration 018).
+            "negotiation_happened": r["negotiation_happened"],
+            "booking_received_date": _date_str(r["booking_received_date"]),
             "created_at": _date_str(r["created_at"]),
             "updated_at": _date_str(r["updated_at"]),
         }

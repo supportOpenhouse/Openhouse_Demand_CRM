@@ -59,7 +59,11 @@ function compute(visits, denom, tierByCp) {
     if (tier === 'T3' || tier === 'T4') t34 += 1;
     const sg = visitStage(v);
     if (sg === 'booking' || sg === 'ats') sale += 1;
-    else if (sg === 'after_negotiation_fu') negC += 1;
+    // "Conducted" = the meeting date has passed. Negotiation no longer auto-flips to
+    // after_negotiation_fu, so a past-dated 'negotiation' must be counted here too —
+    // keeps this metric identical to before the auto-advance was removed.
+    else if (sg === 'after_negotiation_fu'
+             || (sg === 'negotiation' && v._negotiation_date && String(v._negotiation_date).slice(0, 10) < TODAY)) negC += 1;
     else if (sg === 'negotiation' && v._negotiation_date && String(v._negotiation_date).slice(0, 10) >= TODAY) negA += 1;
   }
   return { _visits: n, t34, sale, neg_aligned: negA, neg_conducted: negC,

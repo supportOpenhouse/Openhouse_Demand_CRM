@@ -66,13 +66,13 @@ def visit_stage(v: dict, today: dt.date) -> str:
     st = v.get("_stage")
     if st:
         rev = v.get("_revisit_date")
-        neg = v.get("_negotiation_date")
         if st == "revisit_scheduled" and rev and rev[:10] < ts:
             return "after_revisit_fu"
         if st == "revisit":
             return "after_revisit_fu" if (rev and rev[:10] < ts) else "revisit_scheduled"
-        if st == "negotiation" and neg and neg[:10] < ts:
-            return "after_negotiation_fu"
+        # Negotiation no longer auto-advances to After-Negotiation-FU when the meeting
+        # date passes — the team confirms the outcome in the Negotiations tab. Mirrors
+        # the frontend visitStage() (lib/visits.js).
         return st
     s = (v.get("status") or "").lower()
     if s == "upcoming":

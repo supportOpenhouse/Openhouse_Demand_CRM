@@ -491,6 +491,10 @@ class FollowupBody(BaseModel):
     next_followup_date: Optional[str] = None
     revisit_date: Optional[str] = None
     negotiation_date: Optional[str] = None
+    # Negotiations tab: did the scheduled negotiation meeting happen? (None = not answered)
+    negotiation_happened: Optional[bool] = None
+    # Date a booking was received (asked when moving a lead to the 'booking' stage).
+    booking_received_date: Optional[str] = None
 
 
 VALID_BUYER_STATUSES = {"hot", "warm", "cold", "dead", "future_prospect", "unc"}
@@ -536,14 +540,20 @@ async def save_followup(body: FollowupBody, user: dict = Depends(auth.current_us
             INSERT INTO followups (
               visit_id, by_user_id, buyer_status, stage, note,
               next_followup_date, revisit_date, negotiation_date,
+              negotiation_happened, booking_received_date,
               previous_stage, previous_status, source
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'app')
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'app')
             RETURNING id, created_at
             """,
             visit["id"], user["id"], body.buyer_status, body.stage, body.note.strip(),
             None if is_dead else _date_or_none(body.next_followup_date),
             None if is_dead else _ts_or_none(body.revisit_date),
             None if is_dead else _ts_or_none(body.negotiation_date),
+            # negotiation_happened is a fact about the meeting → kept even for a dead/closed
+            # lead (e.g. "No, didn't happen" → not_interested). booking_received_date only
+            # makes sense for a live booking, so it's nulled for a dead lead.
+            body.negotiation_happened,
+            None if is_dead else _date_or_none(body.booking_received_date),
             prev["current_stage"], prev["current_status"],
         )
 
