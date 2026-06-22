@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useDeferredValue } from 'react';
-import { fmtDate, fmtDay, fmtDateTime, daysBetween } from '../lib/format.js';
+import { fmtDate, fmtDay, fmtDateTime, daysBetween, TODAY, ymd } from '../lib/format.js';
 import {
   STAGES, STAGE_BY_KEY, STATUSES, FU_PRESETS,
-  visitStage, visitStatus, nextFuFor, nextActivityFor, matchFuFilter, scopeVisits, isOldLead, visitUnitText,
+  visitStage, visitStatus, isVisitCompleted, nextFuFor, nextActivityFor, matchFuFilter, scopeVisits, isOldLead, visitUnitText,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -40,6 +40,9 @@ const PRIORITY_OPTS = [
   { k: 'all', label: 'All', cls: '' },
   { k: 'nudged', label: '🔔 Nudged', cls: 'pr-nudged' },
   { k: 'tl_ask', label: '📌 TL Ask', cls: 'pr-tl' },
+  // One-click preset: completed visits, via CP, visited in the last 45 days. When picked
+  // it overrides the other chip-bars (see `filtered`), so it always shows exactly that set.
+  { k: 'to_action', label: '🎯 To action', cls: '' },
 ];
 
 // VISIT_COLS — verbatim order from legacy crm.html (line 2312)
@@ -127,6 +130,14 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
 
   // --- per-row helpers reused across counts/sort/render ---
   const tierFor = (v) => (brokersByCode[v.cp_code]?.tier) || 'T4';
+
+  // "🎯 To action" preset predicate: a completed visit, booked via a CP, with a visit
+  // date in the last 45 days — the window [today-45, today] (matching the app's other
+  // "last N days" presets, which cap at today). Plain YYYY-MM-DD string compares.
+  const cutoff45 = ymd(new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate() - 45));
+  const today45Top = ymd(TODAY);
+  const isToAction = (v) => isVisitCompleted(v) && v.source === 'channel_partner'
+    && !!v.visit_date && v.visit_date >= cutoff45 && v.visit_date <= today45Top;
 
   const oldCount = useMemo(() => scoped.filter(isOldLead).length, [scoped]);
   // deferred search keeps typing responsive (non-blocking recompute of the base)
@@ -248,16 +259,25 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     all: priorityBase.length,
     nudged: priorityBase.filter((v) => isVisitNudged(v, nudgesByVisit)).length,
     tl_ask: priorityBase.filter((v) => isVisitTlAsk(v, teamTasks)).length,
-  }), [priorityBase, nudgesByVisit, teamTasks]);
+    // counted on cityBase (it's a self-contained preset that ignores the other chip-bars)
+    to_action: cityBase.filter(isToAction).length,
+  }), [priorityBase, cityBase, nudgesByVisit, teamTasks, cutoff45]);
 
   // --- full filtered set = base (city/lead/modal/search) + the chip-bar selections ---
-  const filtered = useMemo(() => cityBase.filter((v) => {
-    if (statuses.length && !statuses.includes(visitStatus(v))) return false;
-    if (stages.length && !stages.some((s) => stagePass(visitStage(v), s))) return false;
-    if (lastFus.length && !lastFus.some((kk) => matchFuFilter(v, kk))) return false;
-    if (priorities.length && !((priorities.includes('nudged') && isVisitNudged(v, nudgesByVisit)) || (priorities.includes('tl_ask') && isVisitTlAsk(v, teamTasks)))) return false;
-    return true;
-  }), [cityBase, statuses, stages, lastFus, priorities, nudgesByVisit, teamTasks]);
+  // "🎯 To action" is a one-go preset: when selected it REPLACES the buyer-status /
+  // visit-status / pipeline / follow-up chips with the completed + via-CP + last-45-days
+  // predicate, so it always shows exactly that slice (city/lead/Filters base still apply).
+  const filtered = useMemo(() => {
+    const actionMode = priorities.includes('to_action');
+    return cityBase.filter((v) => {
+      if (actionMode) return isToAction(v);
+      if (statuses.length && !statuses.includes(visitStatus(v))) return false;
+      if (stages.length && !stages.some((s) => stagePass(visitStage(v), s))) return false;
+      if (lastFus.length && !lastFus.some((kk) => matchFuFilter(v, kk))) return false;
+      if (priorities.length && !((priorities.includes('nudged') && isVisitNudged(v, nudgesByVisit)) || (priorities.includes('tl_ask') && isVisitTlAsk(v, teamTasks)))) return false;
+      return true;
+    });
+  }, [cityBase, statuses, stages, lastFus, priorities, nudgesByVisit, teamTasks, cutoff45]);
 
   // --- sort (legacy sortVisits) ---
   const sorted = useMemo(() => {
