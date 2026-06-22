@@ -115,7 +115,7 @@ export default function HiringView() {
               )}
             </table>
           </div>
-          <div className="hr-note">PMs assigned = distinct property managers with a current assignment in that micro-market (authoritative). Per-MM, so the total row doesn’t sum them (a PM can cover several MMs). <b>To hire</b> = target of 1 PM per 5 active properties (Ready + Coming&nbsp;Soon, archived excluded) minus PMs already there — this one <i>is</i> additive across MMs.</div>
+          <div className="hr-note">PMs assigned = distinct property managers with a current assignment in that micro-market (authoritative). Per-MM, so the total row doesn’t sum them (a PM can cover several MMs). <b>To hire</b> = target of 1 PM per 5 properties (all statuses, archived included) minus PMs already there — this one <i>is</i> additive across MMs.</div>
 
           {/* fill missing micro-markets */}
           <div className="hr-fillcard">
