@@ -329,6 +329,21 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-22 (Claude session — Hiring overhaul + Property Performance tab, PRs #27, #28):**
+  - **Hiring** (PR #27, `main.py` `get_hiring` + `HiringView.jsx`): the "Fill missing micro-markets" rows now
+    show the society's **locality** (`all_properties.locality_or_sector`); each blank gets a **suggested MM**
+    (suggest-only, pre-filled for review + Save — the society's own MM on a non-blank unit, else the most common
+    MM among same-locality societies); **stale archived** units (Archived AND created >2 weeks ago) are dropped
+    from the list (live 22→11); and a new **"To hire"** column on the per-MM table = `ceil(active ÷ 5) − existing
+    PMs` (1 PM per 5 Ready+Coming-Soon properties), additive across MMs.
+  - **Property Performance** (PR #28, new `PropertyPerformanceView.jsx` + `PropertyStatusTable.jsx` +
+    `AnalyticsView.jsx` + `App.jsx`): the Property Status report **moved out of Analytics** into its own
+    top-level tab (visible to **everyone** — same audience as Analytics) with a full filter bar — City · Region ·
+    Flat status · Config · Society (contains) · Responsible · Ask-price range (₹ Cr) · **Days-since-KH 30-day
+    buckets** (0–30/31–60/61–90/90+/No KH). `PropertyStatusTable` filtering extended to every dimension
+    (additive — empty = no-op; price via `parsePrice`, bucket via shared `khBucketOf()`). The table, KH editing,
+    CSV and Sheets link are unchanged; Analytics keeps its other charts. Frontend-only; SSR + filter-predicate
+    validated; no global CSS touched.
 - **2026-06-20 (Claude session — Book Visits: Booked inventory + full CP directory, PRs #23–#24):**
   - **Booked units** (PR #23, `BookVisitsView.jsx`): the inventory filter listed only Ready + Coming Soon;
     now shows **Ready + Coming Soon + Booked** (distinct neutral "Booked" badge; count row breaks out
