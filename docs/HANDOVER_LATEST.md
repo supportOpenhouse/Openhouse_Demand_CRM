@@ -881,6 +881,19 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     (`reports._gmail_setup_error`); if the AI summary ever goes blank, check the Anthropic Console spend/usage limit (akshit's
     account hit a monthly cap once — "regain access 2026-07-01"). There is **no Render CLI/API key on disk** — Render env vars
     must be changed via the dashboard. Housekeeping: the `[CRM TEST]` / `[PROD TEST]` drafts in akshit's Gmail can be deleted.
+16. ~~**Report-only access tier (supply team)**~~ **✅ DONE 2026-06-22 (PR #32).** New `team='Report'` grants the Report
+    Share feature + the live-property picker ONLY — least-privilege by construction: `Report` != `Admin`, so every
+    `_require_admin` / `_require_admin_or_tl` route still 403s, and `seed_snapshot.scope_for_user` returns a
+    **properties-only** snapshot (no leads/brokers/visits/queues/notifications; the report is built server-side per
+    `home_id`, so the empty visits list doesn't limit it). Report endpoints gated by `_require_report_access` (Admin OR
+    Report); `Report` added to `VALID_TEAMS`. **Migration 017** widened the `users.team` CHECK (verified constraint name
+    `users_team_check`). Frontend: Report users get exactly one tab (Report Share), body pinned so nothing else is
+    reachable; team pill/label added. **4 supply users provisioned** (all `role=report_viewer`, active): `shashank`,
+    `rupali`, `abhishekr` (the obvious `abhishek` slug was already taken by Abhishek Dwivedi/Ground — caught during a
+    live-DB pre-flight check), `animesh`. Gmail draft works for them (domain-wide delegation, not per-user). Verified
+    post-change roster: Admin 9 / Ground 30 / KAM 4 / TL 3 / **Report 4** (total 50); all existing rows untouched.
+    Open boundary: like any non-admin, a Report user could still call secondary read endpoints (`/api/cps`,
+    `/api/inventory`) directly — the UI exposes only Report Share; hard server-side denial on those is a future option.
 
 ---
 
