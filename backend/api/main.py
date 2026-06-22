@@ -1200,32 +1200,73 @@ async def get_hiring(user: dict = Depends(auth.current_user)):
         )
         blanks = await conn.fetch(
             """
-            SELECT ap.city, ap.society_name, count(*) AS n
-              FROM all_properties ap
-              LEFT JOIN hiring_mm_overrides ov
-                ON ov.city = ap.city AND ov.society_name = ap.society_name
-             WHERE ap.deleted_at IS NULL
-               AND ap.listing_status IN ('Ready','Coming Soon','Archived')
-               AND COALESCE(NULLIF(ap.micro_market,''), ov.micro_market) IS NULL
-             GROUP BY 1, 2
+            WITH blank_units AS (
+              SELECT ap.city, ap.society_name, ap.locality_or_sector AS loc, ap.listing_status AS st
+                FROM all_properties ap
+                LEFT JOIN hiring_mm_overrides ov
+                  ON ov.city = ap.city AND ov.society_name = ap.society_name
+               WHERE ap.deleted_at IS NULL
+                 AND ap.listing_status IN ('Ready','Coming Soon','Archived')
+                 AND COALESCE(NULLIF(ap.micro_market,''), ov.micro_market) IS NULL
+                 -- drop stale archived units: Archived AND created more than 2 weeks ago
+                 -- (a long-dead listing isn't worth assigning a micro-market to).
+                 AND NOT (ap.listing_status = 'Archived' AND ap.created_at < now() - interval '14 days')
+            )
+            SELECT city, society_name, count(*) AS n, max(NULLIF(loc,'')) AS locality
+              FROM blank_units GROUP BY city, society_name
             """
+        )
+        # Micro-market suggestion sources (suggest-only; nothing is auto-applied):
+        #   1) the society's OWN MM on a non-blank unit, else
+        #   2) the most common MM among other societies in the same locality/sector.
+        sugg_soc = await conn.fetch(
+            "SELECT city, society_name, mode() WITHIN GROUP (ORDER BY NULLIF(micro_market,'')) AS mm "
+            "FROM all_properties WHERE deleted_at IS NULL AND NULLIF(micro_market,'') IS NOT NULL "
+            "GROUP BY 1, 2"
+        )
+        sugg_loc = await conn.fetch(
+            "SELECT city, NULLIF(locality_or_sector,'') AS loc, "
+            "mode() WITHIN GROUP (ORDER BY NULLIF(micro_market,'')) AS mm "
+            "FROM all_properties WHERE deleted_at IS NULL AND NULLIF(micro_market,'') IS NOT NULL "
+            "AND NULLIF(locality_or_sector,'') IS NOT NULL GROUP BY 1, 2"
         )
         overrides = await conn.fetch(
             "SELECT city, society_name, micro_market, set_by FROM hiring_mm_overrides ORDER BY city, society_name"
         )
     pmmap = {(r["city"], r["mm"]): r["pms"] for r in pm}
+    soc_mm = {(r["city"], r["society_name"]): r["mm"] for r in sugg_soc if r["mm"]}
+    loc_mm = {(r["city"], r["loc"]): r["mm"] for r in sugg_loc if r["mm"]}
+
+    def _suggest_mm(city, society, locality):
+        if soc_mm.get((city, society)):
+            return soc_mm[(city, society)], "same society"
+        if locality and loc_mm.get((city, locality)):
+            return loc_mm[(city, locality)], "same locality"
+        return "", ""
+
     table = [
         {
             "city": r["city"] or "", "mm": r["mm"] or "",
             "ready": r["ready"], "coming_soon": r["coming_soon"], "archived": r["archived"],
             "total": r["ready"] + r["coming_soon"] + r["archived"],
             "pms": pmmap.get((r["city"], r["mm"]), 0),
+            # to-hire: 1 PM per 5 ACTIVE (Ready + Coming Soon) properties, minus PMs already
+            # in that micro-market. ceil(active/5) == (active + 4) // 5. Floored at 0.
+            "to_hire": max(0, (r["ready"] + r["coming_soon"] + 4) // 5 - pmmap.get((r["city"], r["mm"]), 0)),
         }
         for r in rows
     ]
+    blanks_out = []
+    for b in blanks:
+        loc = b["locality"] or ""
+        sm, src = _suggest_mm(b["city"] or "", b["society_name"] or "", loc)
+        blanks_out.append({
+            "city": b["city"] or "", "society_name": b["society_name"] or "", "n": b["n"],
+            "locality": loc, "suggested_mm": sm, "suggested_from": src,
+        })
     return {
         "rows": table,
-        "blanks": [{"city": b["city"] or "", "society_name": b["society_name"] or "", "n": b["n"]} for b in blanks],
+        "blanks": blanks_out,
         "overrides": [dict(o) for o in overrides],
     }
 
