@@ -329,6 +329,15 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-22 (Claude session — Hiring count fix + Visits "To action" preset, PRs #29, #30):**
+  - **Hiring "To hire"** (PR #29, `main.py` get_hiring): now `ceil(total / 5) − existing PMs` over **ALL**
+    properties (Ready + Coming Soon + **Archived**), not just active — e.g. 47 props → 10 required, 5 PMs → 5 to
+    hire. Was active-only. One-line change; live total to_hire 5 → 19.
+  - **Visits "🎯 To action" preset** (PR #30, `VisitsView.jsx`): new one-click chip in the Priority row =
+    completed visits · source `channel_partner` · visit_date in [today-45, today]. When selected it REPLACES the
+    buyer/visit-status/pipeline/follow-up chips (the city/lead-set/Filters base still applies) via an `actionMode`
+    branch in `filtered`; toggling off restores the prior chips. Additive — only VisitsView; predicate +
+    override unit-validated.
 - **2026-06-22 (Claude session — Hiring overhaul + Property Performance tab, PRs #27, #28):**
   - **Hiring** (PR #27, `main.py` `get_hiring` + `HiringView.jsx`): the "Fill missing micro-markets" rows now
     show the society's **locality** (`all_properties.locality_or_sector`); each blank gets a **suggested MM**
