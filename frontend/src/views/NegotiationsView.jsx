@@ -286,6 +286,9 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
           const sch = scheduledAt(v);
           const bk = bookingAt(v);
           const sgDef = STAGE_BY_KEY[sg];
+          // CP (channel-partner) name: prefer the canonical brokers record, fall back to
+          // the name recorded on the visit (always present, scope-independent).
+          const cpName = brokersByCode[v.cp_code]?.name || v.broker_name || '';
           const overdue = sg === 'negotiation' && v._negotiation_date && String(v._negotiation_date).slice(0, 10) < ymd(TODAY);
           return (
             <div key={v.id} className="neg-card" style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', background: '#fff' }}>
@@ -295,9 +298,9 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
                 <span style={{ color: 'var(--mut)', fontSize: 13 }}>· {v.society_name || '—'}{v.unit_address_line1 ? ` · ${v.unit_address_line1}` : ''}</span>
                 <span style={{ color: 'var(--mut)', fontSize: 12.5 }}>· {v.city || ''}</span>
                 {v.cp_code && (
-                  <button type="button" onClick={() => onOpenBroker?.(v.cp_code, v.id)}
+                  <button type="button" onClick={() => onOpenBroker?.(v.cp_code, v.id)} title="Open channel partner"
                           style={{ fontSize: 12.5, color: 'var(--acc, #2563EB)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                    {v.cp_code}
+                    {cpName ? `${cpName} · ${v.cp_code}` : v.cp_code}
                   </button>
                 )}
                 <span style={{ marginLeft: 'auto', fontSize: 12.5, color: overdue ? 'var(--bad)' : 'var(--mut)' }}>
