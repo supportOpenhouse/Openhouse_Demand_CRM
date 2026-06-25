@@ -924,6 +924,17 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     **Impact (verified):** 9 past-dated negotiation leads now display as *Negotiation* (was *After Negotiation FU*) in Visits
     + the new tab — display only, no data change; Property Performance "Negotiation" column rises by ≤9 (accepted). Funnel
     counts unchanged (neg 30 / after-neg 6 / booking 21); 0 rows written to the new columns at deploy.
+18. ~~**Admin "Add CP" — register a channel partner in Core**~~ **✅ DONE 2026-06-25 (PR #36).** New admin-only **Add CP**
+    tab (`frontend/src/views/RegisterCpView.jsx`, NAV key `register-cp`, `adminOnly`) replicating the Meetings app's
+    Supply→"Register a partner". Collects name / 10-digit phone / email / company / city / micro-markets; the FastAPI backend
+    proxies Core's CP-Meetings broker API server-side (`backend/api/cp_meetings.py`, ported 1:1 from the app's
+    `lib/cpMeetingsApi.js`): `GET /api/cp-register/cities` + `/micro-markets`, `POST /api/cp-register` — **all `_require_admin`**.
+    The CP is attributed to the admin's own `core_sales_manager_id` (same gate as Book Visits → 422 if unmapped); Core
+    allocates the cp_code and dedupes (duplicate phone → 400). The new CP flows into the CRM at the next sheet sync —
+    **nothing is written to the CRM DB**. Server-side key `CP_MEETINGS_API_KEY` (+ `CP_MEETINGS_API_BASE`, defaulted to the
+    Core run.app URL) in `config.py`; **set the key in the Render dashboard** to activate. Until then `is_configured()` is
+    false → endpoints return `{configured:false}` / 503 and the tab shows "not set up yet" (safe to ship un-keyed). Fully
+    additive: no migration, no change to existing endpoints/views/data; hidden from non-admins + the `Report` team.
 
 ---
 
