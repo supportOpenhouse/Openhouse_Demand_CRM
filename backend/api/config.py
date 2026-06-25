@@ -94,6 +94,16 @@ INTERNAL_CRON_TOKEN = os.environ.get("INTERNAL_CRON_TOKEN", "")
 CRM_BOOKING_API_BASE_URL = os.environ.get("CRM_BOOKING_API_BASE_URL", "").rstrip("/")
 CRM_API_KEY = os.environ.get("CRM_API_KEY", "")
 
+# Core "CP Meetings — Broker Create" integration (registers channel partners in
+# Core; mirrors the Meetings app's Supply→Register-a-partner). Server-to-server
+# key (X-CP-Meetings-Key) — separate from the booking key above and never sent to
+# the browser. Unset key => the CP-register feature reports "not configured" (503),
+# exactly like the app's isCpMeetingsConfigured() guard.
+CP_MEETINGS_API_BASE = os.environ.get(
+    "CP_MEETINGS_API_BASE", "https://backend-prod-561394753846.asia-south2.run.app/api/v1/oh"
+).rstrip("/")
+CP_MEETINGS_API_KEY = os.environ.get("CP_MEETINGS_API_KEY", "")
+
 # backend/ root (this file is backend/api/config.py)
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS_DIR = BACKEND_ROOT / "migrations"

@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import ai_suggestions, auth, config, reports, seed_snapshot, sheet_sync
+from . import ai_suggestions, auth, config, cp_meetings, reports, seed_snapshot, sheet_sync
 from .db import init_pool, close_pool, acquire
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -724,6 +724,96 @@ async def book_visits(body: BookVisitsBody, user: dict = Depends(auth.current_us
     booked = sum(1 for r in out if r.get("ok"))
     log.info("[book] DONE admin=%s booked=%d failed=%d", user.get("slug"), booked, len(out) - booked)
     return {"booked": booked, "failed": len(out) - booked, "results": out}
+
+
+# ============================================================================
+# Register a channel partner in Core (CP-Meetings "create-broker"). ADMIN ONLY.
+# Mirrors the Meetings app's Supply→Register-a-partner: collects partner details,
+# attributes to the admin's OWN Core sales_manager_id, allocates the next cp_code,
+# creates the broker in Core. The new CP flows into the CRM at the next sheet sync
+# (nothing is written to the CRM DB here). The X-CP-Meetings-Key is server-side
+# only; an unset key => 503 ("not configured"), exactly like the app's guard.
+# ============================================================================
+
+class CpRegisterBody(BaseModel):
+    full_name: str = Field(..., min_length=1)
+    phone_number: str
+    city: str = Field(..., min_length=1)
+    company_name: Optional[str] = None
+    email: Optional[str] = None
+    micro_markets: list = Field(default_factory=list)   # Core numeric micro-market ids
+
+
+@app.get("/api/cp-register/cities")
+async def cp_register_cities(user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    if not cp_meetings.is_configured():
+        return {"configured": False, "cities": []}
+    try:
+        cities = await cp_meetings.get_cities()
+    except cp_meetings.CpMeetingsError as e:
+        raise HTTPException(502, str(e))
+    return {"configured": True, "cities": cities}
+
+
+@app.get("/api/cp-register/micro-markets")
+async def cp_register_micro_markets(city: str, user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    if not cp_meetings.is_configured():
+        return {"microMarkets": []}
+    if not (city or "").strip():
+        raise HTTPException(400, "city is required")
+    try:
+        mm = await cp_meetings.get_micro_markets_by_city(city)
+    except cp_meetings.CpMeetingsError as e:
+        raise HTTPException(502, str(e))
+    return {"microMarkets": mm}
+
+
+@app.post("/api/cp-register")
+async def cp_register_create(body: CpRegisterBody, user: dict = Depends(auth.current_user)):
+    _require_admin(user)
+    if not cp_meetings.is_configured():
+        raise HTTPException(503, "Partner registration is not configured yet.")
+    full_name = body.full_name.strip()
+    phone = "".join(ch for ch in (body.phone_number or "") if ch.isdigit())
+    city = body.city.strip()
+    company = (body.company_name or "").strip() or "Individual"
+    email = (body.email or "").strip() or None
+    # Coerce micro-market ids to ints, drop non-numeric/dupes (matches the app's
+    # `.map(Number).filter(Number.isFinite)`).
+    mms = sorted({int(m) for m in body.micro_markets if str(m).strip().lstrip("-").isdigit()})
+    if not full_name:
+        raise HTTPException(400, "Partner name is required.")
+    if len(phone) != 10:
+        raise HTTPException(400, "A valid 10-digit phone number is required.")
+    if not city:
+        raise HTTPException(400, "City is required.")
+    if not mms:
+        raise HTTPException(400, "Select at least one micro market.")
+    # Core attributes the broker to a sales manager — the admin's own Core
+    # sales_manager_id (same gate as Book Visits). Required.
+    async with acquire() as conn:
+        sm_id = await conn.fetchval("SELECT core_sales_manager_id FROM users WHERE id = $1", user["id"])
+    if not sm_id:
+        raise HTTPException(422, "Your account isn't linked to a Core sales manager yet — ask an admin to set it.")
+    try:
+        cp_code = await cp_meetings.get_next_cp_code()
+        if not cp_code:
+            raise HTTPException(502, "Could not allocate a CP code. Please try again.")
+        payload = {
+            "sales_manager_id": int(sm_id), "full_name": full_name, "phone_number": phone,
+            "city": city, "company_name": company, "cp_code": cp_code, "micro_markets": mms,
+        }
+        if email:
+            payload["email"] = email
+        result = await cp_meetings.create_broker(payload)
+    except cp_meetings.CpMeetingsError as e:
+        # Surface Core's own message (duplicate phone -> 400, bad manager -> 422).
+        status = e.status if e.status in (400, 422) else 502
+        raise HTTPException(status, str(e))
+    final_code = (result or {}).get("cpCode") or cp_code
+    return {"ok": True, "cp_code": final_code, "broker_id": (result or {}).get("brokerId")}
 
 
 # ============================================================================
