@@ -329,6 +329,19 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-25 (Claude session — Negotiations tab: KAMs scoped to their own T1/T2, PR #35):**
+  - In the Negotiations tab a KAM should see **only their own (T1/T2) CP leads**, not the wider extra-cities
+    pipeline ("everyone's pipeline should not be available to everyone"). The tab reused Visits' scoping, where a
+    KAM with `extra_cities_enabled` also sees every visit in their **extra cities** — i.e. other reps' entire
+    pipeline. All 4 active KAMs have the flag on, so most of what they saw in Negotiations was others' leads.
+  - **`NegotiationsView.jsx`** — one additive, gated post-filter on the existing `scoped` memo:
+    `me.team === 'KAM' ? v.filter(x => cpOwner[x.cp_code] === me.id) : v`. `cpOwner[cp] === me.id` is the **exact**
+    owned-CP predicate already used for KAMs in `scopeVisits` (`lib/visits.js`), minus the extra_cities branch.
+    Gated on `team === 'KAM'` → Admin / TL / Ground / MM-manager **byte-identical**; **Visits tab, backend & DB
+    untouched** (display-layer only — the extra-city leads still arrive in the seed because Visits needs them).
+  - Live-validated (read-only; server `scope_for_user` → `scopeVisits` → new filter, all 4 KAMs): owned CPs are
+    **100% T1/T2**; remaining tiers = `{T1,T2}`, **0 non-owned leakage, 0 owned-lead loss**. Negotiation-funnel
+    leads removed (others' pipeline) per KAM: Mayank 15, Mukul 45, Saket 25, Shubham 18. Frontend-only; Vercel auto-deploy.
 - **2026-06-22 (Claude session — "To action" refined to the actionable queue, PR #31):**
   - Follow-up to PR #30. User reported the "🎯 To action" badge (~2505) didn't match the manual filter he applies
     (~768). Root-caused on live data: **not a bug** — PR #30's preset was literally "all completed · CP · 45d",
