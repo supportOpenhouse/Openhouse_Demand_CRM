@@ -54,10 +54,14 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
   const cpOwner = seed.cp_owner || {};
   const properties = seed.properties || [];
 
-  const scoped = useMemo(
-    () => scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}),
-    [seed], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  const scoped = useMemo(() => {
+    const v = scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {});
+    // Negotiations is intentionally narrower than Visits for KAMs: a KAM sees ONLY their
+    // own (T1/T2) CP leads here — never the wider extra-cities pipeline they keep in Visits.
+    // cpOwner[cp] holds the owner slug; me.id === slug. Gated on team==='KAM', so every other
+    // role (Admin / TL / Ground / MM-manager) is byte-identical to before.
+    return me.team === 'KAM' ? v.filter((x) => cpOwner[x.cp_code] === me.id) : v;
+  }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
   const brokersByCode = useMemo(() => {
     const m = {}; (seed.brokers || []).forEach((b) => { m[b.cp_code] = b; }); return m;
   }, [seed]);
