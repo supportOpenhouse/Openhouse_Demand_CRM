@@ -181,3 +181,20 @@ export async function updateUser(slug, body) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+// --- Register a CP in Core (Admin only on the backend; CP-Meetings broker API) ---
+export async function cpRegisterCities() {
+  const res = await apiFetch('/api/cp-register/cities');
+  if (!res.ok) throw new Error(await _errDetail(res));
+  return res.json();   // { configured, cities:[{id,name}] }
+}
+export async function cpRegisterMicroMarkets(city) {
+  const res = await apiFetch(`/api/cp-register/micro-markets?city=${encodeURIComponent(city)}`);
+  if (!res.ok) throw new Error(await _errDetail(res));
+  return res.json();   // { microMarkets:[{id,name}] }
+}
+export async function cpRegister(body) {
+  const res = await apiFetch('/api/cp-register', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();   // { ok, cp_code, broker_id }
+}
