@@ -38,18 +38,26 @@ const statusForStage = (stage, current) =>
 // "the meeting is scheduled". nextSteps(sg, happened) = pills for the inline editor.
 const CFG = {
   negotiation: {
+    // PRE-meeting confirm: on/before the meeting day the team confirms whether the
+    // meeting is going to happen. Yes → confirmed, the lead STAYS in negotiation (the
+    // outcome is recorded later via the normal follow-up). No → reschedule / change stage.
     noun: 'meeting', icon: '🤝', dateField: '_negotiation_date', dateCol: 'Negotiation date',
     scheduledStage: 'negotiation', sendsHappened: true, savedToast: 'Negotiation updated',
+    preMeeting: true,
+    confirmQuestion: 'Will this meeting happen today (is it confirmed)?',
+    yesLabel: '✅ Yes — confirmed', noLabel: "❌ No — won't happen", confirmNote: 'Meeting confirmed',
     nextSteps: (sg, happened) =>
       sg === 'negotiation'
-        ? (happened === true ? ['after_negotiation_fu', 'booking', 'ats', 'future_prospect', 'not_interested']
-          : happened === false ? ['negotiation', 'future_prospect', 'not_interested'] : [])
+        ? (happened === false ? ['negotiation', 'future_prospect', 'not_interested'] : [])  // Yes = confirm (no pills)
         : sg === 'after_negotiation_fu' ? ['after_negotiation_fu', 'booking', 'ats', 'future_prospect', 'not_interested']
           : sg === 'booking' ? ['booking', 'ats', 'future_prospect', 'not_interested'] : [],
   },
   revisit: {
+    // Post-meeting outcome (unchanged): "did the revisit happen?" Yes → advance, No → reschedule.
     noun: 'revisit', icon: '↻', dateField: '_revisit_date', dateCol: 'Revisit date',
     scheduledStage: 'revisit_scheduled', sendsHappened: false, savedToast: 'Revisit updated',
+    preMeeting: false,
+    confirmQuestion: 'Did the revisit happen?', yesLabel: '✅ Yes', noLabel: '❌ No',
     nextSteps: (sg, happened) =>
       sg === 'revisit_scheduled'
         ? (happened === true ? ['negotiation', 'booking', 'ats', 'future_prospect', 'not_interested']
@@ -104,11 +112,40 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved 
     setDraft(v.id, { happened: val, stage: '', negotiation_date: '', revisit_date: '', booking_received_date: '' });
   };
 
+  async function submit(v, payload) {
+    setBusy(true);
+    try {
+      await apiSaveFollowup(payload);
+      setDrafts((p) => { const n = { ...p }; delete n[v.id]; return n; });
+      setExpanded((p) => { const n = new Set(p); n.delete(String(v.id)); return n; });
+      toast(cfg.savedToast, 'good');
+      await onSaved?.();
+    } catch (e) { toast('Save failed: ' + String(e.message || e).slice(0, 140), 'bad'); }
+    finally { setBusy(false); }
+  }
+
   async function save(v) {
     const d = drafts[v.id] || {};
     const sg = visitStage(v);
-    if (cfg.showYesNo !== false && sg === cfg.scheduledStage && d.happened == null) {
-      toast(`Confirm whether the ${cfg.noun} happened`, 'bad'); return;
+    const onScheduled = sg === cfg.scheduledStage;
+    if (onScheduled && d.happened == null) {
+      toast(`Confirm whether the ${cfg.noun} is happening`, 'bad'); return;
+    }
+    // Pre-meeting CONFIRM (negotiation): Yes → meeting confirmed, lead STAYS in its stage,
+    // reusing its existing meeting date; note optional; no advancement (outcome recorded later).
+    if (onScheduled && cfg.preMeeting && d.happened === true) {
+      const existing = v[cfg.dateField] || '';
+      const payload = {
+        visit_code: String(v.id),
+        buyer_status: statusForStage(cfg.scheduledStage, v.lead_status),
+        stage: cfg.scheduledStage,
+        note: (d.note && d.note.trim()) || cfg.confirmNote,
+        next_followup_date: null,
+        revisit_date: cfg.scheduledStage === 'revisit_scheduled' ? existing : null,
+        negotiation_date: cfg.scheduledStage === 'negotiation' ? existing : null,
+      };
+      if (cfg.sendsHappened) payload.negotiation_happened = true;
+      return submit(v, payload);
     }
     const stage = d.stage || (sg === 'booking' ? 'booking' : '');
     if (!stage) { toast('Pick the next step', 'bad'); return; }
@@ -139,18 +176,9 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved 
       negotiation_date,
       booking_received_date,
     };
-    // Only negotiations persist the Yes/No (revisits are migration-free — outcome via stage).
-    if (cfg.sendsHappened) payload.negotiation_happened = sg === cfg.scheduledStage ? d.happened : (v.negotiation_happened ?? true);
-
-    setBusy(true);
-    try {
-      await apiSaveFollowup(payload);
-      setDrafts((p) => { const n = { ...p }; delete n[v.id]; return n; });
-      setExpanded((p) => { const n = new Set(p); n.delete(String(v.id)); return n; });
-      toast(cfg.savedToast, 'good');
-      await onSaved?.();
-    } catch (e) { toast('Save failed: ' + String(e.message || e).slice(0, 140), 'bad'); }
-    finally { setBusy(false); }
+    // Negotiations persist the confirm flag (revisits are migration-free — outcome via stage).
+    if (cfg.sendsHappened) payload.negotiation_happened = onScheduled ? d.happened : (v.negotiation_happened ?? true);
+    return submit(v, payload);
   }
 
   // ---- shared inline editor (used by the desktop expanded row + mobile card) ----
@@ -158,18 +186,27 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved 
     const sg = visitStage(v);
     const d = drafts[v.id] || {};
     const onScheduled = sg === cfg.scheduledStage;
-    const showSteps = !onScheduled || d.happened != null;
+    const isPreConfirm = onScheduled && cfg.preMeeting && d.happened === true;   // "Yes — confirmed"
+    const showSteps = onScheduled ? (d.happened != null && !isPreConfirm) : true;
+    const noteOptional = isPreConfirm;
     const opts = cfg.nextSteps(sg, d.happened);
     return (
       <div className="fu-form" style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
         {onScheduled && (
           <div className="fu-grp">
-            <label>Did the {cfg.noun} happen? <span style={{ color: 'var(--bad)' }}>*</span></label>
+            <label>{cfg.confirmQuestion} <span style={{ color: 'var(--bad)' }}>*</span></label>
             <div className="fu-pills">
               <button type="button" className={'fu-pill ' + (d.happened === true ? 'on' : '')}
-                      onClick={() => setDraft(v.id, { happened: true, stage: '', negotiation_date: '', revisit_date: '' })}>✅ Yes</button>
+                      onClick={() => setDraft(v.id, { happened: true, stage: '', negotiation_date: '', revisit_date: '' })}>{cfg.yesLabel}</button>
               <button type="button" className={'fu-pill ' + (d.happened === false ? 'on' : '')}
-                      onClick={() => setDraft(v.id, { happened: false, stage: '', booking_received_date: '' })}>❌ No</button>
+                      onClick={() => setDraft(v.id, { happened: false, stage: '', booking_received_date: '' })}>{cfg.noLabel}</button>
+            </div>
+          </div>
+        )}
+        {isPreConfirm && (
+          <div className="fu-grp" style={{ background: 'var(--goodBg, #ECFDF5)', border: '1px solid #6EE7B7', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--good, #16A34A)', fontWeight: 600 }}>
+              ✓ Confirmed — stays in {STAGE_BY_KEY[cfg.scheduledStage]?.label || cfg.scheduledStage}. Record the outcome later, after the {cfg.noun}.
             </div>
           </div>
         )}
@@ -207,8 +244,8 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved 
           </div>
         )}
         <div className="fu-grp">
-          <label>Notes <span style={{ color: 'var(--bad)' }}>*</span></label>
-          <textarea placeholder="Required — what was discussed, the outcome, next action…" value={d.note || ''}
+          <label>Notes {noteOptional ? <span style={{ color: 'var(--mut)', fontWeight: 400 }}>(optional)</span> : <span style={{ color: 'var(--bad)' }}>*</span>}</label>
+          <textarea placeholder={noteOptional ? 'Optional — any note about the confirmation…' : 'Required — what was discussed, the outcome, next action…'} value={d.note || ''}
                     onChange={(e) => setDraft(v.id, { note: e.target.value })} />
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -223,17 +260,19 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved 
   const ConfirmCell = ({ v }) => {
     const sg = visitStage(v);
     if (sg !== cfg.scheduledStage) {
-      if (v.negotiation_happened === true) return <span className="muted" style={{ fontSize: 11 }}>✅ done</span>;
+      if (cfg.sendsHappened && v.negotiation_happened === true) return <span className="muted" style={{ fontSize: 11 }}>✅ confirmed</span>;
       return <span className="muted">—</span>;
     }
     const dk = datePart(v[cfg.dateField]);
     const today = ymd(TODAY);
     const due = dk && dk <= today;                 // due today or overdue → emphasize
+    const confirmed = cfg.preMeeting && v.negotiation_happened === true;   // already confirmed
     return (
-      <div className="fu-pills" style={{ gap: 4 }}>
-        <button type="button" title="Meeting happened" className="fu-pill" style={due ? { borderColor: 'var(--good,#16A34A)', fontWeight: 700 } : undefined}
+      <div className="fu-pills" style={{ gap: 4, alignItems: 'center' }}>
+        {confirmed && <span title="Confirmed" style={{ fontSize: 11, color: 'var(--good,#16A34A)', fontWeight: 700 }}>✓</span>}
+        <button type="button" title={cfg.preMeeting ? 'Confirmed — will happen' : `${cfg.noun} happened`} className="fu-pill" style={due ? { borderColor: 'var(--good,#16A34A)', fontWeight: 700 } : undefined}
                 onClick={(e) => { e.stopPropagation(); quickConfirm(v, true); }}>✅</button>
-        <button type="button" title="Meeting didn't happen" className="fu-pill" style={due ? { borderColor: 'var(--bad)', fontWeight: 700 } : undefined}
+        <button type="button" title={cfg.preMeeting ? "Won't happen / not confirmed" : `${cfg.noun} didn't happen`} className="fu-pill" style={due ? { borderColor: 'var(--bad)', fontWeight: 700 } : undefined}
                 onClick={(e) => { e.stopPropagation(); quickConfirm(v, false); }}>❌</button>
       </div>
     );
