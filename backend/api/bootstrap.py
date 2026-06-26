@@ -59,6 +59,7 @@ USERS: list[dict] = [
     {"slug": "rupali",   "email": "rupali.prasad@openhouse.in",  "name": "Rupali Prasad",   "role": "report_viewer", "team": "Report", "cities": []},
     {"slug": "abhishekr","email": "abhishek.rathore@openhouse.in","name": "Abhishek Rathore","role": "report_viewer", "team": "Report", "cities": []},  # 'abhishek' slug already taken by Abhishek Dwivedi (Ground)
     {"slug": "animesh",  "email": "animesh.singh@openhouse.in",  "name": "Animesh Singh",   "role": "report_viewer", "team": "Report", "cities": []},
+    {"slug": "khushi",   "email": "khushi.sharma@openhouse.in",  "name": "Khushi Sharma",   "role": "report_viewer", "team": "Report", "cities": []},
 ]
 
 KAM_BUCKETS = {

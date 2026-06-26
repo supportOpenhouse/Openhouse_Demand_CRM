@@ -7,7 +7,7 @@ import { apiFetch } from '../api.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import UserModal from '../components/UserModal.jsx';
 
-const TEAM_ORDER = ['Admin', 'TL', 'KAM', 'Ground'];
+const TEAM_ORDER = ['Admin', 'TL', 'KAM', 'Ground', 'Report'];
 
 function notifIcon(type) {
   return { nudge: '🔔', nudge_resolved: '✅', message: '📣', task: '📌', assign: '📥' }[type] || '💬';
