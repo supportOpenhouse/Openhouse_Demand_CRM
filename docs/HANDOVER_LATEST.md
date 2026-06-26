@@ -935,6 +935,23 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     Core run.app URL) in `config.py`; **set the key in the Render dashboard** to activate. Until then `is_configured()` is
     false → endpoints return `{configured:false}` / 503 and the tab shows "not set up yet" (safe to ship un-keyed). Fully
     additive: no migration, no change to existing endpoints/views/data; hidden from non-admins + the `Report` team.
+    **UPDATE 2026-06-25 (PR #37):** Add CP opened to **everyone** incl. the `Report` team — `register-cp` nav un-gated +
+    added to the `isReportViewer` nav list; body ternary restructured (`isReportViewer && view==='register-cp' → RegisterCpView`);
+    backend `_require_admin` dropped from the 3 `/api/cp-register*` routes (auth + `core_sales_manager_id`→422 gate kept).
+    `CP_MEETINGS_API_KEY` set in Render — feature is **live & prod-verified** (cities Gurgaon/Noida/Ghaziabad load).
+19. ~~**Tabular Negotiations + Revisits tab, Snapshot PM, Properties KH**~~ **✅ DONE 2026-06-25 (PR #37).** New shared
+    `frontend/src/components/PipelineQueue.jsx` (Visits-style table + mobile cards + inline editor, parameterized per-mode via
+    `CFG.negotiation`/`CFG.revisit`). **Negotiations** is now tabular (meeting date column prominent + sortable) with a day-of
+    **✅/❌ "did the meeting happen?"** on the scheduled row (reuses `negotiation_happened`); `NegotiationsView` slimmed to a thin
+    wrapper (same scope/filters/chip-bar/neg-date-range). New **Revisits** tab (NAV `revisits`, after Negotiations) = same
+    component for `revisit_scheduled`/`after_revisit_fu`; its Yes/No is **migration-free** (routes the next step) — reschedule
+    writes `revisit_date`, NEVER targets `after_revisit_fu`, NEVER sends `negotiation_happened` (`CFG.revisit.sendsHappened=false`).
+    Target-stage date rules generalized (negotiation→neg date, revisit_scheduled→revisit date, booking→booking-received date).
+    **Inventory Snapshot:** PM (`sales_manager`) shown under the society (desktop + mobile card); **poster export untouched**.
+    **Properties:** new **KH Date** column via `loadKeyHandovers` + `buildKhMap`/`lookupKh` (home_id override wins), sort branch +
+    empty `colSpan` 14→15; loads async like Property Performance (158/173 units populated). Prod-verified live (neg 56 / rev 94
+    rows, 0 console errors, Report-user Add CP renders). **No migration, no DB writes; VisitsView + save_followup untouched.**
+    Not live-tested: an actual negotiation/revisit SAVE (avoided writing to a real lead) — editor + ported logic verified by review.
 
 ---
 
