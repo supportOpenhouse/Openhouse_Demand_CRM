@@ -207,7 +207,7 @@ export default function FiltersModal({ seed, value, onApply, onClose }) {
           </div>
         </div>
         <div className="rx-modal-foot" style={{ justifyContent: 'space-between' }}>
-          <button className="btn ghost" type="button" onClick={() => setF({ ...EMPTY })}>Reset</button>
+          <button className="btn ghost" type="button" onClick={() => setF({ ...EMPTY, source: ['channel_partner'] })}>Reset</button>
           <div style={{ display: 'flex', gap: 9 }}>
             <button className="btn" type="button" onClick={onClose}>Cancel</button>
             <button className="btn primary" type="button" onClick={() => onApply(f)}>Apply</button>
