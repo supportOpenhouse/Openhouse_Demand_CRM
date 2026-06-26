@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createUser, updateUser } from '../api.js';
 import { toast } from '../lib/toast.js';
 
-const TEAMS = ['Admin', 'TL', 'KAM', 'Ground'];
+const TEAMS = ['Admin', 'TL', 'KAM', 'Ground', 'Report'];   // Report = view-only Report Share + Add CP tier
 
 // FastAPI errors come back as {"detail":"…"} text — pull the message out.
 function errMsg(e) {
