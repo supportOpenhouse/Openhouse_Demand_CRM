@@ -141,10 +141,25 @@ export function visitsForProperty(p, idx) {
   return (idx.bySoc[normSoc(p.society_name)] || []).filter((v) => visitUnitKey(v) === uk);
 }
 
-export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}) {
+export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}, review = {}) {
   const w = weekWindows();
   const idx = indexVisitsByProperty(visits);
-  return properties.map((p) => {
+  // Dedup: the inventory sheet sometimes lists the SAME unit twice (same home_id,
+  // different property_name — e.g. "AJ - 2002" + "AJ - 2002 (Top Floor)"). Both match the
+  // same visits (the join is on home_id), which double-counts here. Keep ONE row per
+  // home_id (the shorter/cleaner property_name; tiebreak alphabetical); rows without a
+  // home_id are kept as-is. Self-healing — future same-home_id dups collapse automatically.
+  const chosen = new Map();
+  properties.forEach((p) => {
+    const h = String(p.home_id || '').trim();
+    if (!h) return;
+    const e = chosen.get(h);
+    if (!e) { chosen.set(h, p); return; }
+    const a = e.property_name || ''; const b = p.property_name || '';
+    if (b.length < a.length || (b.length === a.length && b < a)) chosen.set(h, p);
+  });
+  const deduped = properties.filter((p) => { const h = String(p.home_id || '').trim(); return !h || chosen.get(h) === p; });
+  return deduped.map((p) => {
     const unit = unitNoOf(p);
     const vs = visitsForProperty(p, idx);
     const c = {
@@ -180,6 +195,8 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
       ask_price: p.listing_price || '', responsible: p.sales_manager || '',
       city: p.city_name || p.city || '', home_id: homeId,
       kh_date: kh, days_since_kh: kh ? daysBetween(kh) : null, kh_overridden: !!ovr,
+      ongoing_offer: (homeId && review[homeId] && review[homeId].ongoing_offer) || '',
+      demand_team_remark: (homeId && review[homeId] && review[homeId].demand_team_remark) || '',
       ...c,
     };
   });
@@ -196,6 +213,8 @@ export const PS_COLUMNS = [
   { k: 'responsible', label: 'Responsible Person', type: 'text' },
   { k: 'kh_date', label: 'KH Date', type: 'text' },
   { k: 'days_since_kh', label: 'Days Since KH', type: 'num' },
+  { k: 'ongoing_offer', label: 'Ongoing Offer', type: 'text' },
+  { k: 'demand_team_remark', label: 'Demand Remark', type: 'text' },
   { k: 'total', label: 'Total Visits', type: 'num' },
   { k: 'lastWeek', label: 'Last Week', type: 'num' },
   { k: 'prevWeek', label: '2 Weeks Ago', type: 'num' },

@@ -338,9 +338,22 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
     except Exception as e:  # noqa: BLE001 — never let overrides break the page
         log.warning("kh overrides fetch failed: %s", e)
 
+    # manual review fields (Ongoing offer / Demand team remark) — Admin/TL edit them
+    # inline in the report, keyed by home_id. Loaded fresh; degrades gracefully if the
+    # property_review_fields table isn't present yet (migration 019).
+    review = {}
+    try:
+        async with acquire() as conn:
+            rrows = await conn.fetch(
+                "SELECT home_id, ongoing_offer, demand_team_remark FROM property_review_fields")
+        review = {r["home_id"]: {"ongoing_offer": r["ongoing_offer"] or "", "demand_team_remark": r["demand_team_remark"] or ""}
+                  for r in rrows if r["home_id"] and (r["ongoing_offer"] or r["demand_team_remark"])}
+    except Exception as e:  # noqa: BLE001 — never let review fields break the page
+        log.warning("property review fetch failed: %s", e)
+
     now = time.monotonic()
     if _kh_cache["items"] is not None and (now - _kh_cache["at"]) < _KH_TTL:
-        return {"items": _kh_cache["items"], "overrides": overrides, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
+        return {"items": _kh_cache["items"], "overrides": overrides, "review": review, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
 
     def _row_to_item(r):
         return {"society": (r["society_name"] or "").strip(), "unit": (r["unit_no"] or "").strip(),
@@ -387,7 +400,7 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
     _kh_cache["items"] = items
     _kh_cache["at"] = now
     source = "connected" if (acq_source == "connected" or sheet_items) else acq_source
-    return {"items": items, "overrides": overrides, "source": source, "count": len(items),
+    return {"items": items, "overrides": overrides, "review": review, "source": source, "count": len(items),
             "acquisitions": len(acq_items), "sheet": len(sheet_items)}
 
 
@@ -425,6 +438,44 @@ async def set_kh_override(body: KhOverrideBody, user: dict = Depends(auth.curren
         else:
             await conn.execute("DELETE FROM kh_overrides WHERE home_id = $1", home_id)
     return {"ok": True, "home_id": home_id, "kh_date": d.isoformat() if d else ""}
+
+
+class PropertyReviewBody(BaseModel):
+    home_id: str
+    society_name: Optional[str] = None
+    unit_no: Optional[str] = None
+    ongoing_offer: Optional[str] = None
+    demand_team_remark: Optional[str] = None
+
+
+@app.post("/api/property-review")
+async def set_property_review(body: PropertyReviewBody, user: dict = Depends(auth.current_user)):
+    """Admin/TL edit a unit's manual review fields (Ongoing offer / Demand team remark)
+    in the Property Status report. Recorded in property_review_fields (keyed by home_id).
+    Both fields blank → the row is cleared. Isolated table; touches no existing data."""
+    _require_admin_or_tl(user)
+    home_id = (body.home_id or "").strip()
+    if not home_id:
+        raise HTTPException(400, "home_id is required")
+    offer = (body.ongoing_offer or "").strip()
+    remark = (body.demand_team_remark or "").strip()
+    async with acquire() as conn:
+        if offer or remark:
+            await conn.execute(
+                """
+                INSERT INTO property_review_fields (home_id, society_name, unit_no, ongoing_offer, demand_team_remark, set_by, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, now())
+                ON CONFLICT (home_id) DO UPDATE SET
+                    society_name = EXCLUDED.society_name, unit_no = EXCLUDED.unit_no,
+                    ongoing_offer = EXCLUDED.ongoing_offer, demand_team_remark = EXCLUDED.demand_team_remark,
+                    set_by = EXCLUDED.set_by, updated_at = now()
+                """,
+                home_id, (body.society_name or "").strip(), (body.unit_no or "").strip(),
+                offer or None, remark or None, user["slug"],
+            )
+        else:
+            await conn.execute("DELETE FROM property_review_fields WHERE home_id = $1", home_id)
+    return {"ok": True, "home_id": home_id, "ongoing_offer": offer, "demand_team_remark": remark}
 
 
 # ============================================================================
