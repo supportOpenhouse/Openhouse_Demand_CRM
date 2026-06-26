@@ -746,7 +746,7 @@ class CpRegisterBody(BaseModel):
 
 @app.get("/api/cp-register/cities")
 async def cp_register_cities(user: dict = Depends(auth.current_user)):
-    _require_admin(user)
+    # Any signed-in team member can register a CP (decision: Add CP for everyone).
     if not cp_meetings.is_configured():
         return {"configured": False, "cities": []}
     try:
@@ -758,7 +758,6 @@ async def cp_register_cities(user: dict = Depends(auth.current_user)):
 
 @app.get("/api/cp-register/micro-markets")
 async def cp_register_micro_markets(city: str, user: dict = Depends(auth.current_user)):
-    _require_admin(user)
     if not cp_meetings.is_configured():
         return {"microMarkets": []}
     if not (city or "").strip():
@@ -772,7 +771,7 @@ async def cp_register_micro_markets(city: str, user: dict = Depends(auth.current
 
 @app.post("/api/cp-register")
 async def cp_register_create(body: CpRegisterBody, user: dict = Depends(auth.current_user)):
-    _require_admin(user)
+    # Any signed-in team member; the core_sales_manager_id gate below (422) still applies.
     if not cp_meetings.is_configured():
         raise HTTPException(503, "Partner registration is not configured yet.")
     full_name = body.full_name.strip()
