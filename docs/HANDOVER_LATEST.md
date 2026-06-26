@@ -952,6 +952,13 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     empty `colSpan` 14→15; loads async like Property Performance (158/173 units populated). Prod-verified live (neg 56 / rev 94
     rows, 0 console errors, Report-user Add CP renders). **No migration, no DB writes; VisitsView + save_followup untouched.**
     Not live-tested: an actual negotiation/revisit SAVE (avoided writing to a real lead) — editor + ported logic verified by review.
+    **CORRECTION 2026-06-25 (PR #38):** the Negotiations Yes/No is a **PRE-meeting** confirm, not post. Now asks "Will this
+    meeting happen today (is it confirmed)?" — **Yes** → confirmed, lead STAYS in negotiation (keeps its date, note optional,
+    `negotiation_happened=true` reused as "confirmed", a ✓ marks confirmed rows); **No** → reschedule new date or change stage
+    (note required). Outcome (Booking/After-Neg) is recorded later via the normal follow-up. Driven by per-mode
+    `CFG.preMeeting` in `PipelineQueue.jsx` — **Revisits intentionally left as post-meeting** ("did the revisit happen?").
+    Frontend-only, no migration (only 1 prior `negotiation_happened` row). Prod-verified: neg question/Yes-confirm/No-reschedule
+    correct, revisit unchanged, 0 console errors.
 
 ---
 
