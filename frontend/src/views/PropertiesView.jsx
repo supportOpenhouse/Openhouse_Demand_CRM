@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { propertiesForUser } from '../lib/properties.js';
 import { visitStatus, visitStage } from '../lib/visits.js';
 import { parsePrice } from '../lib/legacy.js';
-import { indexVisitsByProperty, visitsForProperty } from '../lib/propertyStatus.js';
+import { indexVisitsByProperty, visitsForProperty, buildKhMap, lookupKh, unitNoOf } from '../lib/propertyStatus.js';
+import { loadKeyHandovers } from '../api.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import PropertyModal from '../components/PropertyModal.jsx';
 
@@ -82,6 +83,7 @@ const PROP_COLS = [
   { k: 'config', label: 'Config · Area', type: 'text' },
   { k: 'listing_status', label: 'Status', type: 'text' },
   { k: 'listing_price', label: 'Price', type: 'price' },
+  { k: 'kh_date', label: 'KH Date', type: 'text' },
   { k: 'total', label: 'Visits', type: 'num', center: true },
   { k: 'hot', label: 'Hot', type: 'num', center: true },
   { k: 'warm', label: 'Warm', type: 'num', center: true },
@@ -99,6 +101,16 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
 
   // build the per-unit visit index once; reused by every row
   const idx = useMemo(() => indexVisitsByProperty(visits), [visits]);
+
+  // Key-handover dates — same source/mapping as Property Performance. Loaded once;
+  // resolved per unit (home_id override wins, else society+unit digit match).
+  const [kh, setKh] = useState({ items: [], overrides: {}, source: 'unset' });
+  useEffect(() => {
+    let alive = true;
+    loadKeyHandovers().then((d) => alive && setKh(d)).catch(() => alive && setKh({ items: [], overrides: {}, source: 'error' }));
+    return () => { alive = false; };
+  }, []);
+  const khMap = useMemo(() => buildKhMap(kh.items), [kh.items]);
 
   const [city, setCity] = useState('all');         // state.cityFilter
   const [open, setOpen] = useState(null);          // state.openProperty (the property obj)
@@ -163,8 +175,12 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
         return true;
       });
     }
-    return list.map((p) => ({ p, ...propCounts(p, idx) }));
-  }, [all, city, search, fStatus, fConfigs, fRegions, fSocieties, fPMs, minRs, maxRs, idx]);
+    return list.map((p) => ({
+      p,
+      ...propCounts(p, idx),
+      kh_date: (kh.overrides && kh.overrides[String(p.home_id || '').trim()]) || lookupKh(khMap, p.society_name, unitNoOf(p)) || '',
+    }));
+  }, [all, city, search, fStatus, fConfigs, fRegions, fSocieties, fPMs, minRs, maxRs, idx, khMap, kh.overrides]);
 
   const rows = useMemo(() => {
     const col = PROP_COLS.find((c) => c.k === sortField);
@@ -174,6 +190,7 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
       if (col.type === 'num') return r[sortField] || 0;
       if (col.type === 'price') return parsePrice(r.p.listing_price);
       if (sortField === 'config') return (r.p.configuration || '').toLowerCase();
+      if (sortField === 'kh_date') return (r.kh_date || '');
       return (r.p[sortField] || '').toString().toLowerCase();
     };
     return filtered.slice().sort((a, b) => {
@@ -263,7 +280,7 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
               </tr>
             </thead>
             <tbody>
-              {rows.length ? rows.map(({ p, total, hot, warm, upcoming, booking }, i) => {
+              {rows.length ? rows.map(({ p, total, hot, warm, upcoming, booking, kh_date }, i) => {
                 const isReady = p.listing_status === 'Ready';
                 return (
                   <tr
@@ -294,6 +311,7 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
                       </span>
                     </td>
                     <td style={{ fontWeight: 700, color: 'var(--accDark)' }}>{p.listing_price || '—'}</td>
+                    <td style={{ fontSize: 12, color: kh_date ? 'var(--txt)' : 'var(--mut)' }}>{kh_date || '—'}</td>
                     <td style={{ textAlign: 'center', fontWeight: 700 }}>{total}</td>
                     <td style={{ textAlign: 'center', fontWeight: hot ? 700 : 500, color: hot ? 'var(--bad)' : 'var(--mut2)' }}>{hot}</td>
                     <td style={{ textAlign: 'center', fontWeight: warm ? 700 : 500, color: warm ? 'var(--warn)' : 'var(--mut2)' }}>{warm}</td>
@@ -305,7 +323,7 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
                 );
               }) : (
                 <tr>
-                  <td colSpan={14}>
+                  <td colSpan={15}>
                     <div className="empty"><div className="emoji">🏠</div><div className="t">No properties</div></div>
                   </td>
                 </tr>
@@ -326,7 +344,7 @@ function PropertiesMobile({ rows, onOpen }) {
   }
   return (
     <div className="m-card-list">
-      {rows.map(({ p, total, hot, warm, upcoming, booking }, i) => {
+      {rows.map(({ p, total, hot, warm, upcoming, booking, kh_date }, i) => {
         const isReady = p.listing_status === 'Ready';
         return (
           <div key={p.property_name || i} className="m-card" data-prop={p.property_name} onClick={() => onOpen(p)}>
@@ -355,7 +373,7 @@ function PropertiesMobile({ rows, onOpen }) {
                 <span><b style={{ color: booking ? 'var(--good)' : 'var(--mut2)' }}>{booking}</b> <span style={{ color: 'var(--mut)', fontSize: '10.5px' }}>Book</span></span>
               </div>
             </div>
-            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--mut)' }}>PM: <b style={{ color: 'var(--txt)' }}>{p.sales_manager || '—'}</b></div>
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--mut)' }}>PM: <b style={{ color: 'var(--txt)' }}>{p.sales_manager || '—'}</b>{kh_date ? <> · KH: <b style={{ color: 'var(--txt)' }}>{kh_date}</b></> : null}</div>
           </div>
         );
       })}

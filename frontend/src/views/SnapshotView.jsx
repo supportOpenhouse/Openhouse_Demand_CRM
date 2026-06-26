@@ -371,6 +371,7 @@ function CityBlock({ city, g }) {
                         <span className={`status-pill ${p.listing_status === 'Ready' ? 'r' : 'cs'}`}>{p.listing_status || '—'}</span>
                       </div>
                       <div className="smc-meta">{unitOf(p)} · {p.configuration || '—'} · {p.super_sqft || '—'} sqft · {p.locality_or_sector || p.micro_market || '—'}</div>
+                      <div className="smc-meta">PM · {p.sales_manager || '—'}</div>
                       <div className="smc-price">{p.listing_price || '—'}</div>
                     </div>
                   );
@@ -397,6 +398,7 @@ function CityBlock({ city, g }) {
                         <span className="society">
                           {isNew ? <span className="new-badge">NEW</span> : null}{p.society_name || '—'}
                         </span>
+                        <div style={{ fontSize: 10.5, color: 'var(--mut)', fontWeight: 500, marginTop: 2 }}>PM · {p.sales_manager || '—'}</div>
                       </td>
                       <td className="cell-unit"><span className="unit">{unitOf(p)}</span></td>
                       <td className="cell-area"><span className="area">{p.super_sqft || '—'} sqft</span></td>

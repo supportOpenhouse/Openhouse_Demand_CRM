@@ -1,10 +1,10 @@
-// Negotiations — a focused TABULAR queue for the negotiation funnel (Negotiation /
-// After-Negotiation-FU / Booking). For a negotiation lead the team gives a day-of
-// ✅/❌ "did the meeting happen?" then fills the next step (or reschedules); after-neg /
-// booking leads get a forward next-step update + the booking-received date. The table +
-// editor + save (saveFollowup, incl. negotiation_happened + booking_received_date) live
-// in the shared PipelineQueue. This wrapper owns scoping + the SAME Visits filters (the
-// shared `filters` from FiltersModal) + a negotiation-meeting-date range + the stage tabs.
+// Revisits — a focused TABULAR queue for leads in a revisit state (Revisit Scheduled /
+// After Revisit FU), mirroring Negotiations. Day-of ✅/❌ "did the revisit happen?" then
+// the next step (advance to negotiation / booking / close) or reschedule. The Yes/No is
+// migration-free — it just routes the next step (which persists via the chosen stage);
+// nothing is stored. Table + editor + save (saveFollowup with `revisit_date` on
+// reschedule, NO negotiation_happened) live in the shared PipelineQueue. This wrapper owns
+// scoping + the SAME Visits filters + a revisit-date range + the stage tabs.
 import { useMemo, useState, useDeferredValue } from 'react';
 import { daysBetween } from '../lib/format.js';
 import { visitStage, scopeVisits, nextFuFor, nextActivityFor } from '../lib/visits.js';
@@ -12,23 +12,20 @@ import { flatNo } from '../lib/propertyStatus.js';
 import ChipBar from '../components/ChipBar.jsx';
 import PipelineQueue from '../components/PipelineQueue.jsx';
 
-const FUNNEL = ['negotiation', 'after_negotiation_fu', 'booking'];
+const FUNNEL = ['revisit_scheduled', 'after_revisit_fu'];
 const STAGE_TABS = [
   { k: 'all', label: 'All', cls: '' },
-  { k: 'negotiation', label: 'Negotiation', cls: 'sg-nego' },
-  { k: 'after_negotiation_fu', label: 'After Negotiation FU', cls: 'sg-avfu' },
-  { k: 'booking', label: 'Booking', cls: 'sg-book' },
+  { k: 'revisit_scheduled', label: 'Revisit Scheduled', cls: 'sg-rev' },
+  { k: 'after_revisit_fu', label: 'After Revisit FU', cls: 'sg-avfu' },
 ];
 
-export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, search = '', filters = {} }) {
+export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = '', filters = {} }) {
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
   const properties = seed.properties || [];
 
   const scoped = useMemo(() => {
     const v = scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {});
-    // Negotiations is intentionally narrower than Visits for KAMs: a KAM sees ONLY their
-    // own (T1/T2) CP leads here — never the wider extra-cities pipeline they keep in Visits.
     return me.team === 'KAM' ? v.filter((x) => cpOwner[x.cp_code] === me.id) : v;
   }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
   const brokersByCode = useMemo(() => {
@@ -47,14 +44,12 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
   }, [properties]);
 
   const [stageTab, setStageTab] = useState([]);
-  const [negFrom, setNegFrom] = useState('');
-  const [negTo, setNegTo] = useState('');
+  const [revFrom, setRevFrom] = useState('');
+  const [revTo, setRevTo] = useState('');
   const dq = useDeferredValue(search);
 
   const funnel = useMemo(() => scoped.filter((v) => FUNNEL.includes(visitStage(v))), [scoped]);
 
-  // SAME predicate as VisitsView.cityBase (ported), minus the lead-set segment, plus the
-  // negotiation-meeting-date range. Keeps filtering identical to Visits.
   const base = useMemo(() => funnel.filter((v) => {
     if (filters.cities?.length && !filters.cities.includes(v.city)) return false;
     if (dq.trim()) {
@@ -115,15 +110,15 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
       }
       if (!ok) return false;
     }
-    // negotiation-meeting-date range (YYYY-MM-DD compare on _negotiation_date)
-    const nd = v._negotiation_date ? String(v._negotiation_date).slice(0, 10) : '';
-    if (negFrom && !(nd && nd >= negFrom)) return false;
-    if (negTo && !(nd && nd <= negTo)) return false;
+    // revisit-date range (YYYY-MM-DD compare on _revisit_date)
+    const rd = v._revisit_date ? String(v._revisit_date).slice(0, 10) : '';
+    if (revFrom && !(rd && rd >= revFrom)) return false;
+    if (revTo && !(rd && rd <= revTo)) return false;
     return true;
-  }), [funnel, filters, dq, propBySociety, brokersByCode, negFrom, negTo]);
+  }), [funnel, filters, dq, propBySociety, brokersByCode, revFrom, revTo]);
 
   const stageCounts = useMemo(() => {
-    const c = { all: base.length, negotiation: 0, after_negotiation_fu: 0, booking: 0 };
+    const c = { all: base.length, revisit_scheduled: 0, after_revisit_fu: 0 };
     base.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; });
     return c;
   }, [base]);
@@ -136,14 +131,14 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
   return (
     <div className="rx-fade">
       <div className="neg-filters" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <span style={{ fontWeight: 600, fontSize: 13 }}>Negotiation meeting date</span>
-        <input type="date" value={negFrom} onChange={(e) => setNegFrom(e.target.value)}
+        <span style={{ fontWeight: 600, fontSize: 13 }}>Revisit date</span>
+        <input type="date" value={revFrom} onChange={(e) => setRevFrom(e.target.value)}
                style={{ padding: '6px 9px', border: '1px solid var(--line)', borderRadius: 7, fontSize: 13 }} />
         <span style={{ color: 'var(--mut)' }}>→</span>
-        <input type="date" value={negTo} onChange={(e) => setNegTo(e.target.value)}
+        <input type="date" value={revTo} onChange={(e) => setRevTo(e.target.value)}
                style={{ padding: '6px 9px', border: '1px solid var(--line)', borderRadius: 7, fontSize: 13 }} />
-        {(negFrom || negTo) && (
-          <button type="button" className="btn sm" onClick={() => { setNegFrom(''); setNegTo(''); }}>Clear dates ✕</button>
+        {(revFrom || revTo) && (
+          <button type="button" className="btn sm" onClick={() => { setRevFrom(''); setRevTo(''); }}>Clear dates ✕</button>
         )}
         <span style={{ marginLeft: 'auto', color: 'var(--mut)', fontSize: 12.5 }}>
           Use the top-bar <b>Filters</b> for city, society, CP, RM, BHK, source, etc.
@@ -153,10 +148,10 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
       <ChipBar label="Stage" options={STAGE_TABS} counts={stageCounts} value={stageTab} onChange={setStageTab} multi />
 
       <div className="neg-count" style={{ margin: '8px 2px', color: 'var(--mut)', fontSize: 13 }}>
-        <b>{rows.length}</b> in the negotiation funnel
+        <b>{rows.length}</b> in the revisit funnel
       </div>
 
-      <PipelineQueue seed={seed} rows={rows} mode="negotiation" onOpenBroker={onOpenBroker} onSaved={reloadSeed} />
+      <PipelineQueue seed={seed} rows={rows} mode="revisit" onOpenBroker={onOpenBroker} onSaved={reloadSeed} />
     </div>
   );
 }

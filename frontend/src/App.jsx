@@ -17,6 +17,7 @@ import BookVisitsView from './views/BookVisitsView.jsx';
 import HiringView from './views/HiringView.jsx';
 import ReportShareView from './views/ReportShareView.jsx';
 import RegisterCpView from './views/RegisterCpView.jsx';
+import RevisitsView from './views/RevisitsView.jsx';
 import AiSuggestionsView from './views/AiSuggestionsView.jsx';
 import TeamPerformanceView from './views/TeamPerformanceView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
@@ -25,7 +26,7 @@ import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
 import BottomTabBar from './components/BottomTabBar.jsx';
 import { TEAM_PILL } from './lib/legacy.js';
 
-const SEARCH_VIEWS = new Set(['visits', 'negotiations', 'cps', 'properties']);
+const SEARCH_VIEWS = new Set(['visits', 'negotiations', 'revisits', 'cps', 'properties']);
 
 // Book Visits (beta) is restricted to these super-admins BY SLUG until the app
 // booking API is connected. Deliberately NOT gated by team/role — several other users
@@ -37,6 +38,7 @@ const NAV = [
   { k: 'ai',            icon: '✨', label: 'AI Suggestions' },
   { k: 'visits',        icon: '📋', label: 'Visits' },
   { k: 'negotiations',  icon: '💬', label: 'Negotiations' },
+  { k: 'revisits',      icon: '↻', label: 'Revisits' },
   { k: 'cps',           icon: '🤝', label: 'Channel Partners' },
   { k: 'properties',    icon: '🏠', label: 'Properties' },
   { k: 'analytics',     icon: '📊', label: 'Analytics' },
@@ -48,7 +50,7 @@ const NAV = [
   { k: 'hiring',        icon: '🧮', label: 'Hiring', adminOnly: true },
   { k: 'reports',       icon: '📧', label: 'Report Share', adminOnly: true },
   { k: 'teamperf',      icon: '📈', label: 'Team Performance', adminOnly: true },
-  { k: 'register-cp',   icon: '➕', label: 'Add CP', adminOnly: true },
+  { k: 'register-cp',   icon: '➕', label: 'Add CP' },
 ];
 
 function initials(name = '') {
@@ -134,7 +136,7 @@ export default function App() {
   // 403s every admin route — so we surface no other view to them.
   const isReportViewer = me.team === 'Report';
   const nav = isReportViewer
-    ? NAV.filter((n) => n.k === 'reports')
+    ? NAV.filter((n) => n.k === 'reports' || n.k === 'register-cp')
     : NAV.filter((n) => (!n.adm || isAdmTL) && (!n.superAdmin || isSuperAdmin) && (!n.adminOnly || isAdmin))
         .map((n) => (n.k === 'team' ? { ...n, label: isAdmTL ? 'Team & Assignments' : 'My Day' } : n));
   const unread = (seed.notifications || []).filter((n) => (n.to === me.slug || n.to === me.id) && !n.read).length;
@@ -229,7 +231,9 @@ export default function App() {
             <div key={view} className="rx-view">
               <h2 style={{ margin: '2px 0 12px', letterSpacing: '-.3px' }}>{active?.label}</h2>
               <ErrorBoundary resetKey={view}>
-              {isReportViewer ? (
+              {isReportViewer && view === 'register-cp' ? (
+                <RegisterCpView />
+              ) : isReportViewer ? (
                 <ReportShareView seed={vseed} />
               ) : view === 'home' ? (
                 <HomeView seed={vseed} onOpenBroker={setOpenCp} />
@@ -239,6 +243,8 @@ export default function App() {
                 <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} visitsUi={visitsUi} onVisitsUiChange={setVisitsUi} />
               ) : view === 'negotiations' ? (
                 <NegotiationsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} />
+              ) : view === 'revisits' ? (
+                <RevisitsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} />
               ) : view === 'cps' ? (
                 <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} />
               ) : view === 'properties' ? (
@@ -260,7 +266,7 @@ export default function App() {
               ) : view === 'teamperf' ? (
                 isAdmin ? <TeamPerformanceView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'register-cp' ? (
-                isAdmin ? <RegisterCpView /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
+                <RegisterCpView />
               ) : view === 'team' ? (
                 <TeamView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} />
               ) : (
