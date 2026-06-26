@@ -907,6 +907,11 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     post-change roster: Admin 9 / Ground 30 / KAM 4 / TL 3 / **Report 4** (total 50); all existing rows untouched.
     Open boundary: like any non-admin, a Report user could still call secondary read endpoints (`/api/cps`,
     `/api/inventory`) directly — the UI exposes only Report Share; hard server-side denial on those is a future option.
+    **UPDATE 2026-06-25 (PR #39):** `khushi.sharma` added as a 5th Report user (Report 4→5; non-Report 48 unchanged).
+    Report users can now be added from the **Team & Assignments → Add member** form: `UserModal` `TEAMS` + `TeamView`
+    `TEAM_ORDER` gained `'Report'` (the latter also un-hid the existing Report users, who weren't being grouped before).
+    Backend `/api/users` already accepted `Report`. So future Report (or any) members can be self-served from the UI —
+    no SQL needed.
 17. ~~**Negotiations tab + removed the negotiation auto-advance**~~ **✅ DONE 2026-06-22 (PR #33).** New **Negotiations**
     tab (`frontend/src/views/NegotiationsView.jsx`, NAV key `negotiations`) for the funnel negotiation / after_negotiation_fu /
     booking: per-lead **"Did the meeting happen?"** Yes/No → next step or reschedule; for after-neg / booking leads a forward
