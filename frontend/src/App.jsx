@@ -68,7 +68,9 @@ export default function App() {
   });
   useEffect(() => { try { localStorage.setItem('rx-nav-collapsed', navCollapsed ? '1' : '0'); } catch { /* ignore */ } }, [navCollapsed]);
   const [search, setSearch] = useState('');          // global topbar search (like crm.html)
-  const [filters, setFilters] = useState({});         // advanced Visits filters
+  // Leads filter, shared by Visits / Negotiations / Revisits. Defaults to source=via-CP
+  // ('channel_partner') so Direct leads are hidden until explicitly added in the Filters modal.
+  const [filters, setFilters] = useState({ source: ['channel_partner'] });
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Visits chip-bar + sort selections, lifted here so they survive the view
   // unmounting on a tab switch (per-tab, in-session). null = use VisitsView defaults.
