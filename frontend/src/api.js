@@ -64,6 +64,13 @@ export async function setKhOverride(body) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+// Admin/TL: set/clear the manual Property-Status review fields (by home_id) —
+// { home_id, society_name?, unit_no?, ongoing_offer?, demand_team_remark? }. Both blank clears.
+export async function setPropertyReview(body) {
+  const res = await apiFetch('/api/property-review', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
 
 export async function saveFollowup(body) {
   const res = await apiFetch('/api/followups', { method: 'POST', body: JSON.stringify(body) });

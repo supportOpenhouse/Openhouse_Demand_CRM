@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { buildKhMap, buildPropertyStatusRows, PS_COLUMNS, sortRows, psToCsv } from '../lib/propertyStatus.js';
-import { setKhOverride } from '../api.js';
+import { setKhOverride, setPropertyReview } from '../api.js';
 import { parsePrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
 
@@ -63,9 +63,37 @@ function KhCell({ row, canEdit, onSave }) {
   );
 }
 
-export default function PropertyStatusTable({ seed, filters = {}, khItems = [], khOverrides = {}, khSource = 'unset' }) {
+// Editable text cell for the manual review columns (Ongoing offer / Demand remark).
+// Click-to-edit for Admin/TL on a unit with a home_id; saved on blur, persisted by home_id.
+function EditTextCell({ row, field, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const editable = canEdit && !!row.home_id;
+  const val = row[field] || '';
+  if (editing) {
+    return (
+      <td>
+        <input type="text" defaultValue={val} autoFocus
+          style={{ font: 'inherit', padding: '1px 4px', border: '1px solid var(--acc)', borderRadius: 4, width: 160, maxWidth: 240 }}
+          onBlur={(e) => { setEditing(false); const v = e.target.value.trim(); if (v !== val) onSave(row, field, v); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); else if (e.key === 'Escape') setEditing(false); }} />
+      </td>
+    );
+  }
+  return (
+    <td style={{ maxWidth: 200, ...(editable ? { cursor: 'pointer' } : null) }}
+        title={editable ? (val || 'Click to add') : (val || undefined)}
+        onClick={editable ? () => setEditing(true) : undefined}>
+      {val
+        ? <span style={{ display: 'inline-block', maxWidth: 190, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}>{val}</span>
+        : (editable ? <span style={{ color: 'var(--acc)' }}>+ add</span> : '—')}
+    </td>
+  );
+}
+
+export default function PropertyStatusTable({ seed, filters = {}, khItems = [], khOverrides = {}, khSource = 'unset', review = {} }) {
   const me = seed.current_user || {};
   const canEditKh = me.team === 'Admin';   // KH editing is admin-only (the backend enforces it too)
+  const canEditReview = me.team === 'Admin' || me.team === 'TL';   // Ongoing offer / Demand remark: Admin + TL
   const [sortKey, setSortKey] = useState('total');
   const [sortDir, setSortDir] = useState('desc');
   // manual KH overrides: server truth synced in; a local edit applies immediately and persists.
@@ -81,10 +109,25 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
     } catch (e) { setOverrides(prev); toast('Save failed: ' + e.message, 'bad'); }
   }, [overrides]);
 
+  // manual review fields (Ongoing offer / Demand team remark) — same optimistic pattern as KH.
+  const [reviewState, setReviewState] = useState(review || {});
+  useEffect(() => { setReviewState(review || {}); }, [review]);
+  const saveReview = useCallback(async (row, field, value) => {
+    if (!row.home_id) return;
+    const next = { ongoing_offer: row.ongoing_offer || '', demand_team_remark: row.demand_team_remark || '', [field]: value };
+    const prev = reviewState;
+    setReviewState((s) => ({ ...s, [row.home_id]: next }));
+    try {
+      await setPropertyReview({ home_id: row.home_id, society_name: row.society, unit_no: row.unit,
+        ongoing_offer: next.ongoing_offer, demand_team_remark: next.demand_team_remark });
+      toast(field === 'ongoing_offer' ? 'Offer saved' : 'Remark saved', 'good');
+    } catch (e) { setReviewState(prev); toast('Save failed: ' + e.message, 'bad'); }
+  }, [reviewState]);
+
   const khMap = useMemo(() => buildKhMap(khItems), [khItems]);
   const allRows = useMemo(
-    () => buildPropertyStatusRows(seed.properties || [], seed.visits || [], khMap, overrides),
-    [seed, khMap, overrides],
+    () => buildPropertyStatusRows(seed.properties || [], seed.visits || [], khMap, overrides, reviewState),
+    [seed, khMap, overrides, reviewState],
   );
 
   // Apply the page filters. Every dimension is additive — an empty/unset filter is a
@@ -172,6 +215,8 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td>{r.responsible || '—'}</td>
                 <KhCell row={r} canEdit={canEditKh} onSave={saveKh} />
                 <td className="num ps-kh"><b style={{ color: khAgeColor(r.days_since_kh) }}>{r.days_since_kh == null ? '—' : r.days_since_kh}</b></td>
+                <EditTextCell row={r} field="ongoing_offer" canEdit={canEditReview} onSave={saveReview} />
+                <EditTextCell row={r} field="demand_team_remark" canEdit={canEditReview} onSave={saveReview} />
                 <td className="num"><Num n={r.total} color="var(--ink)" /></td>
                 <td className="num"><Num n={r.lastWeek} color="var(--acc)" /></td>
                 <td className="num"><Num n={r.prevWeek} /></td>
@@ -191,7 +236,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td className="ps-f" style={{ left: STICK.region.left, minWidth: STICK.region.w }}>Totals</td>
                 <td className="ps-f" style={{ left: STICK.society.left, minWidth: STICK.society.w }}>{int(rows.length)} properties</td>
                 <td className="ps-f ps-edge" style={{ left: STICK.unit.left, minWidth: STICK.unit.w }} />
-                <td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" />
+                <td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" /><td /><td />
                 <td className="num"><b>{int(totals.total)}</b></td>
                 <td className="num"><b>{int(totals.lastWeek)}</b></td>
                 <td className="num"><b>{int(totals.prevWeek)}</b></td>
