@@ -964,6 +964,20 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     `CFG.preMeeting` in `PipelineQueue.jsx` — **Revisits intentionally left as post-meeting** ("did the revisit happen?").
     Frontend-only, no migration (only 1 prior `negotiation_happened` row). Prod-verified: neg question/Yes-confirm/No-reschedule
     correct, revisit unchanged, 0 console errors.
+20. ~~**Property Status: dedup duplicate units + Ongoing-offer / Demand-remark columns**~~ **✅ DONE 2026-06-25 (PR #40).**
+    **Dedup:** the inventory sheet listed 2 units twice (same Core `home_id`, different `property_name` — `AJ - 2002` +
+    `AJ - 2002 (Top Floor)` / `home_id 127`; `N - 40D` + `Block N - 40D` / `home_id 241`). `property_name` is the unique sync
+    key so both survived; visit-matching joins on `home_id` so both matched the SAME visits → double count. `buildPropertyStatusRows`
+    (`lib/propertyStatus.js`) now **collapses same-`home_id` rows to one** (keeps the shorter property_name) — display-only,
+    **self-healing** for future dups. Prod-verified: count 175→**173**, Antriksh AJ-2002 & Smart World N-40D each show once.
+    (Scope = Property Status report only; the raw Properties/Snapshot lists still show both rows but don't aggregate.)
+    **2 manual columns** (Ongoing Offer, Demand Remark) — inline click-to-edit, **Admin + TL** (`_require_admin_or_tl`),
+    persisted per `home_id`, mirroring the KH-override exactly: **migration 019** `property_review_fields` (isolated table; GET
+    degrades gracefully if absent, applied to prod BEFORE the POST went live), `GET /api/key-handovers` also returns `review`,
+    new `POST /api/property-review`, `EditTextCell` in `PropertyStatusTable` + `PS_COLUMNS` + row-attach + `setPropertyReview`.
+    The 5 no-`home_id` units show the columns read-only (same limitation as KH). Prod-verified: columns render, save round-trips
+    (set→persist→clear, throwaway key, zero residue), edit affordance opens, 0 console errors. Additive — KH logic /
+    visit-matching / Properties+Snapshot / existing data untouched.
 
 ---
 
