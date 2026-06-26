@@ -978,6 +978,12 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     The 5 no-`home_id` units show the columns read-only (same limitation as KH). Prod-verified: columns render, save round-trips
     (set→persist→clear, throwaway key, zero residue), edit affordance opens, 0 console errors. Additive — KH logic /
     visit-matching / Properties+Snapshot / existing data untouched.
+21. ~~**Default leads source filter = via CP**~~ **✅ DONE 2026-06-25 (PR #41).** The shared leads `filters` (Visits /
+    Negotiations / Revisits) now initialises to `{ source: ['channel_partner'] }` (`App.jsx`) so **Direct leads are hidden by
+    default** — a user must add "Direct" in the Filters modal to see them. The modal **Reset** also returns to the via-CP
+    default (`FiltersModal.jsx`), so Direct always needs an explicit mark. Frontend-only, no data touched. Source values in the
+    data: `channel_partner` 9110 / `direct` 988 / `lsq_migration` 4 (last two hidden by default; only Direct is a filter
+    option). Filters badge shows "1" by default; prod-verified (Visits shows CP-only "1–60 of 4868", Source modal = via CP ON).
 
 ---
 
