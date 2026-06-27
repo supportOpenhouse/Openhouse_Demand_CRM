@@ -93,6 +93,12 @@ html, body, #root { height: 100%; margin: 0; }
   .rx-search input { width: 150px; max-width: 46vw; }
   .rx-switch-menu { width: 86vw; }
   .rx-topbar-right { gap: 8px; }
+  /* Phones: hide the redundant top-bar TEXT (brand wordmark + the signed-in user's own name)
+     so the bar fits the viewport — the logo mark and the tappable avatar/▾ switcher both stay.
+     Without this, on search views (Visits/Negotiations/CPs/Properties) the search box + Filters
+     + user switcher overflow the viewport → ~44-124px of sideways page scroll. */
+  .rx-brand > span { display: none; }
+  .rx-who > span:first-child { display: none; }
   .rx-flt-grid { grid-template-columns: 1fr; }
 }
 .rx-nav-btn {
