@@ -329,6 +329,20 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-27 (Claude session — per-tab filter persistence + Reset, PR #44):**
+  - Every tab now **remembers the filters it applied for the session** (persists across tab navigation;
+    resets on page refresh / closing the link), plus an obvious **"↺ Reset filters"** in each tab. Web + mobile.
+  - **New `lib/sessionFilters.js`**: module-level `Map` + `useStickyState(key, initial)` drop-in for useState.
+    In-memory ONLY (deliberately NOT local/sessionStorage, which survive refresh) → survives SPA tab switches,
+    wiped on a full reload. Each filtered view (Negotiations / Revisits / Channel Partners / Properties /
+    Analytics / Inventory Snapshot / Property Performance / Book Visits) swaps filter `useState`→`useStickyState('<view>:<field>',…)`.
+    Visits already persisted via `visitsUi`; the shared top-bar Filters already persisted app-level (both unchanged).
+  - `App.jsx`: **search is now remembered per tab** (save-outgoing / restore-incoming via the store), preserving
+    the AI-Suggestions deep-link; two reset callbacks (`resetSearch`, `resetGlobalFilters`) handed to views. Each
+    tab's Reset clears its own chips/dates/sort + (where applicable) the shared Filters + search. New
+    `.btn.rx-reset-filters` style in app.css. Frontend-only, in-memory; no backend/DB/data change.
+  - Live-validated (web 1280px + mobile 375px, Admin): persistence + per-tab search + Reset + reset-on-refresh
+    (nothing persisted to disk) + deep-link intact + no console errors. Admin-only TeamPerf/ReportShare left out.
 - **2026-06-27 (Claude session — mobile polish: broker-modal tabs + chip-fade, PR #43):**
   - Follow-up to #42, two mobile-only polish fixes (desktop byte-identical). (1) `BrokerModal.jsx`: the modal
     rendered TWO tab rows on phones — the mobile `.bp-mtoggle` (Visits/Engagement/Timeline/Info) AND the desktop
