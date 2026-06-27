@@ -72,7 +72,7 @@ const VISIT_COLS = [
   { k: 'nextActivity', label: 'Next Activity', sort: true },
 ];
 
-export default function VisitsView({ seed, onOpenBroker, search = '', filters = {}, visitsUi = null, onVisitsUiChange }) {
+export default function VisitsView({ seed, onOpenBroker, search = '', filters = {}, visitsUi = null, onVisitsUiChange, onResetSearch, onResetGlobalFilters }) {
   const isMobile = useIsMobile();
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
@@ -129,6 +129,14 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   useEffect(() => {
     onVisitsUiChange?.({ statuses, stages, lastFus, priorities, leadSet, sortField, sortDir });
   }, [statuses, stages, lastFus, priorities, leadSet, sortField, sortDir]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // Reset every filter affecting this tab: the chip-bars + lead segment + sort (which sync up
+  // to visitsUi) + the shared top-bar Filters + the per-tab search.
+  const resetFilters = () => {
+    setStatuses([]); setStages([]); setLastFus([]); setPriorities([]);
+    setLeadSet('active'); setSortField('visit_date'); setSortDir('desc');
+    setPage(1); setSelectMode(false); setSelected(new Set());
+    onResetSearch?.(); onResetGlobalFilters?.();
+  };
 
   // owner resolver (legacy USERS_BY_ID[store.cpOwner[cp]])
   const ownerFor = (v) => ubs[cpOwner[v.cp_code]] || null;
@@ -453,6 +461,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
         >
           Select
         </button>
+        <button type="button" className="btn sm rx-reset-filters" onClick={resetFilters} title="Reset every filter on this tab" style={{ marginLeft: 'auto' }}>↺ Reset filters</button>
       </div>
 
       {/* ===== list head + pager ===== */}

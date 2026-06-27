@@ -5,12 +5,13 @@
 // editor + save (saveFollowup, incl. negotiation_happened + booking_received_date) live
 // in the shared PipelineQueue. This wrapper owns scoping + the SAME Visits filters (the
 // shared `filters` from FiltersModal) + a negotiation-meeting-date range + the stage tabs.
-import { useMemo, useState, useDeferredValue } from 'react';
+import { useMemo, useDeferredValue } from 'react';
 import { daysBetween } from '../lib/format.js';
 import { visitStage, scopeVisits, nextFuFor, nextActivityFor } from '../lib/visits.js';
 import { flatNo } from '../lib/propertyStatus.js';
 import ChipBar from '../components/ChipBar.jsx';
 import PipelineQueue from '../components/PipelineQueue.jsx';
+import { useStickyState } from '../lib/sessionFilters.js';
 
 const FUNNEL = ['negotiation', 'after_negotiation_fu', 'booking'];
 const STAGE_TABS = [
@@ -20,7 +21,7 @@ const STAGE_TABS = [
   { k: 'booking', label: 'Booking', cls: 'sg-book' },
 ];
 
-export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, search = '', filters = {} }) {
+export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, search = '', filters = {}, onResetSearch, onResetGlobalFilters }) {
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
   const properties = seed.properties || [];
@@ -46,10 +47,13 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
     return m;
   }, [properties]);
 
-  const [stageTab, setStageTab] = useState([]);
-  const [negFrom, setNegFrom] = useState('');
-  const [negTo, setNegTo] = useState('');
+  const [stageTab, setStageTab] = useStickyState('negotiations:stageTab', []);
+  const [negFrom, setNegFrom] = useStickyState('negotiations:negFrom', '');
+  const [negTo, setNegTo] = useStickyState('negotiations:negTo', '');
   const dq = useDeferredValue(search);
+  // Reset every filter affecting this tab: stage tabs + date range (local) + the shared
+  // top-bar Filters + the per-tab search (via App.jsx callbacks).
+  const resetFilters = () => { setStageTab([]); setNegFrom(''); setNegTo(''); onResetSearch?.(); onResetGlobalFilters?.(); };
 
   const funnel = useMemo(() => scoped.filter((v) => FUNNEL.includes(visitStage(v))), [scoped]);
 
@@ -145,7 +149,8 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
         {(negFrom || negTo) && (
           <button type="button" className="btn sm" onClick={() => { setNegFrom(''); setNegTo(''); }}>Clear dates ✕</button>
         )}
-        <span style={{ marginLeft: 'auto', color: 'var(--mut)', fontSize: 12.5 }}>
+        <button type="button" className="btn sm rx-reset-filters" onClick={resetFilters} title="Reset every filter on this tab">↺ Reset filters</button>
+        <span style={{ color: 'var(--mut)', fontSize: 12.5, flexBasis: '100%', marginTop: 2 }}>
           Use the top-bar <b>Filters</b> for city, society, CP, RM, BHK, source, etc.
         </span>
       </div>

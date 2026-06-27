@@ -89,6 +89,10 @@ html, body, #root { height: 100%; margin: 0; }
 .rx-impersonate-bar button { margin-left: auto; border: 1px solid #FCD34D; background: #fff; color: #92400E; font-weight: 600; font-size: 12px; padding: 3px 12px; border-radius: 7px; cursor: pointer; }
 .rx-impersonate-bar button:hover { background: var(--warnBg, #FEF3C7); }
 
+/* "Reset filters" — one consistent, obvious affordance across every filtered tab */
+.btn.rx-reset-filters { color: var(--acc, #2563EB); border-color: var(--acc, #2563EB); font-weight: 600; }
+.btn.rx-reset-filters:hover { background: var(--accBg, #EFF6FF); }
+
 @media (max-width: 760px) {
   .rx-search input { width: 150px; max-width: 46vw; }
   .rx-switch-menu { width: 86vw; }

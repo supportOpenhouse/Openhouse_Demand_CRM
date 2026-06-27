@@ -3,6 +3,7 @@
 // person / Ask-price range / Days-since-KH buckets. All filters are applied inside
 // PropertyStatusTable (additive), so the table, KH editing and CSV are unchanged.
 import { useState, useEffect, useMemo } from 'react';
+import { useStickyState } from '../lib/sessionFilters.js';
 import { loadKeyHandovers } from '../api.js';
 import PropertyStatusTable from '../components/PropertyStatusTable.jsx';
 
@@ -18,7 +19,7 @@ export default function PropertyPerformanceView({ seed }) {
     return () => { alive = false; };
   }, []);
 
-  const [f, setF] = useState(EMPTY);
+  const [f, setF] = useStickyState('propertyperf:f', EMPTY);
   const props = seed.properties || [];
   const opt = useMemo(() => ({
     cities: uniq(props.map((p) => p.city_name || p.city)),
@@ -90,7 +91,7 @@ export default function PropertyPerformanceView({ seed }) {
               <input className="pp-in sm" type="number" min="0" step="0.1" placeholder="max" value={f.priceMax} onChange={(e) => set('priceMax', e.target.value)} />
             </div>
           </div>
-          {active > 0 && <button type="button" className="pp-clear" onClick={() => setF(EMPTY)}>Clear filters ({active})</button>}
+          {active > 0 && <button type="button" className="pp-clear" onClick={() => setF(EMPTY)}>↺ Reset filters</button>}
         </div>
       </div>
 

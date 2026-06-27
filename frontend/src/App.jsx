@@ -25,6 +25,7 @@ import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
 import BottomTabBar from './components/BottomTabBar.jsx';
 import { TEAM_PILL } from './lib/legacy.js';
+import { readSticky, writeSticky } from './lib/sessionFilters.js';
 
 const SEARCH_VIEWS = new Set(['visits', 'negotiations', 'revisits', 'cps', 'properties']);
 
@@ -77,17 +78,27 @@ export default function App() {
   const [visitsUi, setVisitsUi] = useState(null);
   const [impersonate, setImpersonate] = useState(null); // admin: view as another user (slug)
   const [switcherOpen, setSwitcherOpen] = useState(false);
-  // clear search when switching views — UNLESS a deep-link (AI Suggestions) set a
-  // pending search to apply on arrival (e.g. jump to Visits filtered to a buyer).
+  // Per-tab search: remember each tab's search term in-session (resets on refresh),
+  // and apply an AI-Suggestions deep-link on arrival. searchRef holds the latest value
+  // so the OUTGOING tab's search is stashed when the view changes.
   const pendingSearch = useRef(null);
+  const searchRef = useRef(search); searchRef.current = search;
+  const prevView = useRef(view);
   useEffect(() => {
+    if (prevView.current !== view) writeSticky('search:' + prevView.current, searchRef.current);
     if (pendingSearch.current != null) { setSearch(pendingSearch.current); pendingSearch.current = null; }
-    else setSearch('');
+    else setSearch(readSticky('search:' + view, ''));
+    prevView.current = view;
   }, [view]);
   const navigateWithSearch = (targetView, term) => {
     if (term != null) pendingSearch.current = term;
     setView(targetView);
   };
+  // Per-tab "Reset filters" helpers handed to the filtered views. resetSearch clears the
+  // current tab's (per-tab) search; resetGlobalFilters returns the shared top-bar Filters
+  // to their default (source=via-CP). A view's Reset calls whichever apply to it.
+  const resetSearch = () => { setSearch(''); writeSticky('search:' + view, ''); };
+  const resetGlobalFilters = () => setFilters({ source: ['channel_partner'] });
 
   useEffect(() => {
     let alive = true;
@@ -242,15 +253,15 @@ export default function App() {
               ) : view === 'ai' ? (
                 <AiSuggestionsView seed={vseed} onOpenBroker={setOpenCp} onNavigate={navigateWithSearch} />
               ) : view === 'visits' ? (
-                <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} visitsUi={visitsUi} onVisitsUiChange={setVisitsUi} />
+                <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} visitsUi={visitsUi} onVisitsUiChange={setVisitsUi} onResetSearch={resetSearch} onResetGlobalFilters={resetGlobalFilters} />
               ) : view === 'negotiations' ? (
-                <NegotiationsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} />
+                <NegotiationsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} onResetSearch={resetSearch} onResetGlobalFilters={resetGlobalFilters} />
               ) : view === 'revisits' ? (
-                <RevisitsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} />
+                <RevisitsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} onResetGlobalFilters={resetGlobalFilters} />
               ) : view === 'cps' ? (
-                <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} />
+                <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} onResetSearch={resetSearch} />
               ) : view === 'properties' ? (
-                <PropertiesView seed={vseed} onOpenBroker={setOpenCp} search={search} />
+                <PropertiesView seed={vseed} onOpenBroker={setOpenCp} search={search} onResetSearch={resetSearch} />
               ) : view === 'analytics' ? (
                 <AnalyticsView seed={vseed} />
               ) : view === 'propertyperf' ? (

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, useEffect, useCallback, forwardRef } from 'react';
+import { useStickyState } from '../lib/sessionFilters.js';
 import { TODAY, ymd, fmtDate } from '../lib/format.js';
 import { parsePrice, fmtPrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
@@ -96,11 +97,11 @@ export default function SnapshotView({ seed }) {
   const properties = useMemo(() => seed.properties || [], [seed]);
 
   /* ----------------------------- filter state ----------------------------- */
-  const [fCities, setFCities] = useState([]);          // city_name multi
-  const [fConfigs, setFConfigs] = useState([]);         // configuration multi
-  const [fRegions, setFRegions] = useState([]);         // micro_market multi
-  const [priceMin, setPriceMin] = useState('');         // ₹, numeric text
-  const [priceMax, setPriceMax] = useState('');         // ₹, numeric text
+  const [fCities, setFCities] = useStickyState('snapshot:fCities', []);          // city_name multi
+  const [fConfigs, setFConfigs] = useStickyState('snapshot:fConfigs', []);         // configuration multi
+  const [fRegions, setFRegions] = useStickyState('snapshot:fRegions', []);         // micro_market multi
+  const [priceMin, setPriceMin] = useStickyState('snapshot:priceMin', '');         // ₹, numeric text
+  const [priceMax, setPriceMax] = useStickyState('snapshot:priceMax', '');         // ₹, numeric text
 
   // distinct option lists, derived from the full property set (alpha sorted)
   const cityOpts = useMemo(
@@ -278,7 +279,7 @@ export default function SnapshotView({ seed }) {
             />
           </div>
           {hasFilters ? (
-            <button type="button" className="an-chip clear" onClick={clearFilters}>Clear filters ✕</button>
+            <button type="button" className="an-chip clear rx-reset-filters" onClick={clearFilters}>↺ Reset filters</button>
           ) : null}
         </div>
         <div className="snap-filters-row">

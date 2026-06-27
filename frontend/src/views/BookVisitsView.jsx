@@ -8,6 +8,7 @@
 //     and implement bookVisits() to POST to it — that is the ONLY change needed here.
 // Gating to the two super-admins is enforced in App.jsx; this file assumes it is allowed.
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useStickyState } from '../lib/sessionFilters.js';
 import { parsePrice } from '../lib/legacy.js';
 import { TODAY, ymd } from '../lib/format.js';
 import { bookVisits, loadAllCps, loadInventory } from '../api.js';
@@ -150,8 +151,8 @@ export default function BookVisitsView({ seed }) {
     .map((b) => ({ cp_code: b.cp_code, name: b.name || b.cp_code, city: b.city || '', tier: b.tier || '', broker_id: b.id, company: b.company_name || '', phone: b.phone_number || '' }))
     .sort((a, b) => (a.tier > b.tier ? 1 : a.tier < b.tier ? -1 : (a.name || '').localeCompare(b.name || ''))), [allCps, seed]);
 
-  const [fCity, setFCity] = useState([]); const [fCfg, setFCfg] = useState([]); const [fRegion, setFRegion] = useState([]);
-  const [pmin, setPmin] = useState(''); const [pmax, setPmax] = useState(''); const [q, setQ] = useState('');
+  const [fCity, setFCity] = useStickyState('book:fCity', []); const [fCfg, setFCfg] = useStickyState('book:fCfg', []); const [fRegion, setFRegion] = useStickyState('book:fRegion', []);
+  const [pmin, setPmin] = useStickyState('book:pmin', ''); const [pmax, setPmax] = useStickyState('book:pmax', ''); const [q, setQ] = useStickyState('book:q', '');
   const [selected, setSelected] = useState(() => new Set());
   const [draft, setDraft] = useState(null);
 
@@ -242,7 +243,7 @@ export default function BookVisitsView({ seed }) {
           <input type="number" min="0" step="0.25" placeholder="max" value={pmax} onChange={(e) => setPmax(e.target.value)} />
         </div>
         <div className="bv-searchbox">🔎 <input placeholder="Search society or unit…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        {hasFilters ? <button type="button" className="bv-chip-clear" onClick={() => { setFCity([]); setFCfg([]); setFRegion([]); setPmin(''); setPmax(''); setQ(''); }}>Clear ✕</button> : null}
+        {hasFilters ? <button type="button" className="bv-chip-clear rx-reset-filters" onClick={() => { setFCity([]); setFCfg([]); setFRegion([]); setPmin(''); setPmax(''); setQ(''); }}>↺ Reset filters</button> : null}
       </div>
 
       <div className="bv-countrow">
