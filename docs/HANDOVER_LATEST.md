@@ -329,6 +329,15 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-27 (Claude session — mobile polish: broker-modal tabs + chip-fade, PR #43):**
+  - Follow-up to #42, two mobile-only polish fixes (desktop byte-identical). (1) `BrokerModal.jsx`: the modal
+    rendered TWO tab rows on phones — the mobile `.bp-mtoggle` (Visits/Engagement/Timeline/Info) AND the desktop
+    "MAIN TAB BAR" (with counts), both driving `popupTab`. Gated the main tab bar to `!isMobile` → phones get the
+    single `.bp-mtoggle` row. (2) `theme.css` mobile `.chip-row`: added a right-edge `mask-image` fade so the
+    horizontally-scrolling filter chips (scrollbar hidden) show there's more to scroll.
+  - Live-validated at 375px as **Admin, Ground PM (`abhash`), and KAM (`mukul`)**: modal now one tab row + 375px
+    wide; chip fade visible on scrollable rows; page overflow 0 on every view; scoped data correct (KAM = own
+    T1/T2 only, 1 negotiation lead vs Admin's 55). Frontend-only; Vercel auto-deploy.
 - **2026-06-27 (Claude session — mobile top-bar overflow fix, PR #42):**
   - Full mobile audit (live, at 375px). Finding: the CRM is already solid on mobile except **one** real defect —
     on the search views (Visits / Negotiations / Channel Partners / Properties) the top bar (logo wordmark +
