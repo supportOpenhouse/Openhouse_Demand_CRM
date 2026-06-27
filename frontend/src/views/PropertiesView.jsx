@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useStickyState } from '../lib/sessionFilters.js';
 import { propertiesForUser } from '../lib/properties.js';
 import { visitStatus, visitStage } from '../lib/visits.js';
 import { parsePrice } from '../lib/legacy.js';
@@ -92,7 +93,7 @@ const PROP_COLS = [
   { k: 'sales_manager', label: 'PM', type: 'text' },
 ];
 
-export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
+export default function PropertiesView({ seed, onOpenBroker, search = '', onResetSearch }) {
   const me = seed.current_user || {};
   const visits = seed.visits || [];
   const isMobile = useIsMobile();
@@ -112,20 +113,20 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
   }, []);
   const khMap = useMemo(() => buildKhMap(kh.items), [kh.items]);
 
-  const [city, setCity] = useState('all');         // state.cityFilter
+  const [city, setCity] = useStickyState('properties:city', 'all');         // state.cityFilter
   const [open, setOpen] = useState(null);          // state.openProperty (the property obj)
-  const [sortField, setSortField] = useState('total'); // default sort by Visits desc
-  const [sortDir, setSortDir] = useState('desc');
+  const [sortField, setSortField] = useStickyState('properties:sortField', 'total'); // default sort by Visits desc
+  const [sortDir, setSortDir] = useStickyState('properties:sortDir', 'desc');
 
   // ----- advanced filters (the new Filters panel) -----
   const [showFilters, setShowFilters] = useState(false);
-  const [fStatus, setFStatus] = useState([]);      // listing_status multi (Ready / Coming Soon)
-  const [fConfigs, setFConfigs] = useState([]);    // configuration multi (BHK)
-  const [fRegions, setFRegions] = useState([]);    // micro_market multi
-  const [fSocieties, setFSocieties] = useState([]); // society_name multi
-  const [fPMs, setFPMs] = useState([]);            // sales_manager multi
-  const [priceMin, setPriceMin] = useState('');    // ₹ Cr text
-  const [priceMax, setPriceMax] = useState('');    // ₹ Cr text
+  const [fStatus, setFStatus] = useStickyState('properties:fStatus', []);      // listing_status multi (Ready / Coming Soon)
+  const [fConfigs, setFConfigs] = useStickyState('properties:fConfigs', []);    // configuration multi (BHK)
+  const [fRegions, setFRegions] = useStickyState('properties:fRegions', []);    // micro_market multi
+  const [fSocieties, setFSocieties] = useStickyState('properties:fSocieties', []); // society_name multi
+  const [fPMs, setFPMs] = useStickyState('properties:fPMs', []);            // sales_manager multi
+  const [priceMin, setPriceMin] = useStickyState('properties:priceMin', '');    // ₹ Cr text
+  const [priceMax, setPriceMax] = useStickyState('properties:priceMax', '');    // ₹ Cr text
 
   // price bounds: inputs are in CRORES → ₹ (e.g. "1.5" → 15,000,000)
   const minRs = useMemo(() => { const n = parseFloat(priceMin); return Number.isFinite(n) && n > 0 ? n * 1e7 : null; }, [priceMin]);
@@ -142,7 +143,7 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
 
   const activeCount = fStatus.length + fConfigs.length + fRegions.length + fSocieties.length + fPMs.length
     + (minRs != null ? 1 : 0) + (maxRs != null ? 1 : 0);
-  const clearFilters = () => { setFStatus([]); setFConfigs([]); setFRegions([]); setFSocieties([]); setFPMs([]); setPriceMin(''); setPriceMax(''); };
+  const clearFilters = () => { setFStatus([]); setFConfigs([]); setFRegions([]); setFSocieties([]); setFPMs([]); setPriceMin(''); setPriceMax(''); setCity('all'); setSortField('total'); setSortDir('desc'); onResetSearch?.(); };
 
   function onSort(k) {
     if (sortField === k) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -221,6 +222,7 @@ export default function PropertiesView({ seed, onOpenBroker, search = '' }) {
           >
             ⚙ Filters{activeCount ? <span className="an-ms-count">{activeCount}</span> : null}<span className="an-ms-caret">{showFilters ? '▴' : '▾'}</span>
           </button>
+          <button type="button" className="btn sm rx-reset-filters" onClick={clearFilters} title="Reset every filter on this tab" style={{ marginLeft: 8 }}>↺ Reset filters</button>
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useDeferredValue } from 'react';
+import { useStickyState } from '../lib/sessionFilters.js';
 import { fmtDate, fmtDay } from '../lib/format.js';
 import { usersBySlug, ownedCpCodes, buildCpIndex, TIERS, TIER_META, sortInTier } from '../lib/brokers.js';
 import { FU_PRESETS, matchFuFilter } from '../lib/visits.js';
@@ -26,7 +27,7 @@ const PRIORITY_OPTS = [
 // D30 bold color rule (spec #9.7 / mobile #12.4).
 const d30Color = (n) => (n >= 3 ? 'var(--good)' : n > 0 ? 'var(--warn)' : 'var(--mut2)');
 
-export default function CpView({ seed, onOpenBroker, search = '' }) {
+export default function CpView({ seed, onOpenBroker, search = '', onResetSearch }) {
   const isMobile = useIsMobile();
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
@@ -56,18 +57,25 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
     .filter((b) => mineSet.has(b.cp_code) || b.tier === 'T3' || b.tier === 'T4')
     .map((b) => ({ ...b, _mine: mineSet.has(b.cp_code) })), [brokers, mineSet]);
 
-  const [tier, setTier] = useState('T1');
-  const [city, setCity] = useState('all');
-  const [owner, setOwner] = useState('all');   // all | __none__ | slug
-  const [unit, setUnit] = useState('');         // #4 typeable unit number
-  const [sort, setSort] = useState('rank');
+  const [tier, setTier] = useStickyState('cps:tier', 'T1');
+  const [city, setCity] = useStickyState('cps:city', 'all');
+  const [owner, setOwner] = useStickyState('cps:owner', 'all');   // all | __none__ | slug
+  const [unit, setUnit] = useStickyState('cps:unit', '');         // #4 typeable unit number
+  const [sort, setSort] = useStickyState('cps:sort', 'rank');
   // #4 clickable column-header sort — overrides the dropdown when a header is clicked.
   // hdrField=null means "use the dropdown mode"; picking the dropdown resets it to null.
-  const [hdrField, setHdrField] = useState(null);
-  const [hdrDir, setHdrDir] = useState('asc');
-  const [lastFu, setLastFu] = useState('all');     // chip-bar 1
-  const [priority, setPriority] = useState('all'); // chip-bar 2
+  const [hdrField, setHdrField] = useStickyState('cps:hdrField', null);
+  const [hdrDir, setHdrDir] = useStickyState('cps:hdrDir', 'asc');
+  const [lastFu, setLastFu] = useStickyState('cps:lastFu', 'all');     // chip-bar 1
+  const [priority, setPriority] = useStickyState('cps:priority', 'all'); // chip-bar 2
   const [page, setPage] = useState(1);
+  // Reset the filters (keeps the current tier segment): the two chip-bars, the city/owner/
+  // sort/unit controls + the per-tab search. (tier persists across tabs but isn't a "filter".)
+  const resetFilters = () => {
+    setCity('all'); setOwner('all'); setUnit(''); setSort('rank');
+    setHdrField(null); setHdrDir('asc'); setLastFu('all'); setPriority('all');
+    setPage(1); onResetSearch?.();
+  };
   const dq = useDeferredValue(search);              // global topbar search, debounced
 
   // overlay seed.followups into per-CP last-FU (matches legacy store.followupLog).
@@ -318,6 +326,7 @@ export default function CpView({ seed, onOpenBroker, search = '' }) {
           <option value="onboard">Sort: Recently onboarded</option>
         </select>
         <input className="rx-inp" style={{ width: 132 }} placeholder="Unit no. — 203" value={unit} onChange={(e) => setUnit(e.target.value)} />
+        <button type="button" className="btn sm rx-reset-filters" onClick={resetFilters} title="Reset every filter on this tab" style={{ marginLeft: 'auto' }}>↺ Reset filters</button>
       </div>
 
       <div className="list-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--mut)', fontSize: 12, margin: '6px 2px 10px' }}>

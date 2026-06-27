@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
+import { useStickyState } from '../lib/sessionFilters.js';
 import * as A from '../lib/analytics.js';
 import useIsMobile from '../lib/useIsMobile.js';
 
@@ -135,11 +136,11 @@ function Kpi({ label, value }) {
 export default function AnalyticsView({ seed }) {
   const visits = seed.visits || [];
   const isMobile = useIsMobile();
-  const [f, setF] = useState({
+  const [f, setF] = useStickyState('analytics:f', {
     statuses: ['completed'], leadStatuses: [], sources: [], cities: [], societies: [],
     apartments: [], salesManagers: [], brokers: [], listingStatuses: [], buyerQuery: '', dateFrom: '', dateTo: '',
   });
-  const [cross, setCross] = useState({});
+  const [cross, setCross] = useStickyState('analytics:cross', {});
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const opts = useMemo(() => A.optionLists(visits), [visits]);
 
@@ -179,7 +180,7 @@ export default function AnalyticsView({ seed }) {
         <MultiSelect label="Source" options={['Direct', 'CP', 'Other']} value={f.sources} onChange={(v) => set('sources', v)} />
         <MultiSelect label="Listing Status" options={opts.listingStatuses} value={f.listingStatuses} onChange={(v) => set('listingStatuses', v)} />
         <input className="an-buyer" placeholder="Buyer name / contact…" value={f.buyerQuery} onChange={(e) => set('buyerQuery', e.target.value)} />
-        <button type="button" className="an-reset" onClick={resetAll}>Reset</button>
+        <button type="button" className="an-reset rx-reset-filters" onClick={resetAll}>↺ Reset filters</button>
       </div>
 
       {/* ---- cross-filter chips ---- */}
