@@ -321,12 +321,15 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
                 </div>
               ) : null}
 
-              {/* MAIN TAB BAR */}
-              <div style={{ display: 'flex', gap: 0, margin: '-2px -2px 14px', background: 'var(--panel)', padding: '0 4px', borderRadius: '8px 8px 0 0', borderTop: '1px solid var(--line)', borderLeft: '1px solid var(--line)', borderRight: '1px solid var(--line)', borderBottom: 0 }}>
-                {[['visits', `📋 Visits (${visitCount})`], ['engagement', `📞 Engagement (${engagements.length})`], ['timeline', '🕓 Timeline']].map(([k, label]) => (
-                  <button key={k} onClick={() => setPopupTab(k)} style={{ padding: '10px 18px', color: popupTab === k ? 'var(--acc)' : 'var(--mut)', fontWeight: 600, fontSize: 13, border: 0, background: 'none', cursor: 'pointer', borderBottom: '2px solid ' + (popupTab === k ? 'var(--acc)' : 'transparent'), marginBottom: -1 }}>{label}</button>
-                ))}
-              </div>
+              {/* MAIN TAB BAR — desktop only; on mobile the .bp-mtoggle bar above (Visits/
+                  Engagement/Timeline/Info) is the tab nav, so this would be a duplicate row. */}
+              {!isMobile && (
+                <div style={{ display: 'flex', gap: 0, margin: '-2px -2px 14px', background: 'var(--panel)', padding: '0 4px', borderRadius: '8px 8px 0 0', borderTop: '1px solid var(--line)', borderLeft: '1px solid var(--line)', borderRight: '1px solid var(--line)', borderBottom: 0 }}>
+                  {[['visits', `📋 Visits (${visitCount})`], ['engagement', `📞 Engagement (${engagements.length})`], ['timeline', '🕓 Timeline']].map(([k, label]) => (
+                    <button key={k} onClick={() => setPopupTab(k)} style={{ padding: '10px 18px', color: popupTab === k ? 'var(--acc)' : 'var(--mut)', fontWeight: 600, fontSize: 13, border: 0, background: 'none', cursor: 'pointer', borderBottom: '2px solid ' + (popupTab === k ? 'var(--acc)' : 'transparent'), marginBottom: -1 }}>{label}</button>
+                  ))}
+                </div>
+              )}
 
               {/* TAB CONTENT */}
               {popupTab === 'engagement' ? (
