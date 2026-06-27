@@ -329,6 +329,20 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-06-27 (Claude session — mobile top-bar overflow fix, PR #42):**
+  - Full mobile audit (live, at 375px). Finding: the CRM is already solid on mobile except **one** real defect —
+    on the search views (Visits / Negotiations / Channel Partners / Properties) the top bar (logo wordmark +
+    search + Filters + user switcher) is wider than a phone, giving **44–124px of horizontal page overflow**
+    (sideways drift; the signed-in user's name wrapped to 3 lines or was pushed off-screen; full-screen modals
+    stretched to ~419px). Non-search views were already 0 (no search box).
+  - **`app.css`** (existing `@media (max-width:760px)` top-bar block): hide the redundant top-bar TEXT on phones —
+    `.rx-brand > span` (the "OpenHouse DEMAND" wordmark) and `.rx-who > span:first-child` (the user's own
+    "Name · Team"). The logo icon + tappable avatar/▾ switcher stay → no function lost. CSS-only, ≤760px,
+    **desktop byte-identical**.
+  - Live-validated at 375px: overflow **124 → 0** (Visits), **44 → 0** (Channel Partners); avatar switcher still
+    opens the 48-user "view as" list; Home / Book Visits / Property Performance unchanged; broker modal back to
+    375px. Frontend-only; Vercel auto-deploy. Verified-solid & unchanged: Negotiations/Revisits day-of confirm +
+    reschedule (`datetime-local` fits), wide tables scroll inside `.ps-wrap`, broker modal opens fast (no freeze).
 - **2026-06-25 (Claude session — Negotiations tab: KAMs scoped to their own T1/T2, PR #35):**
   - In the Negotiations tab a KAM should see **only their own (T1/T2) CP leads**, not the wider extra-cities
     pipeline ("everyone's pipeline should not be available to everyone"). The tab reused Visits' scoping, where a
