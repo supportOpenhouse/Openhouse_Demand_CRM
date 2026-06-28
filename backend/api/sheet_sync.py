@@ -7,6 +7,10 @@ Four sources:
   3. live_inventory · Sheet1     → properties (+ property_assignments via sales_manager)
   4. live_inventory · All Props  → all_properties (flat mirror, every listing status)
 
+Post-sync: reconcile_property_statuses() reflects terminal (Sold/Archived) status from
+all_properties onto properties — a unit leaves the active `Sheet1` feed when it is sold,
+so sync_properties (Sheet1-only) can never re-stamp it on its own.
+
 Called on a Render Cron Job every 15 min (via POST /admin/sync with bearer header).
 """
 from __future__ import annotations
@@ -937,6 +941,55 @@ async def sync_sales_manager_ids(conn: asyncpg.Connection) -> dict:
     return {"seen": len(sm), "updated": updated}
 
 
+async def reconcile_property_statuses(conn: asyncpg.Connection) -> dict:
+    """Reflect terminal (Sold/Archived) status onto `properties`.
+
+    `sync_properties` reads only the live `Sheet1` tab, which carries active
+    listings (Ready/Coming Soon/Booked). When a unit is sold or archived it
+    DROPS OUT of Sheet1, so the upsert never sees it again and its
+    `properties.listing_status` stays frozen at its last active value. The
+    `all_properties` table (the "All Properties" tab, just refreshed by
+    `sync_all_properties` immediately above) is the authoritative full mirror,
+    Sold/Archived included. Copy ONLY a terminal status across, ONLY where it
+    diverges, keyed on the UNIQUE `property_name` (NOT home_id, which differs
+    between the two tabs).
+
+    Scope guarantees (validated against live data): touches `listing_status` +
+    `updated_at` only; never inserts; never alters an active unit (the
+    `IN ('Sold','Archived')` guard means it can only ever stamp those two
+    values, so a Sheet1-authoritative active row is never overwritten); no PM /
+    assignment / home_id / pricing / visit / lead writes. The `IS DISTINCT FROM`
+    guard makes it idempotent — a no-op once in sync.
+    """
+    run_id = await _begin_run(
+        conn, "reconcile_property_status", config.SHEET_ID_INVENTORY,
+        "properties<-all_properties",
+    )
+    changed = await conn.fetch(
+        """
+        UPDATE properties p
+        SET listing_status = ap.listing_status,
+            updated_at = now()
+        FROM all_properties ap
+        WHERE ap.property_name = p.property_name
+          AND p.deleted_at IS NULL
+          AND ap.deleted_at IS NULL
+          AND ap.listing_status IN ('Sold', 'Archived')
+          AND p.listing_status IS DISTINCT FROM ap.listing_status
+        RETURNING p.property_name, p.listing_status
+        """
+    )
+    n = len(changed)
+    await _finish_run(
+        conn, run_id, n, 0, n, 0, 0,
+        [{"property_name": r["property_name"], "new_status": r["listing_status"]}
+         for r in changed[:50]],
+    )
+    if n:
+        log.info("[inv] reconcile_property_statuses: stamped %d unit(s) Sold/Archived", n)
+    return {"updated": n}
+
+
 async def run_all() -> dict:
     """Run brokers → tiers → properties → visits in that order (FK dependencies),
     then reclassify old/dead leads off the freshly-synced property statuses."""
@@ -952,6 +1005,9 @@ async def run_all() -> dict:
             out["tiers"] = {"skipped": "ENABLE_TIER_SYNC is off"}
         out["properties"] = await sync_properties(conn)
         out["all_properties"] = await sync_all_properties(conn)
+        # Sold/Archived units leave the active Sheet1 feed, so sync_properties can
+        # never re-stamp them; reflect their terminal status from all_properties.
+        out["reconcile_property_status"] = await reconcile_property_statuses(conn)
         out["visits"] = await sync_visits(conn, limit=config.SEED_VISITS_LIMIT)
         # MUST be last: re-derives old/dead from the just-synced all_properties,
         # overriding any lead_status the sheet upsert above restored.

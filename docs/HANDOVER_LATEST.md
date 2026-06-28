@@ -1022,6 +1022,17 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     data: `channel_partner` 9110 / `direct` 988 / `lsq_migration` 4 (last two hidden by default; only Direct is a filter
     option). Filters badge shows "1" by default; prod-verified (Visits shows CP-only "1–60 of 4868", Source modal = via CP ON).
 
+22. **Live-inventory Sold/Archived status now reflects into `properties`** **✅ DONE 2026-06-28 (PR #45).** `sync_properties`
+    reads only the active `Sheet1` tab, so when a unit is sold/archived it **leaves `Sheet1`** and its
+    `properties.listing_status` froze at the last active value — the true status only landed in `all_properties` (the "All
+    Properties" tab), which the UI doesn't read. Added `reconcile_property_statuses()` (`sheet_sync.py`), called in `run_all()`
+    right after `sync_all_properties`: one guarded `UPDATE properties … FROM all_properties` that copies a **terminal status
+    (`Sold`/`Archived`) by the UNIQUE `property_name`**, only where it diverges (`IS DISTINCT FROM`). Additive, backend-only —
+    touches `listing_status` + `updated_at` only (no inserts, no PM/home_id/visit/lead writes); strictly 1:1 join; idempotent
+    (no-op once in sync); logs to `sheet_sync_log` as `reconcile_property_status`. Validated on the live DB (rolled-back txn):
+    exactly **19** stale rows corrected (15→Sold, 4→Archived), **0** non-terminal divergences, control active row untouched.
+    Effect: sold units show correct status and correctly drop out of Book-a-Visit + broker-share.
+
 ---
 
 ## 11. Common commands
