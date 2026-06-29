@@ -91,6 +91,8 @@ export default function AiSuggestionsView({ seed, onOpenBroker, onNavigate, init
             <Stat n={counts.overdue_followups} label="Overdue FUs" tone={counts.overdue_followups ? 'bad' : ''} />
             <Stat n={counts.due_today} label="Due today" tone={counts.due_today ? 'warn' : ''} />
             <Stat n={counts.near_closing} label="Near closing" tone={counts.near_closing ? 'good' : ''} />
+            <Stat n={counts.no_next_fu} label="No next-FU" tone={counts.no_next_fu ? 'bad' : ''} />
+            <Stat n={counts.going_cold} label="Going cold" tone={counts.going_cold ? 'bad' : ''} />
             <Stat n={counts.awaiting_update} label="Awaiting update" />
           </div>
 
@@ -114,6 +116,92 @@ export default function AiSuggestionsView({ seed, onOpenBroker, onNavigate, init
               )}
             </ol>
           </div>
+
+          {/* Follow-up discipline — the no-next-step / overdue / going-cold panel.
+              Personal lists for everyone; the per-RM team roll-up shows only when the
+              user oversees more than one RM (TL/Admin). Rides the scoped signals. */}
+          {(sig?.no_next_fu?.length > 0 || sig?.going_cold?.length > 0 || (sig?.team_discipline?.length || 0) > 1) && (
+            <div className="as-card">
+              <div className="as-card-h">
+                🔔 Follow-up discipline
+                <span className="as-count">{counts.no_next_fu || 0} no next-step · {counts.overdue_followups || 0} overdue · {counts.going_cold || 0} going cold</span>
+              </div>
+
+              {sig?.team_discipline?.length > 1 && (
+                <div className="as-team">
+                  <div className="as-team-row as-team-head">
+                    <span>Team member</span><span>Active</span><span>No next-FU</span><span>Overdue</span><span>Going cold</span>
+                  </div>
+                  {sig.team_discipline.map((r) => (
+                    <button type="button" key={r.rm} className="as-team-row" onClick={() => onNavigate?.('visits', r.rm)}>
+                      <span className="as-team-rm">{r.rm}</span>
+                      <span>{r.active}</span>
+                      <span className={r.no_fu ? 'as-x bad' : 'as-x'}>{r.no_fu}</span>
+                      <span className={r.overdue ? 'as-x warn' : 'as-x'}>{r.overdue}</span>
+                      <span className={r.cold ? 'as-x bad' : 'as-x'}>{r.cold}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {sig?.no_next_fu?.length > 0 && (
+                <div className="as-disc">
+                  <div className="as-disc-sub">Leads with no next step <span className="as-count">{sig.no_next_fu.length}</span></div>
+                  {sig.no_next_fu.slice(0, 12).map((r, i) => (
+                    <button type="button" key={i} className="as-lead" onClick={() => onNavigate?.('visits', r.buyer)}>
+                      <span className="as-lead-l"><b>{r.buyer}</b><span className="as-lead-sub">{r.society || ''}{r.rm ? ' · ' + r.rm : ''}</span></span>
+                      <span className={'as-pill ' + (r.status === 'hot' ? 'bad' : r.status === 'warm' ? 'warn' : '')}>{r.status}</span>
+                    </button>
+                  ))}
+                  {sig.no_next_fu.length > 12 && (
+                    <button type="button" className="as-more" onClick={() => onNavigate?.('visits', '')}>+{sig.no_next_fu.length - 12} more — set next steps in Visits ↗</button>
+                  )}
+                </div>
+              )}
+
+              {sig?.going_cold?.length > 0 && (
+                <div className="as-disc">
+                  <div className="as-disc-sub">🧊 Hot / Warm going cold <span className="as-count">{sig.going_cold.length}</span></div>
+                  {sig.going_cold.slice(0, 8).map((r, i) => (
+                    <button type="button" key={i} className="as-lead" onClick={() => onNavigate?.('visits', r.buyer)}>
+                      <span className="as-lead-l"><b>{r.buyer}</b><span className="as-lead-sub">{r.society || ''}{r.rm ? ' · ' + r.rm : ''}</span></span>
+                      <span className="as-pill bad">{r.days_since}d cold</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* CP reactivation — partners who were active 30–90 days ago but have had
+              no visit in the last 30 (activity_category D60/D90_active). The viewer's
+              OWN CPs (cp_owner) float to the top. Rides the scoped brokers; hidden
+              when there are none. Read-only — opens the CP profile, changes nothing. */}
+          {sig?.cp_slipping?.length > 0
+            && (me.team === 'Admin' || me.team === 'TL' || me.team === 'KAM' || sig.cp_slipping.some((b) => b.owned)) && (
+            <div className="as-card">
+              <div className="as-card-h">
+                🤝 CPs to reactivate
+                <span className="as-count">{counts.cp_slipping || 0} slipping{counts.cp_dormant ? ` · ${counts.cp_dormant} dormant` : ''}</span>
+              </div>
+              <div className="as-disc-sub" style={{ margin: '2px 0 6px' }}>
+                Active 30–90 days ago, then silent the last 30 — nudge them before they churn.
+                {sig.cp_slipping.some((b) => b.owned) ? ` ${sig.cp_slipping.filter((b) => b.owned).length} are yours (★).` : ''}
+              </div>
+              {sig.cp_slipping.slice(0, 12).map((b) => (
+                <button type="button" key={b.cp_code} className="as-broker" onClick={() => onOpenBroker?.(b.cp_code)}>
+                  <span className="as-broker-l">
+                    <b>{b.name}{b.owned ? <span style={{ color: '#B45309' }} title="Your CP"> ★</span> : null}</b>
+                    <span className="as-broker-sub">{b.cp_code} · {b.all_time_visits} visit{b.all_time_visits === 1 ? '' : 's'} all-time{b.tier && b.tier !== 'T4' ? ' · ' + b.tier : ''}</span>
+                  </span>
+                  <span className={'as-pill ' + (b.activity === 'D90_active' ? 'bad' : 'warn')}>{b.window}</span>
+                </button>
+              ))}
+              {sig.cp_slipping.length > 12 && (
+                <button type="button" className="as-more" onClick={() => onNavigate?.('cps', '')}>+{sig.cp_slipping.length - 12} more — view in Channel Partners ↗</button>
+              )}
+            </div>
+          )}
 
           <div className="as-cols">
             {/* brokers to call */}
@@ -188,7 +276,7 @@ function AsStyles() {
 @keyframes as-rot{to{transform:rotate(360deg)}}
 .as-err{background:#FFF1E9;border:1px solid #F6C7AE;color:#9A3412;border-radius:11px;padding:12px 14px;font-size:13px}
 .as-link{background:none;border:none;color:var(--as-brand);font-weight:700;cursor:pointer}
-.as-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-bottom:13px}
+.as-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:9px;margin-bottom:13px}
 .as-stat{background:#fff;border:1px solid var(--as-line);border-radius:11px;padding:11px 8px;text-align:center}
 .as-stat-n{font-size:21px;font-weight:800;color:#1A1A1A;line-height:1}
 .as-stat-l{font-size:10.5px;font-weight:700;color:var(--as-faint);text-transform:uppercase;letter-spacing:.03em;margin-top:5px}
@@ -214,6 +302,19 @@ function AsStyles() {
 .as-pill{flex:0 0 auto;background:#FEEEE7;color:var(--as-brand);font-size:11px;font-weight:800;padding:3px 9px;border-radius:7px;white-space:nowrap}
 .as-pill.bad{background:#FCEBEB;color:#B91C1C}
 .as-more{width:100%;background:none;border:1px dashed var(--as-line2);border-radius:9px;padding:8px;font-size:12px;font-weight:700;color:var(--as-brand);cursor:pointer;margin-top:2px}
+.as-pill.warn{background:#FEF3E2;color:#B45309}
+.as-team{border:1px solid var(--as-line);border-radius:9px;overflow:hidden;margin-bottom:11px}
+.as-team-row{display:grid;grid-template-columns:1.6fr .7fr 1fr .8fr 1fr;align-items:center;gap:6px;width:100%;text-align:left;background:#fff;border:none;border-bottom:1px solid var(--as-line);padding:8px 11px;font-size:12.5px;color:#2A2A2A;cursor:pointer;font-family:inherit}
+.as-team-row:last-child{border-bottom:none}
+.as-team-row:hover{background:#FFF7F3}
+.as-team-head{background:var(--as-bg);font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--as-faint);cursor:default}
+.as-team-head:hover{background:var(--as-bg)}
+.as-team-rm{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.as-team-row>span:not(.as-team-rm){text-align:center}
+.as-x{font-weight:700;color:var(--as-ink2)}
+.as-x.bad{color:#B91C1C}.as-x.warn{color:#B45309}
+.as-disc{margin-top:4px}
+.as-disc-sub{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--as-faint);margin:10px 0 6px;display:flex;align-items:center;gap:8px}
 .as-foot{font-size:11.5px;color:var(--as-mut);text-align:center;padding:6px 0 2px;line-height:1.5}
 @media(max-width:760px){.as-stats{grid-template-columns:repeat(3,1fr)}.as-cols{grid-template-columns:1fr}}
 `}</style>

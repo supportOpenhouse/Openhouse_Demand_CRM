@@ -553,6 +553,8 @@ function FollowupForm({ v, draft, onPatch, onSaved }) {
         next_followup_date: isDead ? null : (draft.next_date || ymd(addDays(TODAY, 2))),
         revisit_date: isDead ? null : (draft.revisit_date || null),
         negotiation_date: isDead ? null : (draft.negotiation_date || null),
+        booking_received_date: draft.stage === 'booking'
+          ? (draft.booking_received_date || v.booking_received_date || ymd(TODAY)) : null,
       });
       toast('Follow-up logged', 'good');
       onSaved?.();
@@ -598,6 +600,15 @@ function FollowupForm({ v, draft, onPatch, onSaved }) {
           <input type="datetime-local" value={draft.negotiation_date || ''} onChange={(e) => onPatch({ negotiation_date: e.target.value })}
                  style={{ padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 7, background: '#fff', fontSize: 13, width: 240, maxWidth: '100%' }} />
           <div style={{ fontSize: 11, color: '#1E40AF', marginTop: 4 }}>The lead stays in "Negotiation" until the team confirms the meeting outcome in the Negotiations tab.</div>
+        </div>
+      ) : null}
+
+      {draft.stage === 'booking' ? (
+        <div className="fu-grp" style={{ background: '#ECFDF5', border: '1px solid #6EE7B7', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+          <label style={{ color: '#065F46' }}>Booking-received date <span style={{ color: 'var(--bad)', fontWeight: 700 }}>*</span></label>
+          <input type="date" value={draft.booking_received_date || v.booking_received_date || ymd(TODAY)} onChange={(e) => onPatch({ booking_received_date: e.target.value })}
+                 style={{ padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 7, background: '#fff', fontSize: 13, width: 240, maxWidth: '100%' }} />
+          <div style={{ fontSize: 11, color: '#065F46', marginTop: 4 }}>Captures the booking in the CRM — credited to CP {v.cp_code || '—'} · RM {v.sales_manager || '—'}.</div>
         </div>
       ) : null}
 
