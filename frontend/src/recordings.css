@@ -75,6 +75,24 @@
   cursor: pointer;
 }
 .rec-tabbtn.on { background: var(--acc); border-color: var(--acc); color: #fff; }
+.rec-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.rec-typechips { display: inline-flex; gap: 6px; }
+.rec-chipbtn {
+  border: 1px solid var(--line); background: var(--panel); color: var(--txt);
+  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.rec-chipbtn.on { background: var(--accDark); border-color: var(--accDark); color: #fff; }
+.rec-in {
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12.5px;
+  outline: none; background: var(--panel); color: var(--txt); min-width: 150px;
+}
+.rec-in:focus { border-color: var(--acc); }
+.rec-clear {
+  border: 1px solid var(--line); background: var(--panel2); color: var(--txt);
+  border-radius: 8px; padding: 6px 11px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.rec-total { color: var(--mut); font-size: 12.5px; margin-left: auto; }
+.rec-status { font-size: 11px; padding: 2px 8px; border-radius: 5px; background: var(--panel2); border: 1px solid var(--line); color: var(--mut); text-transform: capitalize; }
 .rec-list { display: grid; gap: 9px; }
 .rec-card { border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 10px 13px; }
 .rec-card-top { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; font-size: 12.5px; }

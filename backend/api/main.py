@@ -1694,10 +1694,11 @@ async def get_meeting_summary(meeting_id: str, user: dict = Depends(auth.current
 
 
 @app.get("/api/meetings/recordings")
-async def list_meeting_recordings(status: str = "", limit: int = 500,
-                                  user: dict = Depends(auth.current_user)):
+async def list_meeting_recordings(status: str = "", mtype: str = "", cp: str = "", rm: str = "",
+                                  limit: int = 500, user: dict = Depends(auth.current_user)):
     """The recordings tab. Admin sees ALL; a mapped RM sees the ones THEY conducted.
-    Optional ?status=unmatched|matched|manual|dismissed."""
+    Filters (all optional): ?status=unmatched|matched|manual|dismissed,
+    ?mtype=engagement|visit, ?cp=<code/name substring>, ?rm=<name substring>."""
     if user["team"] == "Report":
         raise HTTPException(403, "No access")
     limit = max(1, min(limit, 2000))
@@ -1709,19 +1710,33 @@ async def list_meeting_recordings(status: str = "", limit: int = 500,
             if smid is None:
                 raise HTTPException(403, "No recordings for your account")
             scope_sql, scope_args = "rm_smid = $1", [smid]
-        conds, args = [scope_sql], list(scope_args)
+        # base = scope + type/cp/rm (everything EXCEPT status, so the per-status tab
+        # counts reflect the other active filters). Every filter is parameterized.
+        base_conds, base_args = [scope_sql], list(scope_args)
+        if mtype in ("engagement", "visit"):
+            base_args.append(mtype)
+            base_conds.append(f"meeting_type = ${len(base_args)}")
+        if cp.strip():
+            base_args.append(f"%{cp.strip()}%")
+            base_conds.append(f"(cp_code ILIKE ${len(base_args)} OR broker_cp_code ILIKE ${len(base_args)} "
+                              f"OR cp_name ILIKE ${len(base_args)})")
+        if rm.strip():
+            base_args.append(f"%{rm.strip()}%")
+            base_conds.append(f"rm_name ILIKE ${len(base_args)}")
+        base_where = " AND ".join(base_conds)
+        counts = await conn.fetch(
+            f"SELECT match_status, count(*) n FROM meeting_recordings WHERE {base_where} GROUP BY 1", *base_args)
+        conds, args = list(base_conds), list(base_args)
         if status in ("unmatched", "matched", "manual", "dismissed"):
             args.append(status)
             conds.append(f"match_status = ${len(args)}")
+        where = " AND ".join(conds)
+        total = await conn.fetchval(f"SELECT count(*) FROM meeting_recordings WHERE {where}", *args)
         args.append(limit)
         rows = await conn.fetch(
             "SELECT meeting_id, meeting_type, meeting_date, rm_name, cp_code, cp_name, "
             "cp_mobile, broker_cp_code, visit_code, match_status, match_method "
-            "FROM meeting_recordings WHERE " + " AND ".join(conds) +
-            f" ORDER BY meeting_date DESC NULLS LAST LIMIT ${len(args)}", *args)
-        counts = await conn.fetch(
-            "SELECT match_status, count(*) n FROM meeting_recordings WHERE " + scope_sql +
-            " GROUP BY 1", *scope_args)
+            f"FROM meeting_recordings WHERE {where} ORDER BY meeting_date DESC NULLS LAST LIMIT ${len(args)}", *args)
     items = [{
         "id": str(r["meeting_id"]), "type": r["meeting_type"],
         "date": seed_snapshot._date_str(r["meeting_date"]), "rm": r["rm_name"] or "",
@@ -1731,7 +1746,8 @@ async def list_meeting_recordings(status: str = "", limit: int = 500,
         "visit_code": str(r["visit_code"]) if r["visit_code"] else "",
         "match_status": r["match_status"], "match_method": r["match_method"] or "",
     } for r in rows]
-    return {"items": items, "counts": {r["match_status"]: r["n"] for r in counts}}
+    return {"items": items, "counts": {r["match_status"]: r["n"] for r in counts},
+            "total": total, "limit": limit}
 
 
 class MeetingMatchBody(BaseModel):
