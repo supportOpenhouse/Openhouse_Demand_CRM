@@ -1033,6 +1033,20 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     exactly **19** stale rows corrected (15→Sold, 4→Archived), **0** non-terminal divergences, control active row untouched.
     Effect: sold units show correct status and correctly drop out of Book-a-Visit + broker-share.
 
+23. **Meeting Recordings — read-only annotation layer** **✅ DONE 2026-06-29 (PR #46).** Surfaces the Openhouse
+    Meetings-app recordings (date + who conducted it + a structured-summary digest) against CRM **brokers**
+    (engagements) and **visits** (BVAs). **Additive + dormant by default** (`MEETINGS_DATABASE_URL` unset ⇒ no-op).
+    Source = the Meetings Neon DB, read STRICTLY READ-ONLY. New: migration `020_meeting_recordings.sql` (isolated
+    table, TEXT join keys, **no FKs**); `meetings_sync.run_sync()` (read-only pull → upsert only `meeting_recordings`,
+    preserves manual/dismissed); routes `POST /admin/sync-meetings` (hourly cron), `GET /api/meetings/{id}/summary`
+    (on-expand digest), `GET /api/meetings/recordings` (admin=all / RM=own), `POST …/match` + `…/dismiss` (admin).
+    Seed: 2 lightweight marker maps (`meeting_recordings_by_cp/_by_visit`) scoped via a `scope_for_user` wrapper
+    (rides existing broker/visit scope; admin=all, Report=∅). Frontend: 🎙 markers on Visits rows + CP cards, an
+    expandable summary in BrokerModal, and a `Meeting Recordings` tab (Admin + RMs). **Matching (validated):**
+    cp_code→broker (+ unambiguous phone), cp_visit_id→visit, else same-day-unique / same-day+RM (247 visits pinned,
+    0 integrity errors). Live-validated (web + mobile, admin + KAM, 0 console errors). **Go-live needs (Render
+    dashboard):** set `MEETINGS_DATABASE_URL` in `oh-crm-secrets` + **Blueprint re-sync** to create the hourly cron.
+
 ---
 
 ## 11. Common commands

@@ -36,6 +36,31 @@ NO_KAM_GROUND_CITIES = {"Ghaziabad"}
 
 
 def scope_for_user(snap: dict, user: dict) -> dict:
+    """Public entry: scope the snapshot for `user`, then trim the meeting-recording
+    markers to that same scope (additive; a no-op when the feature is dormant)."""
+    _scope_for_user_core(snap, user)
+    _scope_recordings(snap, user)
+    return snap
+
+
+def _scope_recordings(snap: dict, user: dict) -> None:
+    """Trim the 🎙 marker maps to exactly the brokers/visits already in `snap`.
+    Admin keeps everything; Report ends up empty (its brokers/visits were blanked).
+    No NEW scoping logic — it rides the existing broker/visit scope. The conducting
+    RM's own out-of-scope recordings are served by the recordings tab, not here."""
+    by_cp = snap.get("meeting_recordings_by_cp")
+    by_visit = snap.get("meeting_recordings_by_visit")
+    if not by_cp and not by_visit:
+        return
+    if user.get("team") == "Admin":
+        return
+    visible_cps = {b["cp_code"] for b in snap.get("brokers", [])}
+    visible_visits = {str(v["id"]) for v in snap.get("visits", [])}
+    snap["meeting_recordings_by_cp"] = {cp: a for cp, a in (by_cp or {}).items() if cp in visible_cps}
+    snap["meeting_recordings_by_visit"] = {vc: a for vc, a in (by_visit or {}).items() if vc in visible_visits}
+
+
+def _scope_for_user_core(snap: dict, user: dict) -> dict:
     """Trim the full snapshot to what `user` is allowed to see, mirroring the
     frontend's visitsForUser()/brokersForUser()/propertiesForUser() exactly so
     no view breaks. Mutates and returns `snap` (a fresh dict per request).
@@ -682,6 +707,28 @@ async def build(conn: asyncpg.Connection) -> dict:
         "extra_cities_enabled": bool(r["extra_cities_enabled"]),
     } for r in user_rows]
 
+    # --- meeting recordings: lightweight markers only (NO summary; the summary is
+    # fetched on expand). Keyed by the resolved CRM anchors so the client renders 🎙
+    # against the right CP / visit. Defensive — if the table is absent or the feature
+    # is dormant the maps are empty and the seed is byte-identical to before. ---
+    mr_by_cp: dict = {}
+    mr_by_visit: dict = {}
+    try:
+        for r in await conn.fetch(
+            "SELECT meeting_id, meeting_type, meeting_date, rm_name, "
+            "broker_cp_code, visit_code, match_method FROM meeting_recordings "
+            "WHERE broker_cp_code IS NOT NULL OR visit_code IS NOT NULL"
+        ):
+            m = {"id": str(r["meeting_id"]), "type": r["meeting_type"],
+                 "date": _date_str(r["meeting_date"]), "rm": r["rm_name"] or "",
+                 "method": r["match_method"] or ""}
+            if r["broker_cp_code"]:
+                mr_by_cp.setdefault(r["broker_cp_code"], []).append(m)
+            if r["visit_code"]:
+                mr_by_visit.setdefault(str(r["visit_code"]), []).append(m)
+    except Exception:  # noqa: BLE001 — never let the recordings layer break the seed
+        mr_by_cp, mr_by_visit = {}, {}
+
     return {
         "users": users,
         "engagements": engagements,
@@ -700,5 +747,7 @@ async def build(conn: asyncpg.Connection) -> dict:
         "nudges_by_visit": nudges_by_visit,
         "notifications": notifications,
         "team_tasks": team_tasks,
+        "meeting_recordings_by_cp": mr_by_cp,
+        "meeting_recordings_by_visit": mr_by_visit,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }

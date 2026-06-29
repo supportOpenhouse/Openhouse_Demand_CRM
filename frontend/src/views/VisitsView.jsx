@@ -13,6 +13,7 @@ import { flatNo } from '../lib/propertyStatus.js';
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import ChipBar from '../components/ChipBar.jsx';
+import { hasVisitRec } from '../lib/recordings.js';
 
 const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
 const PAGE_SIZE = 60;
@@ -557,7 +558,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                       ? <td className="col-check"><input type="checkbox" checked={checked} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(v.id)} /></td>
                       : <td />}
                     <td className={'col-star ' + (v._starred ? 'on' : '')}>{v._starred ? '★' : '☆'}</td>
-                    <td><span className="id-pill">VST{String(v.id).padStart(4, '0')}</span></td>
+                    <td><span className="id-pill">VST{String(v.id).padStart(4, '0')}</span>{hasVisitRec(seed, v.id) && <span className="rec-tag" title="Has meeting recording(s)">🎙</span>}</td>
                     <td>
                       {fmtDate(v.visit_date)}
                       <div style={{ fontSize: '10.5px', color: 'var(--mut)', marginTop: 1 }}>{v.selected_time || ''}</div>
@@ -651,7 +652,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                   {selectMode ? <div className="mc-check">{checked ? '✓' : ''}</div> : null}
                   <div className="mc-top">
                     <div className="mc-title">
-                      {v.society_name || '—'}
+                      {v.society_name || '—'}{hasVisitRec(seed, v.id) && <span className="rec-tag" title="Has meeting recording(s)">🎙</span>}
                       <span className="sub">{sub} · {v.city || ''}</span>
                     </div>
                     <div className="mc-right">

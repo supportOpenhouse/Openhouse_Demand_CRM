@@ -20,6 +20,7 @@ import RegisterCpView from './views/RegisterCpView.jsx';
 import RevisitsView from './views/RevisitsView.jsx';
 import AiSuggestionsView from './views/AiSuggestionsView.jsx';
 import TeamPerformanceView from './views/TeamPerformanceView.jsx';
+import MeetingRecordingsView from './views/MeetingRecordingsView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
@@ -41,6 +42,7 @@ const NAV = [
   { k: 'negotiations',  icon: '💬', label: 'Negotiations' },
   { k: 'revisits',      icon: '↻', label: 'Revisits' },
   { k: 'cps',           icon: '🤝', label: 'Channel Partners' },
+  { k: 'recordings',    icon: '🎙', label: 'Meeting Recordings', recTab: true },
   { k: 'properties',    icon: '🏠', label: 'Properties' },
   { k: 'analytics',     icon: '📊', label: 'Analytics' },
   { k: 'propertyperf',  icon: '🏢', label: 'Property Performance' },
@@ -150,7 +152,7 @@ export default function App() {
   const isReportViewer = me.team === 'Report';
   const nav = isReportViewer
     ? NAV.filter((n) => n.k === 'reports' || n.k === 'register-cp')
-    : NAV.filter((n) => (!n.adm || isAdmTL) && (!n.superAdmin || isSuperAdmin) && (!n.adminOnly || isAdmin))
+    : NAV.filter((n) => (!n.adm || isAdmTL) && (!n.superAdmin || isSuperAdmin) && (!n.adminOnly || isAdmin) && (!n.recTab || isAdmin || realMe.can_book_visits))
         .map((n) => (n.k === 'team' ? { ...n, label: isAdmTL ? 'Team & Assignments' : 'My Day' } : n));
   const unread = (seed.notifications || []).filter((n) => (n.to === me.slug || n.to === me.id) && !n.read).length;
   const counts = {
@@ -282,6 +284,8 @@ export default function App() {
                 <RegisterCpView />
               ) : view === 'team' ? (
                 <TeamView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} />
+              ) : view === 'recordings' ? (
+                <MeetingRecordingsView seed={vseed} />
               ) : (
                 <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               )}

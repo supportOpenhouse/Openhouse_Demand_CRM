@@ -13,6 +13,8 @@ import {
 } from '../api.js';
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
+import { recsForCp } from '../lib/recordings.js';
+import RecordingDetail from './RecordingDetail.jsx';
 
 const STAGE_ORDER = ['all', 'upcoming', 'avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more', 'cancelled'];
 const STATUS_PILLS = ['hot', 'warm', 'cold', 'dead', 'future_prospect'];
@@ -279,6 +281,15 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
           <div className="bp-body">
             {/* MAIN PANEL */}
             <div className="bp-main">
+              {recsForCp(seed, cpCode).length > 0 && (
+                <div className="bp-recordings">
+                  <div className="bp-rec-h">🎙 Meeting recordings ({recsForCp(seed, cpCode).length})</div>
+                  {recsForCp(seed, cpCode).map((r) => (
+                    <RecordingDetail key={r.id} rec={r}
+                      anchorNote={r.visit_code ? 'VST' + String(r.visit_code).padStart(4, '0') : null} />
+                  ))}
+                </div>
+              )}
               {/* BANNER STRIP */}
               {(activeNudges.length || tlMessages.length || isOnTlList) ? (
                 <div className="bp-banner">
