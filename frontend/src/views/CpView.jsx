@@ -6,6 +6,7 @@ import { FU_PRESETS, matchFuFilter } from '../lib/visits.js';
 import { TEAM_PILL, lastFollowupTakenForCp, buildFuByVisit, isCpNudged, isCpTlAsk } from '../lib/legacy.js';
 import ChipBar from '../components/ChipBar.jsx';
 import useIsMobile from '../lib/useIsMobile.js';
+import { hasCpRec } from '../lib/recordings.js';
 
 const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
 const PAGE = 100;   // render in pages so a 2,000+ row tier doesn't lock up the browser
@@ -229,6 +230,7 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
           {lf ? <><div className="lf-date">{fmtDate(lf)}</div><div className="lf-ago">{fmtDay(lf)}</div></> : 'Not taken'}
         </td>
         <td>
+          {hasCpRec(seed, b.cp_code) && <span className="rec-tag" title="Has meeting recording(s)">🎙</span>}
           {nud && <span className="prio-tag nudge" title="Has active nudge">🔔</span>}
           {tl && <>{nud ? ' ' : ''}<span className="prio-tag tl" title="On TL daily call list">📌</span></>}
         </td>
@@ -254,6 +256,7 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
           </div>
           <div className="mc-right">
             <span className={'tier-badge ' + (b.tier || 'T4')}>{b.tier || 'T4'}</span>
+            {hasCpRec(seed, b.cp_code) && <span className="rec-tag" title="Has meeting recording(s)">🎙</span>}
             <span style={{ fontSize: '10px', color: 'var(--mut)', marginTop: 3 }}>{b.activity_category || ''}</span>
           </div>
         </div>

@@ -1,0 +1,106 @@
+/* Meeting-recordings annotation layer — isolated, rec- and bp-recordings
+   prefixed (no collisions with existing styles). */
+
+/* glanceable 🎙 marker on Visits rows + CP cards */
+.rec-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: default;
+}
+
+/* expandable recording chip (RecordingDetail) */
+.rec-item { margin: 3px 0; }
+.rec-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--txt);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.rec-chip:hover { border-color: var(--acc); }
+.rec-mic { font-size: 12px; }
+.rec-exp { color: var(--mut); margin-left: 2px; }
+.rec-anchornote { color: var(--mut); font-weight: 500; }
+.rec-body {
+  margin: 5px 0 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  display: grid;
+  gap: 5px;
+}
+.rec-row { display: grid; grid-template-columns: 150px 1fr; gap: 10px; font-size: 12.5px; }
+.rec-k { color: var(--mut); font-weight: 600; }
+.rec-v { color: var(--txt); white-space: pre-wrap; }
+.rec-mut { color: var(--mut); font-size: 12.5px; padding: 3px 0; }
+
+/* BrokerModal recordings block */
+.bp-recordings {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  padding: 11px 13px;
+  margin-bottom: 12px;
+}
+.bp-rec-h { font-weight: 800; font-size: 13.5px; margin-bottom: 7px; letter-spacing: -0.01em; }
+
+/* Meeting Recordings tab */
+.rec-view { padding: 2px; }
+.rec-head { margin-bottom: 12px; }
+.rec-h { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
+.rec-d { font-size: 12.5px; color: var(--mut); margin-top: 3px; max-width: 760px; line-height: 1.5; }
+.rec-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+.rec-tabbtn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--txt);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rec-tabbtn.on { background: var(--acc); border-color: var(--acc); color: #fff; }
+.rec-list { display: grid; gap: 9px; }
+.rec-card { border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 10px 13px; }
+.rec-card-top { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; font-size: 12.5px; }
+.rec-type { font-weight: 700; padding: 2px 9px; border-radius: 999px; font-size: 11px; background: var(--panel2); border: 1px solid var(--line); }
+.rec-type.visit { color: var(--accDark); }
+.rec-date { color: var(--mut); }
+.rec-rm { font-weight: 600; }
+.rec-cp { color: var(--txt); }
+.rec-anchor { font-size: 11px; padding: 2px 8px; border-radius: 5px; background: var(--panel2); border: 1px solid var(--line); color: var(--mut); }
+.rec-method { font-size: 11px; color: var(--mut); font-style: italic; }
+.rec-actions { margin-left: auto; display: flex; gap: 6px; }
+.rec-actions button {
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--txt);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rec-actions button:hover:not(:disabled) { border-color: var(--acc); }
+.rec-actions button:disabled { opacity: 0.5; cursor: default; }
+
+@media (max-width: 760px) {
+  .rec-row { grid-template-columns: 1fr; gap: 1px; }
+  .rec-k { font-size: 11.5px; }
+}

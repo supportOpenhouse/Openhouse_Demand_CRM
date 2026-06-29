@@ -205,3 +205,26 @@ export async function cpRegister(body) {
   if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
   return res.json();   // { ok, cp_code, broker_id }
 }
+
+// --- Meeting recordings (read-only annotation layer) ---
+export async function fetchMeetingSummary(meetingId) {
+  const res = await apiFetch(`/api/meetings/${encodeURIComponent(meetingId)}/summary`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();   // { meeting_id, digest }
+}
+export async function listRecordings(status = '') {
+  const q = status ? `?status=${encodeURIComponent(status)}` : '';
+  const res = await apiFetch(`/api/meetings/recordings${q}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();   // { items, counts }
+}
+export async function matchRecording(meetingId, body) {
+  const res = await apiFetch(`/api/admin/meetings/${encodeURIComponent(meetingId)}/match`, { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+export async function dismissRecording(meetingId) {
+  const res = await apiFetch(`/api/admin/meetings/${encodeURIComponent(meetingId)}/dismiss`, { method: 'POST' });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}

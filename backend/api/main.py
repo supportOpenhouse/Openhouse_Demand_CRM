@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import ai_suggestions, auth, config, cp_meetings, reports, seed_snapshot, sheet_sync
+from . import ai_suggestions, auth, config, cp_meetings, meetings_sync, reports, seed_snapshot, sheet_sync
 from .db import init_pool, close_pool, acquire
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -1625,6 +1625,161 @@ async def admin_sync(request: Request, x_internal_cron_token: str = Header(defau
         raise HTTPException(403, "Bad cron token")
     out = await sheet_sync.run_all()
     return {"ok": True, "result": out}
+
+
+# ============================================================================
+# Meeting recordings — read-only annotation layer (see meetings_sync.py).
+# Every route here only READS meeting_recordings, except the admin match/dismiss
+# which writes ONLY meeting_recordings. No lead / visit / broker / user is touched.
+# ============================================================================
+
+@app.post("/admin/sync-meetings")
+async def admin_sync_meetings(x_internal_cron_token: str = Header(default="")):
+    """Hourly Render Cron Job. Refreshes meeting_recordings from the Meetings DB."""
+    if not config.INTERNAL_CRON_TOKEN:
+        raise HTTPException(503, "INTERNAL_CRON_TOKEN not configured")
+    if x_internal_cron_token != config.INTERNAL_CRON_TOKEN:
+        raise HTTPException(403, "Bad cron token")
+    async with acquire() as conn:
+        out = await meetings_sync.run_sync(conn)
+    return {"ok": True, "result": out}
+
+
+def _digest_summary(summary) -> dict:
+    """Curated digest of the structured meeting summary. Defensive — the shape
+    varies by meeting_type and may be partial; never raises."""
+    if isinstance(summary, str):
+        try:
+            summary = json.loads(summary)
+        except Exception:  # noqa: BLE001
+            return {"raw": summary[:2000]}
+    if not isinstance(summary, dict):
+        return {}
+    out: dict = {"meeting_type": summary.get("meeting_type")}
+    score = summary.get("score")
+    if isinstance(score, dict):
+        out["score"] = {"total": score.get("total"), "out_of": score.get("out_of"),
+                        "classification": score.get("classification")}
+    sig = summary.get("signals")
+    if isinstance(sig, dict):
+        out["signals_met"] = [k for k, v in sig.items() if v is True]
+    block = summary.get("visit") if isinstance(summary.get("visit"), dict) else (
+        summary.get("engagement") if isinstance(summary.get("engagement"), dict) else None)
+    if isinstance(block, dict):
+        out["details"] = {k: v for k, v in block.items()
+                          if v not in (None, "", "Not discussed", [], {})}
+    return out
+
+
+@app.get("/api/meetings/{meeting_id}/summary")
+async def get_meeting_summary(meeting_id: str, user: dict = Depends(auth.current_user)):
+    """On-expand fetch of one recording's structured summary (curated digest).
+    Visible to: Admin; the RM who conducted it; or anyone holding the (scoped,
+    UUID-keyed) marker for a matched recording. Report team has no access."""
+    if user["team"] == "Report":
+        raise HTTPException(403, "No access")
+    async with acquire() as conn:
+        rec = await conn.fetchrow(
+            "SELECT rm_smid, broker_cp_code, visit_code, summary "
+            "FROM meeting_recordings WHERE meeting_id = $1::uuid", meeting_id)
+        if not rec:
+            raise HTTPException(404, "Recording not found")
+        if user["team"] != "Admin":
+            smid = await conn.fetchval("SELECT core_sales_manager_id FROM users WHERE id = $1", user["id"])
+            conducted = smid is not None and rec["rm_smid"] == smid
+            matched = bool(rec["broker_cp_code"] or rec["visit_code"])
+            if not (conducted or matched):     # unmatched recordings are admin-only
+                raise HTTPException(403, "No access")
+    return {"meeting_id": meeting_id, "digest": _digest_summary(rec["summary"])}
+
+
+@app.get("/api/meetings/recordings")
+async def list_meeting_recordings(status: str = "", limit: int = 500,
+                                  user: dict = Depends(auth.current_user)):
+    """The recordings tab. Admin sees ALL; a mapped RM sees the ones THEY conducted.
+    Optional ?status=unmatched|matched|manual|dismissed."""
+    if user["team"] == "Report":
+        raise HTTPException(403, "No access")
+    limit = max(1, min(limit, 2000))
+    async with acquire() as conn:
+        if user["team"] == "Admin":
+            scope_sql, scope_args = "TRUE", []
+        else:
+            smid = await conn.fetchval("SELECT core_sales_manager_id FROM users WHERE id = $1", user["id"])
+            if smid is None:
+                raise HTTPException(403, "No recordings for your account")
+            scope_sql, scope_args = "rm_smid = $1", [smid]
+        conds, args = [scope_sql], list(scope_args)
+        if status in ("unmatched", "matched", "manual", "dismissed"):
+            args.append(status)
+            conds.append(f"match_status = ${len(args)}")
+        args.append(limit)
+        rows = await conn.fetch(
+            "SELECT meeting_id, meeting_type, meeting_date, rm_name, cp_code, cp_name, "
+            "cp_mobile, broker_cp_code, visit_code, match_status, match_method "
+            "FROM meeting_recordings WHERE " + " AND ".join(conds) +
+            f" ORDER BY meeting_date DESC NULLS LAST LIMIT ${len(args)}", *args)
+        counts = await conn.fetch(
+            "SELECT match_status, count(*) n FROM meeting_recordings WHERE " + scope_sql +
+            " GROUP BY 1", *scope_args)
+    items = [{
+        "id": str(r["meeting_id"]), "type": r["meeting_type"],
+        "date": seed_snapshot._date_str(r["meeting_date"]), "rm": r["rm_name"] or "",
+        "cp_code": r["cp_code"] or "", "cp_name": r["cp_name"] or "",
+        "cp_mobile": r["cp_mobile"] or "",
+        "broker_cp_code": r["broker_cp_code"] or "",
+        "visit_code": str(r["visit_code"]) if r["visit_code"] else "",
+        "match_status": r["match_status"], "match_method": r["match_method"] or "",
+    } for r in rows]
+    return {"items": items, "counts": {r["match_status"]: r["n"] for r in counts}}
+
+
+class MeetingMatchBody(BaseModel):
+    broker_cp_code: str | None = None
+    visit_code: str | None = None
+
+
+@app.post("/api/admin/meetings/{meeting_id}/match")
+async def match_meeting_recording(meeting_id: str, body: MeetingMatchBody,
+                                  user: dict = Depends(auth.current_user)):
+    """Admin: manually pin a recording to a CP and/or a visit. Sets match_status
+    'manual' (preserved across syncs). Validates the targets exist."""
+    _require_admin(user)
+    cp = (body.broker_cp_code or "").strip() or None
+    vc = (body.visit_code or "").strip() or None
+    if not (cp or vc):
+        raise HTTPException(422, "Provide broker_cp_code and/or visit_code")
+    async with acquire() as conn:
+        if not await conn.fetchval("SELECT 1 FROM meeting_recordings WHERE meeting_id = $1::uuid", meeting_id):
+            raise HTTPException(404, "Recording not found")
+        if cp and not await conn.fetchval(
+                "SELECT 1 FROM brokers WHERE cp_code = $1 AND deleted_at IS NULL", cp):
+            raise HTTPException(404, f"Unknown cp_code {cp}")
+        if vc and not await conn.fetchval("SELECT 1 FROM visits WHERE visit_code::text = $1", vc):
+            raise HTTPException(404, f"Unknown visit_code {vc}")
+        await conn.execute(
+            "UPDATE meeting_recordings SET "
+            "broker_cp_code = COALESCE($2, broker_cp_code), "
+            "visit_code = COALESCE($3, visit_code), "
+            "match_status = 'manual', match_method = 'manual', "
+            "matched_by = $4, matched_at = now(), updated_at = now() "
+            "WHERE meeting_id = $1::uuid", meeting_id, cp, vc, user["id"])
+    return {"ok": True, "meeting_id": meeting_id, "broker_cp_code": cp, "visit_code": vc}
+
+
+@app.post("/api/admin/meetings/{meeting_id}/dismiss")
+async def dismiss_meeting_recording(meeting_id: str, user: dict = Depends(auth.current_user)):
+    """Admin: mark a recording reviewed-and-unmatchable so it leaves the queue
+    (and stays out — the sync preserves 'dismissed')."""
+    _require_admin(user)
+    async with acquire() as conn:
+        res = await conn.execute(
+            "UPDATE meeting_recordings SET match_status = 'dismissed', "
+            "matched_by = $2, matched_at = now(), updated_at = now() "
+            "WHERE meeting_id = $1::uuid", meeting_id, user["id"])
+    if res.endswith("0"):
+        raise HTTPException(404, "Recording not found")
+    return {"ok": True, "meeting_id": meeting_id, "match_status": "dismissed"}
 
 
 # ============================================================================

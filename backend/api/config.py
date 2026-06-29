@@ -65,6 +65,12 @@ SEED_VISITS_LIMIT = int(os.environ.get("SEED_VISITS_LIMIT", "20000"))
 # degrades gracefully (KH columns blank).
 PROPERTIES_DATABASE_URL = os.environ.get("PROPERTIES_DATABASE_URL", "")
 
+# Optional read-only Postgres for the Openhouse Meetings app — source of the
+# meeting-recordings annotation layer (meetings_sync.run_sync). Read STRICTLY
+# READ-ONLY; every write goes to the CRM's own meeting_recordings table. Unset =
+# the sync skips, the seed keys are empty, and every 🎙 marker is off (no-op).
+MEETINGS_DATABASE_URL = os.environ.get("MEETINGS_DATABASE_URL", "")
+
 # Anthropic API key for the Property Report mailer's visit-feedback summariser
 # (Claude Sonnet). Unset = the report still generates with metrics; the AI summary
 # section is omitted (graceful degradation). Set in Render's oh-crm-secrets to enable.
