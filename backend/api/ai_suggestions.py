@@ -40,6 +40,8 @@ _STAGE_LABEL = {
     "negotiation": "In negotiation", "after_negotiation_fu": "After-negotiation follow-up",
     "booking": "Booking", "ats": "ATS", "need_more": "Needs more options",
 }
+# a Hot/Warm lead with no touch in this many days is "going cold"
+_COLD_DAYS = 6
 
 
 def _today() -> dt.date:
@@ -136,6 +138,9 @@ def compute_signals(scoped: dict, user: dict) -> dict:
     broker_name: dict[str, str] = {}
     broker_buyers: dict[str, list] = {}
     hot = warm = active = 0
+    no_next_fu: list[dict] = []       # active lead with NO scheduled next action (the discipline gap)
+    going_cold: list[dict] = []       # Hot/Warm lead untouched for _COLD_DAYS+
+    team: dict[str, dict] = {}        # per-RM discipline roll-up (for TL/Admin)
 
     for v in visits:
         if v.get("is_old_lead"):
@@ -152,6 +157,11 @@ def compute_signals(scoped: dict, user: dict) -> dict:
         status = visit_status(v)
         completed = stage not in ("upcoming", "cancelled")
         closed = is_closed_lead(v, today)
+        rm = v.get("sales_manager") or "—"
+        t = team.setdefault(rm, {"rm": rm, "active": 0, "no_fu": 0,
+                                 "overdue": 0, "due_today": 0, "cold": 0}) if (completed and not closed) else None
+        if t:
+            t["active"] += 1
 
         if status == "hot":
             hot += 1
@@ -190,8 +200,12 @@ def compute_signals(scoped: dict, user: dict) -> dict:
                 }
                 if od > 0:
                     overdue.append(row)
+                    if t:
+                        t["overdue"] += 1
                 elif od == 0:
                     due_today.append(row)
+                    if t:
+                        t["due_today"] += 1
                 if od >= 0 and v.get("cp_code"):
                     cp = v["cp_code"]
                     broker_pending[cp] = broker_pending.get(cp, 0) + 1
@@ -205,6 +219,31 @@ def compute_signals(scoped: dict, user: dict) -> dict:
         if completed and not closed and (v.get("lead_status") or "select_status") == "select_status":
             awaiting_update += 1
 
+        # NO next-FU scheduled (the discipline gap) + Hot/Warm going cold
+        if completed and not closed:
+            if not nf:
+                no_next_fu.append({
+                    "buyer": v.get("buyer_name") or "Buyer",
+                    "society": v.get("society_name") or "",
+                    "broker": v.get("broker_name") or "", "cp_code": v.get("cp_code") or "",
+                    "rm": rm, "status": status,
+                    "last_touch": v.get("latest_followup_date") or "",
+                })
+                if t:
+                    t["no_fu"] += 1
+            if status in ("hot", "warm"):
+                lt = _date(v.get("latest_followup_date"))
+                ds = (today - lt).days if lt else None
+                if ds is not None and ds >= _COLD_DAYS:
+                    going_cold.append({
+                        "buyer": v.get("buyer_name") or "Buyer",
+                        "society": v.get("society_name") or "",
+                        "broker": v.get("broker_name") or "", "cp_code": v.get("cp_code") or "",
+                        "rm": rm, "status": status, "days_since": ds, "next_followup": nf or "",
+                    })
+                    if t:
+                        t["cold"] += 1
+
     overdue.sort(key=lambda r: -r["overdue_days"])
     near_closing.sort(key=lambda r: -r["overdue_days"])
     broker_calls = sorted(
@@ -214,17 +253,55 @@ def compute_signals(scoped: dict, user: dict) -> dict:
         key=lambda r: -r["pending_followups"],
     )
 
+    team_discipline = sorted(team.values(),
+                             key=lambda r: -(r["no_fu"] + r["overdue"] + r["cold"]))
+
+    # ── CP reactivation: partners who were active recently but have gone quiet.
+    # `activity_category` buckets a CP by its most-recent visit window: 'D30_active'
+    # (visited in the last 30d → still warm), 'D60_active'/'D90_active' (last visit
+    # 30–90d ago → SLIPPING, the prime reactivation targets), 'Dormant' (90d+ silent
+    # → cold), 'L30_new' (just added). We surface the SLIPPING set, the viewer's own
+    # CPs first. Read-only; `brokers` is already scoped to what this user may see.
+    slug = user.get("slug")
+    cp_owner = scoped.get("cp_owner", {})
+    cp_slipping: list[dict] = []
+    cp_dormant = 0
+    for b in scoped.get("brokers", []):
+        ac = (b.get("activity_category") or "").strip()
+        if ac == "Dormant":
+            cp_dormant += 1
+        elif ac in ("D60_active", "D90_active"):
+            cp_slipping.append({
+                "cp_code": b.get("cp_code") or "",
+                "name": b.get("name") or b.get("cp_code") or "CP",
+                "activity": ac,
+                "window": "30–60d quiet" if ac == "D60_active" else "60–90d quiet",
+                "d60_visits": b.get("d60_visits") or 0,
+                "d90_visits": b.get("d90_visits") or 0,
+                "all_time_visits": b.get("all_time_visits") or 0,
+                "tier": b.get("tier") or "",
+                "owned": bool(slug and cp_owner.get(b.get("cp_code")) == slug),
+            })
+    # viewer's own CPs first; then the fresher (D60 before D90); then heavier past volume.
+    cp_slipping.sort(key=lambda r: (not r["owned"], r["activity"] != "D60_active", -r["all_time_visits"]))
+
     return {
         "counts": {
             "active_leads": active, "hot": hot, "warm": warm,
             "overdue_followups": len(overdue), "due_today": len(due_today),
             "near_closing": len(near_closing), "awaiting_update": awaiting_update,
+            "no_next_fu": len(no_next_fu), "going_cold": len(going_cold),
+            "cp_slipping": len(cp_slipping), "cp_dormant": cp_dormant,
         },
         # generous caps — the user wants comprehensive, not truncated, lists
         "near_closing": near_closing[:40],
         "overdue": overdue[:40],
         "due_today": due_today[:40],
         "broker_calls": broker_calls[:25],
+        "no_next_fu": no_next_fu[:60],
+        "going_cold": going_cold[:40],
+        "team_discipline": team_discipline[:30],
+        "cp_slipping": cp_slipping[:50],
     }
 
 

@@ -604,7 +604,11 @@ async def save_followup(body: FollowupBody, user: dict = Depends(auth.current_us
             # lead (e.g. "No, didn't happen" → not_interested). booking_received_date only
             # makes sense for a live booking, so it's nulled for a dead lead.
             body.negotiation_happened,
-            None if is_dead else _date_or_none(body.booking_received_date),
+            # Capture the booking date going forward: default to today when a lead is
+            # moved to 'booking' without an explicit date, so it is never left empty
+            # (this is what makes visit→booking conversion + CP/RM credit measurable).
+            None if is_dead else (_date_or_none(body.booking_received_date)
+                                  or (_dt.date.today() if body.stage == "booking" else None)),
             prev["current_stage"], prev["current_status"],
         )
 
