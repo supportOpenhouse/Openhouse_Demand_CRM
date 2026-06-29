@@ -212,11 +212,15 @@ export async function fetchMeetingSummary(meetingId) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();   // { meeting_id, digest }
 }
-export async function listRecordings(status = '') {
-  const q = status ? `?status=${encodeURIComponent(status)}` : '';
-  const res = await apiFetch(`/api/meetings/recordings${q}`);
+export async function listRecordings(params = {}) {
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && String(v).trim() !== '') usp.set(k, v);
+  }
+  const q = usp.toString();
+  const res = await apiFetch(`/api/meetings/recordings${q ? '?' + q : ''}`);
   if (!res.ok) throw new Error(await res.text());
-  return res.json();   // { items, counts }
+  return res.json();   // { items, counts, total, limit }
 }
 export async function matchRecording(meetingId, body) {
   const res = await apiFetch(`/api/admin/meetings/${encodeURIComponent(meetingId)}/match`, { method: 'POST', body: JSON.stringify(body) });

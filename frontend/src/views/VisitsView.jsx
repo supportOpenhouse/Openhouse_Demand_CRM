@@ -119,6 +119,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   const [lastFus, setLastFus] = useState(() => visitsUi?.lastFus ?? []); // default: show all FU states (the "Not taken yet" chip is still there to focus)
   const [priorities, setPriorities] = useState(() => visitsUi?.priorities ?? []);
   const [leadSet, setLeadSet] = useState(() => visitsUi?.leadSet ?? 'active');  // #6 Active | Old Leads | All — default hides old leads
+  const [recsOnly, setRecsOnly] = useState(() => visitsUi?.recsOnly ?? false);  // 🎙 only visits that have a meeting recording
   // city + unit filters now live in the Filters modal (filters.cities / filters.unit)
   const [sortField, setSortField] = useState(() => visitsUi?.sortField ?? 'visit_date');
   const [sortDir, setSortDir] = useState(() => visitsUi?.sortDir ?? 'desc');  // default visit_date desc
@@ -128,13 +129,13 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
 
   // persist the chip-bar + sort selections up to App so returning to this tab restores them
   useEffect(() => {
-    onVisitsUiChange?.({ statuses, stages, lastFus, priorities, leadSet, sortField, sortDir });
-  }, [statuses, stages, lastFus, priorities, leadSet, sortField, sortDir]);  // eslint-disable-line react-hooks/exhaustive-deps
+    onVisitsUiChange?.({ statuses, stages, lastFus, priorities, leadSet, recsOnly, sortField, sortDir });
+  }, [statuses, stages, lastFus, priorities, leadSet, recsOnly, sortField, sortDir]);  // eslint-disable-line react-hooks/exhaustive-deps
   // Reset every filter affecting this tab: the chip-bars + lead segment + sort (which sync up
   // to visitsUi) + the shared top-bar Filters + the per-tab search.
   const resetFilters = () => {
     setStatuses([]); setStages([]); setLastFus([]); setPriorities([]);
-    setLeadSet('active'); setSortField('visit_date'); setSortDir('desc');
+    setLeadSet('active'); setRecsOnly(false); setSortField('visit_date'); setSortDir('desc');
     setPage(1); setSelectMode(false); setSelected(new Set());
     onResetSearch?.(); onResetGlobalFilters?.();
   };
@@ -234,8 +235,9 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
       }
       if (!ok) return false;
     }
+    if (recsOnly && !hasVisitRec(seed, v.id)) return false;
     return true;
-  }), [scoped, filters, leadSet, dq, propBySociety, brokersByCode]);
+  }), [scoped, filters, leadSet, dq, propBySociety, brokersByCode, recsOnly]);
 
   const statusCounts = useMemo(() => {
     const c = { all: cityBase.length, hot: 0, warm: 0, cold: 0, dead: 0, future_prospect: 0, unc: 0 };
@@ -462,6 +464,9 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
         >
           Select
         </button>
+        <button type="button" className={'btn sm' + (recsOnly ? ' primary' : '')}
+                onClick={() => setRecsOnly((r) => !r)}
+                title="Show only visits that have a meeting recording">🎙 Has recording</button>
         <button type="button" className="btn sm rx-reset-filters" onClick={resetFilters} title="Reset every filter on this tab" style={{ marginLeft: 'auto' }}>↺ Reset filters</button>
       </div>
 
