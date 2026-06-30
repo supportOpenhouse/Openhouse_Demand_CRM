@@ -376,6 +376,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
                     {currentVisits.length ? currentVisits.map((v) => (
                       <VisitRow
                         key={v.id} v={v} visits={visits}
+                        followupLog={followupLog} ubs={ubs}
                         open={expanded.has(String(v.id))}
                         isPriority={String(v.id) === String(focusVid)}
                         onToggle={() => toggleExpand(v.id)}
@@ -432,10 +433,14 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
 /* ===============================================================
    VISIT ROW
    =============================================================== */
-function VisitRow({ v, visits, open, isPriority, onToggle, draft, setDraft, onSave, onNudge, nudgesByVisit, teamTasks, ownerId, me, busy }) {
+function VisitRow({ v, visits, followupLog, ubs, open, isPriority, onToggle, draft, setDraft, onSave, onNudge, nudgesByVisit, teamTasks, ownerId, me, busy }) {
   const status = visitStatus(v);
   const stage = visitStage(v);
   const recent = (v.all_feedback || '').split('\n').filter((l) => l.trim()).slice(-3).reverse();
+  // Full CRM follow-up thread for THIS visit (newest first) — already in the seed
+  // (seed.followups) and scoped per-user, same source the Timeline tab uses. The
+  // visit record only carries the *latest* note; this surfaces every remark.
+  const fuHistory = (followupLog || []).filter((f) => String(f.visit_id) === String(v.id));
   const nudged = isVisitNudged(v, nudgesByVisit);
   const tlAsk = isVisitTlAsk(v, teamTasks);
   const nudgeOk = !!(ownerId && ownerId !== me.id);
@@ -476,7 +481,23 @@ function VisitRow({ v, visits, open, isPriority, onToggle, draft, setDraft, onSa
         {recent.length ? (
           <div className="fu-recent"><b>Recent feedback</b><br />{recent.map((l, i) => <span key={i}>· {l}<br /></span>)}</div>
         ) : null}
-        {(v.latest_followup_date || v.latest_followup_note) ? (
+        {fuHistory.length ? (
+          <div className="fu-recent">
+            <b>Follow-up history ({fuHistory.length})</b>
+            {fuHistory.map((f, i) => {
+              const author = ubs?.[f.by]?.name || f.by || '';
+              const stageLabel = STAGE_BY_KEY[f.stage]?.label || f.stage || '';
+              return (
+                <div key={i} style={{ marginTop: 6, paddingTop: 6, borderTop: i ? '1px solid var(--line)' : 'none' }}>
+                  <div style={{ fontSize: 10.5, color: 'var(--mut)', fontWeight: 600 }}>
+                    {fmtDate((f.ts || '').slice(0, 10))}{author ? ' · ' + author : ''}{stageLabel ? ' · ' + stageLabel : ''}{f.status ? ' · ' + f.status : ''}
+                  </div>
+                  {f.note ? <div style={{ fontSize: 12, marginTop: 2, whiteSpace: 'pre-wrap' }}>{f.note}</div> : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (v.latest_followup_date || v.latest_followup_note) ? (
           <div className="fu-recent"><b>Latest FU ({fmtDate(v.latest_followup_date)})</b>: {v.latest_followup_note || '—'}</div>
         ) : null}
 
