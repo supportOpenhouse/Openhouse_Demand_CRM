@@ -286,7 +286,7 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
     properties_by_soc = {
         r["society_name"]: r["id"]
         for r in await conn.fetch(
-            "SELECT DISTINCT ON (society_name) society_name, id FROM properties ORDER BY society_name, updated_at DESC"
+            "SELECT DISTINCT ON (society_name) society_name, id FROM properties WHERE deleted_at IS NULL ORDER BY society_name, updated_at DESC"
         )
     }
     buyers_by_lk = {
@@ -990,6 +990,116 @@ async def reconcile_property_statuses(conn: asyncpg.Connection) -> dict:
     return {"updated": n}
 
 
+# ── duplicate reconcile ────────────────────────────────────────────────────
+# `sync_properties`/`sync_all_properties` upsert on the free-text `property_name`
+# ("{unit}, {society}"). When the sheet re-spells a society, reformats a unit
+# ("Block N - 40D" → "N - 40D") or adds a qualifier ("AJ - 2002 (Top Floor)"), a
+# NEW property_name is minted → a NEW row is inserted and the OLD one is orphaned
+# (never re-synced, never removed). The stable unit identity is `home_id`.
+def _dupe_soc(s: str | None) -> str:
+    return re.sub(r"[^A-Z0-9]", "", (s or "").upper())
+
+
+def _dupe_unit(property_name: str | None) -> str:
+    # unit = the segment before the first comma of "{unit}, {society}"
+    return re.sub(r"[^A-Z0-9]", "", (property_name or "").split(",")[0].upper())
+
+
+async def _reconcile_dupes_one(conn: asyncpg.Connection, table: str) -> dict:
+    """Soft-delete orphan duplicate rows in one inventory table.
+
+    A physical unit = a connected component of live rows linked by a shared
+    `home_id` OR a shared normalised (society + unit). Within each unit we KEEP
+    the canonical — the row that HAS a home_id, then the freshest `updated_at` —
+    and soft-delete the rest (`deleted_at = now()`; every read already filters
+    `deleted_at IS NULL`, and it is fully reversible). CONSERVATIVE by design: a
+    unit whose rows carry MORE THAN ONE distinct home_id is ambiguous and is
+    NEVER auto-deleted — it is logged for manual review. Only `deleted_at` is
+    written; no insert, no other column, no visit / lead / PM / pricing touch.
+    Idempotent — a clean table produces zero writes.
+    """
+    rows = await conn.fetch(
+        f"SELECT id, property_name, society_name, home_id, updated_at "
+        f"FROM {table} WHERE deleted_at IS NULL"
+    )
+    parent = list(range(len(rows)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    by_hid: dict = {}
+    by_su: dict = {}
+    for i, r in enumerate(rows):
+        hid = (r["home_id"] or "").strip()
+        if hid:
+            by_hid.setdefault(hid, []).append(i)
+        unit = _dupe_unit(r["property_name"])
+        if unit:
+            by_su.setdefault((_dupe_soc(r["society_name"]), unit), []).append(i)
+    for grp in (*by_hid.values(), *by_su.values()):
+        for j in grp[1:]:
+            parent[find(grp[0])] = find(j)
+
+    comps: dict = {}
+    for i in range(len(rows)):
+        comps.setdefault(find(i), []).append(i)
+
+    orphan_ids: list = []
+    orphan_names: list = []
+    ambiguous = 0
+    for members in comps.values():
+        if len(members) < 2:
+            continue
+        crows = [rows[i] for i in members]
+        hids = {(r["home_id"] or "").strip() for r in crows if (r["home_id"] or "").strip()}
+        if len(hids) > 1:
+            ambiguous += 1
+            log.warning("[inv] dupe-reconcile: AMBIGUOUS unit in %s (home_ids %s) — skipped: %s",
+                        table, sorted(hids), [r["property_name"] for r in crows])
+            continue
+        canon = max(crows, key=lambda r: (1 if (r["home_id"] or "").strip() else 0, r["updated_at"]))
+        for r in crows:
+            if r["id"] != canon["id"]:
+                orphan_ids.append(r["id"])
+                orphan_names.append(r["property_name"])
+    if orphan_ids:
+        await conn.execute(
+            f"UPDATE {table} SET deleted_at = now() "
+            f"WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+            orphan_ids,
+        )
+    return {"table": table, "soft_deleted": len(orphan_ids),
+            "ambiguous": ambiguous, "names": orphan_names[:50]}
+
+
+async def reconcile_property_duplicates(conn: asyncpg.Connection) -> dict:
+    """Soft-delete orphan duplicate rows across `properties` + `all_properties`
+    (see `_reconcile_dupes_one`). Runs after every sync: its first run clears the
+    existing backlog, every later run removes any new orphan a rename/reformat
+    creates — so duplicates can never accumulate. Additive, reversible, idempotent.
+    """
+    run_id = await _begin_run(
+        conn, "reconcile_property_dupes", config.SHEET_ID_INVENTORY,
+        "properties+all_properties",
+    )
+    p = await _reconcile_dupes_one(conn, "properties")
+    ap = await _reconcile_dupes_one(conn, "all_properties")
+    total = p["soft_deleted"] + ap["soft_deleted"]
+    await _finish_run(
+        conn, run_id, total, 0, total, 0, 0,
+        [{"table": p["table"], "names": p["names"]},
+         {"table": ap["table"], "names": ap["names"]}],
+    )
+    if total or p["ambiguous"] or ap["ambiguous"]:
+        log.info("[inv] reconcile_property_duplicates: soft-deleted %d orphan(s) "
+                 "(properties=%d, all_properties=%d) · ambiguous skipped=%d",
+                 total, p["soft_deleted"], ap["soft_deleted"], p["ambiguous"] + ap["ambiguous"])
+    return {"properties": p, "all_properties": ap, "soft_deleted": total}
+
+
 async def run_all() -> dict:
     """Run brokers → tiers → properties → visits in that order (FK dependencies),
     then reclassify old/dead leads off the freshly-synced property statuses."""
@@ -1008,6 +1118,10 @@ async def run_all() -> dict:
         # Sold/Archived units leave the active Sheet1 feed, so sync_properties can
         # never re-stamp them; reflect their terminal status from all_properties.
         out["reconcile_property_status"] = await reconcile_property_statuses(conn)
+        # Collapse duplicate property rows left behind when the sheet re-spells a
+        # society / reformats a unit (the upsert keys on the free-text property_name).
+        # Soft-delete only; keeps the home_id-bearing canonical. Idempotent.
+        out["reconcile_property_dupes"] = await reconcile_property_duplicates(conn)
         out["visits"] = await sync_visits(conn, limit=config.SEED_VISITS_LIMIT)
         # MUST be last: re-derives old/dead from the just-synced all_properties,
         # overriding any lead_status the sheet upsert above restored.
