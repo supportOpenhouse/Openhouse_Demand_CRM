@@ -53,10 +53,10 @@ function MultiSelect({ label, options, value = [], onChange, width }) {
 }
 
 // ---- horizontal bar list chart (clickable) ---------------------------------
-function BarList({ title, hint, rows, metrics, labelOf, onPick, picked }) {
+function BarList({ title, hint, rows, metrics, labelOf, onPick, picked, wide }) {
   const max = Math.max(1, ...rows.map((r) => r.primary || 0));
   return (
-    <div className="an-card">
+    <div className={'an-card' + (wide ? ' an-card-wide' : '')}>
       <div className="an-card-h">
         <div className="an-card-t">{title}</div>
         {hint && <div className="an-card-s">{hint}</div>}
@@ -154,6 +154,14 @@ export default function AnalyticsView({ seed }) {
   const cAdded = useMemo(() => A.chartAddedBy(rows), [rows]);
   const cCity = useMemo(() => A.chartCity(rows), [rows]);
   const cSource = useMemo(() => A.chartSource(rows), [rows]);
+  const cAssistSM = useMemo(() => A.chartAssistBySM(rows), [rows]);
+  const cAssistApt = useMemo(() => A.chartAssistByApt(rows), [rows]);
+  const ASSIST_METRICS = [
+    { key: 'completed', label: 'Completed' },
+    { key: 'assisted', label: 'Assisted' },
+    { key: 'notAssisted', label: 'Not assisted' },
+    { key: 'pct', label: '% assisted', fmt: (x) => dec(x) + '%' },
+  ];
 
   const pick = (dim, val) => setCross((c) => ({ ...c, [dim]: c[dim] === val ? undefined : val }));
   const crossChips = Object.entries(cross).filter(([, v]) => v);
@@ -228,12 +236,20 @@ export default function AnalyticsView({ seed }) {
 
         <BarList title="8 · By Source" hint="Direct vs CP · visits · per-property" rows={cSource} picked={cross.source} onPick={(v) => pick('source', v)}
           metrics={[{ key: 'visits', label: 'Visits' }, { key: 'perProp', label: 'Visits/property', fmt: dec }]} />
+
+        <BarList wide title="9 · Visit assistance — by property manager"
+          hint="completed visits only · assisted = any on-site intent field captured · % assisted"
+          rows={cAssistSM} picked={cross.salesManager} onPick={(v) => pick('salesManager', v)} metrics={ASSIST_METRICS} />
+
+        <BarList wide title="10 · Visit assistance — by property (unit)"
+          hint="completed visits only · top 150 by volume · % assisted"
+          rows={cAssistApt} picked={cross.apartment} onPick={(v) => pick('apartment', v)} metrics={ASSIST_METRICS} />
       </div>
 
       {/* ---- chart 9: raw data ---- */}
       <div className="an-card an-card-wide">
         <div className="an-card-h">
-          <div className="an-card-t">9 · Raw visit data <span className="an-card-s">({int(rows.length)} rows after filters)</span></div>
+          <div className="an-card-t">11 · Raw visit data <span className="an-card-s">({int(rows.length)} rows after filters)</span></div>
           <div className="an-table-actions">
             <button type="button" className="an-btn" onClick={() => A.downloadCsv(rows)}>⬇ Download CSV</button>
             <button type="button" className="an-btn ghost" onClick={() => window.open(VISITS_SHEET_URL, '_blank', 'noopener')}>↗ View in Google Sheets</button>
