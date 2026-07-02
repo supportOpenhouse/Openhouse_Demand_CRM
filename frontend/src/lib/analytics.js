@@ -155,6 +155,27 @@ export function chartSource(rows) { // Chart 8
   return groupAgg(rows, (v) => sourceLabel(v), (rs) => ({ primary: rs.length, visits: rs.length, perProp: perProperty(rs) }));
 }
 
+// ---- visit assistance (charts 9 & 10) --------------------------------------
+// A COMPLETED visit is "assisted" when the RM captured ANY of the six on-site
+// intent fields. Computed on completed visits only (the metric's definition);
+// every other active filter still applies because it rides the same `rows`.
+const INTENT_FIELDS = ['time_spent_on_site', 'society_amenity_tour', 'price_discussion',
+  'client_queries', 'closing_signal', 'buyer_primary_concern'];
+export const isVisitAssisted = (v) => INTENT_FIELDS.some((k) => String(v[k] || '').trim() !== '');
+const completedOnly = (rows) => rows.filter((v) => (v.status || '').toLowerCase() === 'completed');
+function assistAgg(rs) {                               // rs is already completed-only
+  const completed = rs.length;
+  const assisted = rs.reduce((n, v) => n + (isVisitAssisted(v) ? 1 : 0), 0);
+  return { primary: completed, completed, assisted,
+    notAssisted: completed - assisted, pct: completed ? (assisted / completed) * 100 : 0 };
+}
+export function chartAssistBySM(rows, limit = 60) {   // Chart 9 — by property manager
+  return groupAgg(completedOnly(rows), (v) => v.sales_manager || '', assistAgg, { limit });
+}
+export function chartAssistByApt(rows, limit = 150) { // Chart 10 — by property (unit)
+  return groupAgg(completedOnly(rows), (v) => apartmentOf(v), assistAgg, { limit });
+}
+
 // ---- KPI summary -----------------------------------------------------------
 export function kpis(rows) {
   return {
