@@ -8,9 +8,9 @@ import useIsMobile from '../lib/useIsMobile.js';
 const CITY_ORDER = ['Gurgaon', 'Noida', 'Ghaziabad'];
 
 const CITY_CFG = {
-  Gurgaon:   { sub: 'OpenHouse · Gurgaon Inventory' },
-  Noida:     { sub: 'OpenHouse · Noida Inventory' },
-  Ghaziabad: { sub: 'OpenHouse · Ghaziabad Inventory' },
+  Gurgaon:   { sub: 'Openhouse · Gurgaon Inventory' },
+  Noida:     { sub: 'Openhouse · Noida Inventory' },
+  Ghaziabad: { sub: 'Openhouse · Ghaziabad Inventory' },
 };
 
 // listing_status==='Coming Soon' drives the NEW badge (legacy isPropertyNew)
@@ -193,8 +193,8 @@ export default function SnapshotView({ seed }) {
       });
       body += '\n';
     });
-    const first = (me.name || '').split(' ')[0] || 'Team';
-    body += `\nReach out for site visits, virtual tour, or pricing details.\n\n– ${first}, OpenHouse`;
+    const first = (me.name || '').trim() || 'Team';
+    body += `\nReach out for site visits, virtual tour, or pricing details.\n\n– ${first}, Openhouse`;
     return body;
   }, [me.name]);
 
@@ -203,7 +203,7 @@ export default function SnapshotView({ seed }) {
     const props = filtered.filter((p) => cities.includes(p.city_name));
     setShare({
       title: `Inventory snapshot · ${cities.join(' & ')}`,
-      text: buildShareText(props, `OpenHouse Live Inventory · ${cities.join(' & ')}`),
+      text: buildShareText(props, `Openhouse Live Inventory · ${cities.join(' & ')}`),
     });
   }, [filtered, buildShareText]);
 
@@ -223,7 +223,7 @@ export default function SnapshotView({ seed }) {
     const bits = filterTitleBits.length ? filterTitleBits.join(' · ') : 'Full Inventory';
     openImage(
       filtered,
-      `OpenHouse · ${bits}`,
+      `Openhouse · ${bits}`,
       bits,
       'filtered',
     );
@@ -336,7 +336,7 @@ export default function SnapshotView({ seed }) {
 /* ============================== city block ============================== */
 function CityBlock({ city, g }) {
   const isMobile = useIsMobile();
-  const cfg = CITY_CFG[city] || { sub: `OpenHouse · ${city} Inventory` };
+  const cfg = CITY_CFG[city] || { sub: `Openhouse · ${city} Inventory` };
   const readyCount = g.ordered.reduce(
     (n, mm) => n + g.mmGroups[mm].filter((p) => p.listing_status === 'Ready').length, 0);
   const csCount = g.total - readyCount;
@@ -551,7 +551,7 @@ function ImageModal({ img, onClose, children }) {
 }
 
 /* ============================== poster (off-screen, for html2canvas) ============================== */
-// inline OpenHouse mark (the #oh-icon paths) — no symbol registry in the React app,
+// inline Openhouse mark (the #oh-icon paths) — no symbol registry in the React app,
 // so the poster carries the literal paths to render crisply for html2canvas.
 const OH_ICON = (
   <svg viewBox="0 0 190 188">
@@ -571,7 +571,7 @@ const Poster = forwardRef(function Poster({ props = [], title }, ref) {
         <div className="ph">
           {OH_ICON}
           <div>
-            <div className="pht">OpenHouse · Live Inventory</div>
+            <div className="pht">Openhouse · Live Inventory</div>
             <div className="phs">{title || cities.join(' · ')}</div>
           </div>
           <div className="phd">
@@ -641,7 +641,7 @@ const Poster = forwardRef(function Poster({ props = [], title }, ref) {
         })}
 
         <div className="pfoot">
-          Reach out to your OpenHouse RM for site visits, virtual tour or pricing · Updated {fmtDate(TODAY)}
+          Reach out to your Openhouse RM for site visits, virtual tour or pricing · Updated {fmtDate(TODAY)}
         </div>
       </div>
     );

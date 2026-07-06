@@ -219,14 +219,14 @@ export default function BookVisitsView({ seed }) {
         <div className="bv-beta-tx">
           <div className="bv-kick">Beta · Super-admins only</div>
           <div className="bv-beta-h">Book Visits</div>
-          <div className="bv-beta-d">Schedule visits on the OpenHouse app — one or up to <b>{MAX_BOOK}</b> at a time. Booking as <b>{me.name || me.slug}</b>.</div>
+          <div className="bv-beta-d">Schedule visits on the Openhouse app — one or up to <b>{MAX_BOOK}</b> at a time. Booking as <b>{me.name || me.slug}</b>.</div>
         </div>
         {!BOOKING_LIVE && <span className="bv-pill-preview">Preview — API not live</span>}
       </div>
 
       {!canBook && (
         <div className="bv-warn" style={{ marginBottom: 14 }}>
-          ⚠ <b>You're not set up to book yet.</b> Your account isn't linked to an OpenHouse Sales Manager, so bookings will be rejected. Ask the app team to add you (and confirm your Sales Manager ID), then reload.
+          ⚠ <b>You're not set up to book yet.</b> Your account isn't linked to an Openhouse Sales Manager, so bookings will be rejected. Ask the app team to add you (and confirm your Sales Manager ID), then reload.
         </div>
       )}
 
@@ -461,7 +461,7 @@ function BookingDrawer({ draft, setDraft, cps, me, canBook, onClose, onDone }) {
           {d.step === 2 && (
             <>
               <div className="bv-warn">
-                ⚠ <b>Review carefully.</b> On confirm, {payloads.length === 1 ? 'this visit is' : `these ${payloads.length} visits are`} created on the OpenHouse app and <b>cannot be edited or undone</b>. The buyer &amp; CP are notified immediately.
+                ⚠ <b>Review carefully.</b> On confirm, {payloads.length === 1 ? 'this visit is' : `these ${payloads.length} visits are`} created on the Openhouse app and <b>cannot be edited or undone</b>. The buyer &amp; CP are notified immediately.
               </div>
               <div className="bv-note ok">Booking as <b>{me.name || me.slug}</b> · CP <b>{cpObj.name}</b> ({cpObj.cp_code}) · {d.shared.date} · {d.shared.time}</div>
               {payloads.map((p, i) => (

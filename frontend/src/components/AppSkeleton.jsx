@@ -17,7 +17,7 @@ export default function AppSkeleton() {
           <button className="rx-navtoggle" tabIndex={-1} aria-hidden="true">☰</button>
           <div className="rx-brand">
             <Logo size={26} />
-            <span><b>OpenHouse</b> <span className="rx-demand">DEMAND</span></span>
+            <span><b>Openhouse</b> <span className="rx-demand">DEMAND</span></span>
           </div>
         </div>
         <div className="rx-who">

@@ -980,7 +980,7 @@ function waTemplate7DayVisits(b, visits, me) {
     const statusTxt = (s && s !== 'unc') ? ` · status: ${s}` : '';
     body += `• ${fmtDate(v.visit_date)} — ${v.buyer_name || 'Buyer'} at ${v.society_name || ''}${v.unit_address_line1 ? ` (${v.unit_address_line1}${v.unit_address_line2 ? '-' + v.unit_address_line2 : ''})` : ''}${statusTxt}\n`;
   });
-  body += `\nTotal: ${vs.length} visit${vs.length === 1 ? '' : 's'}. Can you share buyer status for any of these?\n\n– ${firstName(me.name)}, OpenHouse`;
+  body += `\nTotal: ${vs.length} visit${vs.length === 1 ? '' : 's'}. Can you share buyer status for any of these?\n\n– ${me.name}, Openhouse`;
   return body;
 }
 function waTemplateOpenVisits(b, visits, me) {
@@ -992,18 +992,18 @@ function waTemplateOpenVisits(b, visits, me) {
     const tag = stat === 'hot' ? '🔥 Hot' : stat === 'warm' ? '🟡 Warm' : stat === 'cold' ? '❄️ Cold' : stat === 'unc' ? '🕓 Pending status' : '•';
     body += `${tag} ${v.buyer_name || 'Buyer'} — ${v.society_name || ''} — ${STAGE_BY_KEY[stage]?.label || stage}\n`;
   });
-  body += `\nTotal: ${open.length} open. Can you help close any this week? Let me know if you want to schedule a revisit or negotiation.\n\n– ${firstName(me.name)}, OpenHouse`;
+  body += `\nTotal: ${open.length} open. Can you help close any this week? Let me know if you want to schedule a revisit or negotiation.\n\n– ${me.name}, Openhouse`;
   return body;
 }
 function waTemplateInventoryCity(b, cities, properties, me) {
   const cityList = Array.isArray(cities) ? cities : [cities];
   const props = properties.filter((p) => cityList.includes(p.city_name) && p.listing_status !== 'Sold' && p.listing_status !== 'Archived');
-  let body = `Hi ${firstName(b.name)},\n\nHere are our live OpenHouse inventor${cityList.length > 1 ? 'ies' : 'y'} in ${cityList.join(' & ')} you can share with your buyers:\n\n`;
+  let body = `Hi ${firstName(b.name)},\n\nHere are our live Openhouse inventor${cityList.length > 1 ? 'ies' : 'y'} in ${cityList.join(' & ')} you can share with your buyers:\n\n`;
   if (!props.length) body += 'No active properties available at the moment.\n';
   else props.slice(0, 30).forEach((p) => {
     body += `🏠 ${p.society_name} — ${p.configuration || ''} — ${p.super_sqft || ''} sqft — ${p.listing_price || ''} — ${p.micro_market || ''}${p.listing_status === 'Coming Soon' ? ' (CS)' : ''}\n`;
   });
-  body += `\nReach out for site visits, virtual tour, or pricing details.\n\n– ${firstName(me.name)}, OpenHouse`;
+  body += `\nReach out for site visits, virtual tour, or pricing details.\n\n– ${me.name}, Openhouse`;
   return body;
 }
 

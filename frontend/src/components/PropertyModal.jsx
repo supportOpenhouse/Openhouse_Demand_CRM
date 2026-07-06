@@ -114,7 +114,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
     return Object.values(m).sort((a, b) => b.visits - a.visits).slice(0, 15);
   }, [visits]);
 
-  // ---- top CPs · OpenHouse (current tab — visit count + Last FU taken/by, #9) ----
+  // ---- top CPs · Openhouse (current tab — visit count + Last FU taken/by, #9) ----
   const cpStats = useMemo(() => {
     const m = {};
     visits.forEach((v) => {
@@ -325,7 +325,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
         <div className="rx-modal-body">
           <div className="rx-tabs">
             <button className={'rx-tab' + (tab === 'visits' ? ' on' : '')} onClick={() => setTab('visits')}>Visits <span className="ct">{visits.length}</span></button>
-            <button className={'rx-tab' + (tab === 'top_oh' ? ' on' : '')} onClick={() => setTab('top_oh')}>Top Brokers · OpenHouse <span className="ct">{cpStats.length}</span></button>
+            <button className={'rx-tab' + (tab === 'top_oh' ? ' on' : '')} onClick={() => setTab('top_oh')}>Top Brokers · Openhouse <span className="ct">{cpStats.length}</span></button>
             <button className={'rx-tab' + (tab === 'top_99' ? ' on' : '')} onClick={() => setTab('top_99')}>Top Brokers · 99acres{tb99 ? <span className="ct">{tb99rows.length}</span> : null}</button>
           </div>
 

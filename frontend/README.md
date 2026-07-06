@@ -1,4 +1,4 @@
-# OpenHouse Demand CRM — frontend (React + Vite)
+# Openhouse Demand CRM — frontend (React + Vite)
 
 This is the CRM frontend: a React + Vite app. It replaced the old single-file
 `crm.html` (~5,700 lines), which has been retired. Vercel builds this directory
@@ -31,7 +31,7 @@ Start the backend first (DEV_MODE on :8011), then sign in via
 - ✅ **Channel Partners view** — `#1` one-pass per-CP index + pagination (instant even for
   the ~2,400-row T4) · `#4` unit filter · `#5` CP-owner column hidden for T3/T4 (DB cleared).
 - ✅ **Properties list + Property modal** — `#7` "All" stage tab · `#8` clickable Hot/Warm ·
-  `#9` Last FU taken + by in Top Brokers · OpenHouse · Top Brokers · 99acres tab with inline
+  `#9` Last FU taken + by in Top Brokers · Openhouse · Top Brokers · 99acres tab with inline
   10-digit phone editor.
 - ✅ **Broker popup** (click a CP row) — visit history, **follow-up logging** (buyer status /
   stage / next-FU / revisit / note → `POST /api/followups`), and tier / CP-owner edits (admin).
@@ -48,7 +48,7 @@ Start the backend first (DEV_MODE on :8011), then sign in via
 - ✅ **Team & Assignments / My Day** — admin/TL roster grouped by team with per-member CP counts;
   non-admins see "My Day" (their CPs). CP rows open the broker popup.
 - ✅ **Broker popup hoisted to App** — opens from Channel Partners, **Visits** (click a CP name),
-  **Property modal** (Top Brokers · OpenHouse rows), and **My Day**. Stacks above the property modal.
+  **Property modal** (Top Brokers · Openhouse rows), and **My Day**. Stacks above the property modal.
 - ✅ **Mobile baseline** — shell stacks, sidebar becomes a scroll strip, modals go full-screen, forms
   single-column, tables scroll.
 
