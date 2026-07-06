@@ -622,5 +622,5 @@ html, body, #root { height: 100%; margin: 0; }
   .snap-mcard .smc-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
   .snap-mcard .smc-soc { font-weight: 600; font-size: 14px; }
   .snap-mcard .smc-meta { font-size: 12px; color: var(--mut); margin-top: 4px; line-height: 1.5; }
-  .snap-mcard .smc-price { font-size: 15px; font-weight: 600; margin-top: 6px; }
+  .snap-mcard .smc-price { font-size: 15px; font-weight: 600; margin-top: 6px; color: #059669; }
 }

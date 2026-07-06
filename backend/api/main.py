@@ -478,6 +478,52 @@ async def set_property_review(body: PropertyReviewBody, user: dict = Depends(aut
     return {"ok": True, "home_id": home_id, "ongoing_offer": offer, "demand_team_remark": remark}
 
 
+class SnapshotRemarkBody(BaseModel):
+    home_id: str
+    remark: Optional[str] = None
+
+
+@app.get("/api/snapshot-remarks")
+async def get_snapshot_remarks(user: dict = Depends(auth.current_user)):
+    """Per-unit manual remarks shown in / shared from the Inventory Snapshot, keyed
+    by home_id. A SEPARATE concern from the Property-Status 'Demand team remark'
+    (its own table). Degrades to {} if the table isn't present yet (pre-migration)."""
+    try:
+        async with acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT home_id, remark FROM snapshot_remarks WHERE COALESCE(remark, '') <> ''"
+            )
+        return {r["home_id"]: r["remark"] for r in rows}
+    except Exception as e:  # noqa: BLE001 — table missing pre-migration → empty, never 500s the snapshot
+        log.warning("snapshot-remarks fetch failed (%s)", e)
+        return {}
+
+
+@app.post("/api/snapshot-remark")
+async def set_snapshot_remark(body: SnapshotRemarkBody, user: dict = Depends(auth.current_user)):
+    """Admin/TL set/clear a unit's Inventory-Snapshot remark (keyed by home_id).
+    Empty remark clears it. Isolated table; touches no existing data."""
+    _require_admin_or_tl(user)
+    home_id = (body.home_id or "").strip()
+    if not home_id:
+        raise HTTPException(400, "home_id is required")
+    remark = (body.remark or "").strip()
+    async with acquire() as conn:
+        if remark:
+            await conn.execute(
+                """
+                INSERT INTO snapshot_remarks (home_id, remark, set_by, updated_at)
+                VALUES ($1, $2, $3, now())
+                ON CONFLICT (home_id) DO UPDATE SET
+                    remark = EXCLUDED.remark, set_by = EXCLUDED.set_by, updated_at = now()
+                """,
+                home_id, remark, user["slug"],
+            )
+        else:
+            await conn.execute("DELETE FROM snapshot_remarks WHERE home_id = $1", home_id)
+    return {"ok": True, "home_id": home_id, "remark": remark}
+
+
 # ============================================================================
 # Team Performance · admin-entered manual cells (backend metrics stay read-only)
 # ============================================================================

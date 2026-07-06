@@ -4,6 +4,7 @@ import { TODAY, ymd, fmtDate } from '../lib/format.js';
 import { parsePrice, fmtPrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
+import { loadSnapshotRemarks, setSnapshotRemark } from '../api.js';
 
 const CITY_ORDER = ['Gurgaon', 'Noida', 'Ghaziabad'];
 
@@ -16,9 +17,26 @@ const CITY_CFG = {
 // listing_status==='Coming Soon' drives the NEW badge (legacy isPropertyNew)
 function isPropertyNew(p) { return p.listing_status === 'Coming Soon'; }
 
-// strip the society prefix off the full property name, trim leading space/comma/dash, fallback '—'
+// strip the society prefix off the full property name, then trim any leading AND
+// trailing space/comma/dash (property_name is "{unit}, {society}", so removing the
+// society leaves a trailing comma that must go too). Fallback '—'.
 function unitOf(p) {
-  return (p.property_name || '').replace(p.society_name || '', '').replace(/^[ ,\-]+/, '') || '—';
+  return (p.property_name || '').replace(p.society_name || '', '')
+    .replace(/^[ ,\-]+/, '').replace(/[ ,\-]+$/, '') || '—';
+}
+
+// per-unit editable Inventory-Snapshot remark. Admin/TL edit inline (saves on blur /
+// Enter); everyone else just sees it. No home_id → not editable (can't key the store).
+function RemarkCell({ homeId, value, canEdit, onSave, placeholder = 'Add remark…' }) {
+  const [v, setV] = useState(value || '');
+  useEffect(() => { setV(value || ''); }, [value]);
+  if (!canEdit || !homeId) return value ? <span className="snap-remark-ro">📝 {value}</span> : null;
+  const commit = () => { const t = v.trim(); if (t !== (value || '')) onSave(homeId, t); };
+  return (
+    <input className="snap-remark-in" value={v} placeholder={placeholder}
+      onChange={(e) => setV(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+  );
 }
 
 // groupPropertiesByCity(): fixed city order, group by trimmed micro_market, micro-markets sorted alpha.
@@ -102,6 +120,26 @@ export default function SnapshotView({ seed }) {
   const [fRegions, setFRegions] = useStickyState('snapshot:fRegions', []);         // micro_market multi
   const [priceMin, setPriceMin] = useStickyState('snapshot:priceMin', '');         // ₹, numeric text
   const [priceMax, setPriceMax] = useStickyState('snapshot:priceMax', '');         // ₹, numeric text
+  // default the snapshot to sellable inventory (Coming Soon / Ready / Booked); the
+  // team can toggle Sold / Archived back in via the Status filter.
+  const [fStatuses, setFStatuses] = useStickyState('snapshot:fStatuses', ['Coming Soon', 'Ready', 'Booked']);
+
+  // per-unit manual remarks for the snapshot (a SEPARATE store from the Property-Status
+  // demand remark). Loaded once; Admin/TL edit inline, everyone sees them in the share.
+  const canEditRemarks = me.team === 'Admin' || me.team === 'TL';
+  const [remarks, setRemarks] = useState({});
+  useEffect(() => {
+    let alive = true;
+    loadSnapshotRemarks().then((r) => { if (alive) setRemarks(r || {}); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const saveRemark = useCallback((homeId, remark) => {
+    if (!homeId) return;
+    setRemarks((r) => { const n = { ...r }; if (remark) n[homeId] = remark; else delete n[homeId]; return n; });
+    setSnapshotRemark(homeId, remark)
+      .then(() => toast(remark ? 'Remark saved' : 'Remark cleared', 'good'))
+      .catch(() => toast('Could not save remark', 'bad'));
+  }, []);
 
   // distinct option lists, derived from the full property set (alpha sorted)
   const cityOpts = useMemo(
@@ -117,6 +155,12 @@ export default function SnapshotView({ seed }) {
     properties.forEach((p) => { const m = (p.micro_market || '').trim(); if (m) s.add(m); });
     return [...s].sort((a, b) => a.localeCompare(b));
   }, [properties]);
+  const statusOpts = useMemo(() => {
+    const s = new Set();
+    properties.forEach((p) => { const st = (p.listing_status || '').trim(); if (st) s.add(st); });
+    const order = ['Coming Soon', 'Ready', 'Booked', 'Sold', 'Archived'];
+    return [...order.filter((x) => s.has(x)), ...[...s].filter((x) => !order.includes(x)).sort()];
+  }, [properties]);
 
   // inputs are in CRORES (natural unit for these listings) → convert to ₹ for comparison.
   // e.g. "1.5" → 1.5 Cr → 15,000,000. (0.75 = 75 L works for sub-crore ranges too.)
@@ -127,6 +171,7 @@ export default function SnapshotView({ seed }) {
 
   // apply filters to the property list BEFORE grouping / poster
   const filtered = useMemo(() => properties.filter((p) => {
+    if (fStatuses.length && !fStatuses.includes(p.listing_status)) return false;
     if (fCities.length && !fCities.includes(p.city_name)) return false;
     if (fConfigs.length && !fConfigs.includes((p.configuration || '').trim())) return false;
     if (fRegions.length && !fRegions.includes((p.micro_market || '').trim())) return false;
@@ -136,10 +181,11 @@ export default function SnapshotView({ seed }) {
       if (maxRs != null && v > maxRs) return false;
     }
     return true;
-  }), [properties, fCities, fConfigs, fRegions, minRs, maxRs]);
+  }), [properties, fStatuses, fCities, fConfigs, fRegions, minRs, maxRs]);
 
   const clearFilters = useCallback(() => {
     setFCities([]); setFConfigs([]); setFRegions([]); setPriceMin(''); setPriceMax('');
+    setFStatuses(['Coming Soon', 'Ready', 'Booked']);
   }, []);
 
   // group / counts run off the FILTERED set so the page stays coherent with the filters
@@ -188,15 +234,19 @@ export default function SnapshotView({ seed }) {
           body += `*${p.micro_market}*\n`;
           lastMM = p.micro_market;
         }
-        const unit = (p.property_name || '').replace(p.society_name || '', '').replace(/^[ ,\-]+/, '') || '';
-        body += `${p.listing_status === 'Coming Soon' ? '🟡' : '🟢'} ${p.society_name}${unit ? ` ${unit}` : ''} · ${p.configuration || ''} · ${p.super_sqft || ''} sqft · ${p.listing_price || ''}${p.listing_status === 'Coming Soon' ? ' (CS)' : ''}\n`;
+        const u = unitOf(p);
+        const unit = u === '—' ? '' : u;
+        const loc = (p.locality_or_sector || '').trim();
+        const rem = (remarks[p.home_id] || '').trim();
+        body += `${p.listing_status === 'Coming Soon' ? '🟡' : '🟢'} ${p.society_name}${unit ? ` ${unit}` : ''}${loc ? ` · ${loc}` : ''} · ${p.configuration || ''} · ${p.super_sqft || ''} sqft · ${p.listing_price || ''}${p.listing_status === 'Coming Soon' ? ' (CS)' : ''}\n`;
+        if (rem) body += `   📝 ${rem}\n`;
       });
       body += '\n';
     });
     const first = (me.name || '').trim() || 'Team';
     body += `\nReach out for site visits, virtual tour, or pricing details.\n\n– ${first}, Openhouse`;
     return body;
-  }, [me.name]);
+  }, [me.name, remarks]);
 
   // per-city share (operates on the filtered set so it matches what's on screen)
   const openShare = useCallback((cities) => {
@@ -264,6 +314,7 @@ export default function SnapshotView({ seed }) {
           <MultiSelect label="City" options={cityOpts} value={fCities} onChange={setFCities} />
           <MultiSelect label="BHK / Config" options={configOpts} value={fConfigs} onChange={setFConfigs} />
           <MultiSelect label="Region" options={regionOpts} value={fRegions} onChange={setFRegions} />
+          <MultiSelect label="Status" options={statusOpts} value={fStatuses} onChange={setFStatuses} />
           <div className="snap-price">
             <span className="snap-price-lbl">Price (₹ Cr)</span>
             <input
@@ -318,7 +369,7 @@ export default function SnapshotView({ seed }) {
             <div className="t">{hasFilters ? 'No units match these filters' : 'No inventory loaded'}</div>
           </div>
         ) : (
-          cities.map((city) => <CityBlock key={city} city={city} g={grouped[city]} />)
+          cities.map((city) => <CityBlock key={city} city={city} g={grouped[city]} remarks={remarks} canEditRemarks={canEditRemarks} saveRemark={saveRemark} />)
         )}
       </div>
 
@@ -326,7 +377,7 @@ export default function SnapshotView({ seed }) {
       {img && (
         <ImageModal img={img} onClose={() => setImg(null)}>
           {/* off-screen poster — html2canvas rasterizes this DOM node */}
-          {img.loading && <Poster ref={posterRef} props={img.props} title={img.subtitle} />}
+          {img.loading && <Poster ref={posterRef} props={img.props} title={img.subtitle} remarks={remarks} />}
         </ImageModal>
       )}
     </div>
@@ -334,7 +385,7 @@ export default function SnapshotView({ seed }) {
 }
 
 /* ============================== city block ============================== */
-function CityBlock({ city, g }) {
+function CityBlock({ city, g, remarks = {}, canEditRemarks, saveRemark }) {
   const isMobile = useIsMobile();
   const cfg = CITY_CFG[city] || { sub: `Openhouse · ${city} Inventory` };
   const readyCount = g.ordered.reduce(
@@ -374,6 +425,9 @@ function CityBlock({ city, g }) {
                       <div className="smc-meta">{unitOf(p)} · {p.configuration || '—'} · {p.super_sqft || '—'} sqft · {p.locality_or_sector || p.micro_market || '—'}</div>
                       <div className="smc-meta">PM · {p.sales_manager || '—'}</div>
                       <div className="smc-price">{p.listing_price || '—'}</div>
+                      {(canEditRemarks || remarks[p.home_id]) && (
+                        <div className="smc-remark"><RemarkCell homeId={p.home_id} value={remarks[p.home_id]} canEdit={canEditRemarks} onSave={saveRemark} /></div>
+                      )}
                     </div>
                   );
                 })}
@@ -400,6 +454,9 @@ function CityBlock({ city, g }) {
                           {isNew ? <span className="new-badge">NEW</span> : null}{p.society_name || '—'}
                         </span>
                         <div style={{ fontSize: 10.5, color: 'var(--mut)', fontWeight: 500, marginTop: 2 }}>PM · {p.sales_manager || '—'}</div>
+                        {(canEditRemarks || remarks[p.home_id]) && (
+                          <div className="cell-remark"><RemarkCell homeId={p.home_id} value={remarks[p.home_id]} canEdit={canEditRemarks} onSave={saveRemark} /></div>
+                        )}
                       </td>
                       <td className="cell-unit"><span className="unit">{unitOf(p)}</span></td>
                       <td className="cell-area"><span className="area">{p.super_sqft || '—'} sqft</span></td>
@@ -560,7 +617,7 @@ const OH_ICON = (
   </svg>
 );
 
-const Poster = forwardRef(function Poster({ props = [], title }, ref) {
+const Poster = forwardRef(function Poster({ props = [], title, remarks = {} }, ref) {
     const ready = props.filter((p) => p.listing_status === 'Ready').length;
     // fixed-order cities first, then any extras alpha — so a filtered set still renders sensibly
     const cities = CITY_ORDER.filter((c) => props.some((p) => p.city_name === c));
@@ -619,6 +676,8 @@ const Poster = forwardRef(function Poster({ props = [], title }, ref) {
                                 {p.listing_status === 'Coming Soon' ? <span className="pnew">NEW</span> : null}
                                 {p.society_name || '—'}
                               </span>
+                              {p.locality_or_sector ? <div className="ps-loc">{p.locality_or_sector}</div> : null}
+                              {remarks[p.home_id] ? <div className="ps-rem">📝 {remarks[p.home_id]}</div> : null}
                             </td>
                             <td><span className="ps-unit">{unitOf(p)}</span></td>
                             <td>{p.configuration || '—'}</td>
