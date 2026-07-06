@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
         await close_pool()
 
 
-app = FastAPI(title="OpenHouse Demand CRM API", version="1.0", lifespan=lifespan)
+app = FastAPI(title="Openhouse Demand CRM API", version="1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

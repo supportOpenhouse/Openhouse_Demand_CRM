@@ -173,7 +173,7 @@ export default function App() {
                     title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-label="Toggle sidebar">☰</button>
             <div className="rx-brand">
               <Logo size={26} />
-              <span><b>OpenHouse</b> <span className="rx-demand">DEMAND</span></span>
+              <span><b>Openhouse</b> <span className="rx-demand">DEMAND</span></span>
             </div>
           </div>
           <div className="rx-topbar-right">
