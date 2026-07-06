@@ -461,7 +461,9 @@ table.prop-t tbody tr:hover{background:#FFFAF3}
 .poster table .ps-status{display:inline-block;padding:2px 7px;border-radius:4px;font-size:9.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
 .poster table .ps-status.r{background:#E8F8EE;color:#15803D}
 .poster table .ps-status.cs{background:#FEF3C7;color:#9A6700}
-.poster table .ps-price{font-weight:700;color:#D4380D;font-size:13px;white-space:nowrap}
+.poster table .ps-price{font-weight:700;color:#059669;font-size:13px;white-space:nowrap}
+.poster table .ps-loc{font-size:10px;color:#637381;font-weight:500;margin-top:2px}
+.poster table .ps-rem{font-size:10px;color:#065F46;font-weight:600;margin-top:2px;line-height:1.35}
 .poster .pfoot{margin-top:24px;padding-top:14px;border-top:1px solid #E5E1DA;font-size:11px;color:#637381;text-align:center;font-weight:500}
 .poster .pnew{background:#FF3B30;color:#fff;font-size:8.5px;font-weight:700;padding:1px 5px;border-radius:3px;margin-right:5px;vertical-align:1px;letter-spacing:.3px;text-transform:uppercase}
 
@@ -502,8 +504,13 @@ table.prop-t tbody tr:hover{background:#FFFAF3}
 .snap-tbl .status-pill{display:inline-block;padding:2px 9px;border-radius:5px;font-size:10.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
 .snap-tbl .status-pill.r{background:var(--goodBg);color:var(--goodDk)}
 .snap-tbl .status-pill.cs{background:var(--warnBg);color:var(--warnDk)}
-.snap-tbl .ask-price{font-weight:700;color:var(--accDark);font-size:13px}
+.snap-tbl .ask-price{font-weight:700;color:#059669;font-size:13px}
 .snap-tbl .new-badge{background:#FF3B30;color:#fff;font-size:8.5px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.3px;text-transform:uppercase;margin-right:6px;vertical-align:1px}
+.cell-remark,.smc-remark{margin-top:4px}
+.snap-remark-in{width:100%;max-width:340px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:11.5px;font-family:inherit;background:var(--panel);color:var(--txt);outline:none}
+.snap-remark-in:focus{border-color:var(--acc)}
+.snap-remark-in::placeholder{color:var(--mut)}
+.snap-remark-ro{font-size:11.5px;color:#065F46;font-weight:600}
 .snap-empty{padding:30px 20px;text-align:center;color:var(--mut);font-size:12px;font-style:italic}
 
 @media (max-width: 900px){
@@ -518,7 +525,7 @@ table.prop-t tbody tr:hover{background:#FFFAF3}
   .snap-tbl td.cell-loc{grid-column:1/3;color:var(--mut);font-size:11.5px}
   .snap-tbl td.cell-cfg{grid-column:1}
   .snap-tbl td.cell-status{grid-column:2;text-align:right}
-  .snap-tbl td.cell-price{grid-column:1;font-weight:700;color:var(--accDark);font-size:15px}
+  .snap-tbl td.cell-price{grid-column:1;font-weight:700;color:#059669;font-size:15px}
   .snap-tbl td.cell-area{grid-column:2;text-align:right;color:var(--mut);font-size:11.5px}
   #view-snapshot .pager{display:flex;flex-wrap:wrap;gap:6px}
 }

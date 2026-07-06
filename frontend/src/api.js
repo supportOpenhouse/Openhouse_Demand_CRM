@@ -72,6 +72,19 @@ export async function setPropertyReview(body) {
   return res.json();
 }
 
+// Inventory-Snapshot per-unit remark (by home_id) — separate from the Property-Status
+// "Demand remark". loadSnapshotRemarks → { home_id: remark }; empty remark clears it.
+export async function loadSnapshotRemarks() {
+  const res = await apiFetch('/api/snapshot-remarks');
+  if (!res.ok) return {};
+  return res.json();
+}
+export async function setSnapshotRemark(home_id, remark) {
+  const res = await apiFetch('/api/snapshot-remark', { method: 'POST', body: JSON.stringify({ home_id, remark }) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export async function saveFollowup(body) {
   const res = await apiFetch('/api/followups', { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw new Error(await res.text());
