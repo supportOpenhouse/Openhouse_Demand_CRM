@@ -238,7 +238,7 @@ export default function SnapshotView({ seed }) {
         const unit = u === '—' ? '' : u;
         const loc = (p.locality_or_sector || '').trim();
         const rem = (remarks[p.home_id] || '').trim();
-        body += `${p.listing_status === 'Coming Soon' ? '🟡' : '🟢'} ${p.society_name}${unit ? ` ${unit}` : ''}${loc ? ` · ${loc}` : ''} · ${p.configuration || ''} · ${p.super_sqft || ''} sqft · ${p.listing_price || ''}${p.listing_status === 'Coming Soon' ? ' (CS)' : ''}\n`;
+        body += `${p.listing_status === 'Coming Soon' ? '🟡' : '🟢'} ${p.society_name}${unit ? ` ${unit}` : ''}${loc ? ` · ${loc}` : ''} · ${p.configuration || ''} · ${p.super_sqft || ''} sqft · ${p.listing_price || ''}${p.listing_status === 'Coming Soon' ? ' (Coming Soon)' : ''}\n`;
         if (rem) body += `   📝 ${rem}\n`;
       });
       body += '\n';
@@ -651,7 +651,7 @@ const Poster = forwardRef(function Poster({ props = [], title, remarks = {} }, r
                 <h3>{city || 'Other'} · {cityProps.length} units</h3>
                 <div>
                   <span className="cnt">{cReady} Ready</span>
-                  {cs ? <> <span className="cnt">{cs} CS</span></> : null}
+                  {cs ? <> <span className="cnt">{cs} Coming Soon</span></> : null}
                 </div>
               </div>
               {mmOrder.map((mm) => {
@@ -677,7 +677,6 @@ const Poster = forwardRef(function Poster({ props = [], title, remarks = {} }, r
                                 {p.society_name || '—'}
                               </span>
                               {p.locality_or_sector ? <div className="ps-loc">{p.locality_or_sector}</div> : null}
-                              {remarks[p.home_id] ? <div className="ps-rem">📝 {remarks[p.home_id]}</div> : null}
                             </td>
                             <td><span className="ps-unit">{unitOf(p)}</span></td>
                             <td>{p.configuration || '—'}</td>
@@ -686,6 +685,7 @@ const Poster = forwardRef(function Poster({ props = [], title, remarks = {} }, r
                               <span className={`ps-status ${p.listing_status === 'Ready' ? 'r' : 'cs'}`}>
                                 {p.listing_status || '—'}
                               </span>
+                              {remarks[p.home_id] ? <div className="ps-rem">📝 {remarks[p.home_id]}</div> : null}
                             </td>
                             <td style={{ textAlign: 'right' }}><span className="ps-price">{p.listing_price || '—'}</span></td>
                           </tr>
