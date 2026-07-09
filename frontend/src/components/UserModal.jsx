@@ -184,7 +184,7 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
             </div>
 
             <div className="full">
-              <label>Micro-market manager <span style={{ textTransform: 'none', fontWeight: 400 }}>(optional — scopes them to these micro-markets, overriding city)</span></label>
+              <label>Micro-market manager <span style={{ textTransform: 'none', fontWeight: 400 }}>(TL / Admin only — GRANTS visibility &amp; edit of every visit, CP &amp; property in these micro-markets, across all PMs. Leave empty for regular PMs; has no effect unless Team above is TL or Admin.)</span></label>
               <div className="rx-citybox">
                 {mms.map((c) => (
                   <span key={c} className="rx-citychip">{c}<button type="button" onClick={() => removeMm(c)} aria-label={`Remove ${c}`}>✕</button></span>

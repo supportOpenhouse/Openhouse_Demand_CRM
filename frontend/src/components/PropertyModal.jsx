@@ -388,7 +388,9 @@ function PropVisitRow({
   const noKam = me.team === 'Ground' && NO_KAM_GROUND_CITIES.has(v.city) && (me.cities || []).includes(v.city);
   // Micro-market manager: they only ever see leads inside their micro-markets (scopeVisits),
   // and the backend grants edit on every one — so any lead shown to them is editable.
-  const mmManager = (me.micro_markets || []).length > 0;
+  // GATED to TL/Admin only (mirrors scopeVisits) — micro_markets on a Ground PM must not
+  // grant edit rights across a whole micro-market.
+  const mmManager = (me.micro_markets || []).length > 0 && (me.team === 'TL' || me.team === 'Admin');
   const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit || (me.team === 'Ground' && isMyProperty) || kamExtra || noKam || mmManager;
   const nfc = nextFuClass(nextFuFor(v));
   const nudgeOk = (!isMine && !!owner);
