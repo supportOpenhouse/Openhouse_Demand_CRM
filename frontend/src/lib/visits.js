@@ -197,9 +197,11 @@ export const NO_KAM_GROUND_CITIES = new Set(['Ghaziabad']);
 export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByProperty = {}) {
   if (!me || !me.id) return visits;
   // MM-manager: micro-market scope takes precedence over team/city (mirrors the
-  // backend scope_for_user). Only users with micro_markets set are affected.
+  // backend scope_for_user). GATED to TL/Admin only — a manager-level grant, so
+  // micro_markets on a Ground/KAM PM does NOT promote them; they fall through to
+  // their normal team scope below. KEEP IN SYNC with backend seed_snapshot.py.
   const mms = me.micro_markets || [];
-  if (mms.length) {
+  if (mms.length && (me.team === 'TL' || me.team === 'Admin')) {
     const inScope = (p) => mms.includes(p.micro_market) || pmByProperty[p.property_name] === me.slug;
     const mmSocs = new Set(properties.filter(inScope).map((p) => p.society_name));
     const mmHomes = new Set(properties.filter((p) => inScope(p) && p.home_id).map((p) => String(p.home_id)));

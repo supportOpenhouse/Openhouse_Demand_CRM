@@ -119,11 +119,14 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
 
     # ── MM-manager: micro-market scope takes PRECEDENCE over team/city. A user with
     # micro_markets set sees every property + visit in those micro-markets (across all
-    # PMs/RMs there), plus their own PM societies / RM visits. Only triggers when
-    # micro_markets is set, so no other user is affected. Edit rights come from the
-    # user's team (these managers are TLs → the frontend already grants TL edit).
+    # PMs/RMs there), plus their own PM societies / RM visits. GATED to TL/Admin only:
+    # this is a manager-level grant, so micro_markets on a Ground/KAM PM must NOT silently
+    # promote them — they fall through to their normal team scope below. Only triggers for
+    # a TL/Admin WITH micro_markets set, so no regular PM is affected. (Admin already
+    # returned above, so in practice this is the TL micro-market leads.)
+    # KEEP IN SYNC with the frontend guard (lib/visits.js, lib/properties.js, PropertyModal.jsx).
     mms = set(user.get("micro_markets") or [])
-    if mms:
+    if mms and team in ("TL", "Admin"):
         pm_by_property = snap.get("pm_by_property", {})
         my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
         in_scope_prop = lambda p: (p.get("micro_market") in mms) or (p["property_name"] in my_props)
