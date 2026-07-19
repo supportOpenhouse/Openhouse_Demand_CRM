@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { TODAY, ymd, fmtDate, fmtDay, fmtMonth, fmtDateTime, initials } from '../lib/format.js';
 import {
-  STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextActivityFor,
+  STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextActivityFor, buildRevisitIndex,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -15,6 +15,7 @@ import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import { recsForCp } from '../lib/recordings.js';
 import RecordingDetail from './RecordingDetail.jsx';
+import RevisitTag from './RevisitTag.jsx';
 
 const STAGE_ORDER = ['all', 'upcoming', 'avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more', 'cancelled'];
 const STATUS_PILLS = ['hot', 'warm', 'cold', 'dead', 'future_prospect'];
@@ -53,6 +54,9 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
       .sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '')),
     [seed, cpCode],
   );
+  // Per-property revisit index over THIS CP's visits (a chain shares the cp_code, so the
+  // subset is complete). Drives the accurate per-unit "🔁 Revisit #N" (vs the buyer-total).
+  const revIndex = useMemo(() => buildRevisitIndex(visits), [visits]);
 
   // ---- popup-level state ----
   const [popupTab, setPopupTab] = useState('visits');     // visits | engagement | timeline
@@ -375,7 +379,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
                   <div className="bpStageBody">
                     {currentVisits.length ? currentVisits.map((v) => (
                       <VisitRow
-                        key={v.id} v={v} visits={visits}
+                        key={v.id} v={v} visits={visits} revIndex={revIndex}
                         followupLog={followupLog} ubs={ubs}
                         open={expanded.has(String(v.id))}
                         isPriority={String(v.id) === String(focusVid)}
@@ -433,7 +437,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
 /* ===============================================================
    VISIT ROW
    =============================================================== */
-function VisitRow({ v, visits, followupLog, ubs, open, isPriority, onToggle, draft, setDraft, onSave, onNudge, nudgesByVisit, teamTasks, ownerId, me, busy }) {
+function VisitRow({ v, visits, revIndex, followupLog, ubs, open, isPriority, onToggle, draft, setDraft, onSave, onNudge, nudgesByVisit, teamTasks, ownerId, me, busy }) {
   const status = visitStatus(v);
   const stage = visitStage(v);
   const recent = (v.all_feedback || '').split('\n').filter((l) => l.trim()).slice(-3).reverse();
@@ -454,7 +458,8 @@ function VisitRow({ v, visits, followupLog, ubs, open, isPriority, onToggle, dra
         <span className="vh-caret">▶</span>
         <div className="vh-buyer">
           <div className="b">{v.buyer_name || '—'}</div>
-          <div className="ph">{v.buyer_contact || ''}{v.lead_occurrence_count && +v.lead_occurrence_count > 1 ? ` · revisit #${v.lead_occurrence_count}` : ''}</div>
+          <div className="ph">{v.buyer_contact || ''}</div>
+          {revIndex?.get(v.id)?.isRevisit ? <div style={{ marginTop: 2 }}><RevisitTag info={revIndex.get(v.id)} /></div> : null}
           {(() => { const na = nextActivityFor(v); return na ? (
             <div style={{ marginTop: 3 }}><span className={'fu-chip ' + (na.kind === 'negotiation' ? 'today' : 'later')} title={na.label}><span className="d" />{na.kind === 'negotiation' ? '🤝 Negotiation ' : '↻ Revisit '}{fmtDateTime(na.date)}</span></div>
           ) : null; })()}
@@ -477,7 +482,7 @@ function VisitRow({ v, visits, followupLog, ubs, open, isPriority, onToggle, dra
 
       <div className="vrow-body">
         <VisitIntent v={v} />
-        <BuyerHistory v={v} visits={visits} />
+        <BuyerHistory v={v} visits={visits} revIndex={revIndex} />
         {recent.length ? (
           <div className="fu-recent"><b>Recent feedback</b><br />{recent.map((l, i) => <span key={i}>· {l}<br /></span>)}</div>
         ) : null}
@@ -605,7 +610,7 @@ function buyerOtherVisits(v, visits) {
     || (phone && phone.length >= 5 && (x.buyer_contact || '').trim() === phone)
   ));
 }
-function BuyerHistory({ v, visits }) {
+function BuyerHistory({ v, visits, revIndex }) {
   const others = buyerOtherVisits(v, visits);
   if (!others.length) return null;
   const sorted = others.slice().sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '')).slice(0, 12);
@@ -626,7 +631,7 @@ function BuyerHistory({ v, visits }) {
               <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
                 <span className={'stpill ' + stat}><span className="d" />{STATUSES.find((s) => s.k === stat)?.label || stat}</span>
                 <span className={'sgpill ' + stg}><span className="d" />{STAGE_BY_KEY[stg]?.label || stg}</span>
-                {o.lead_occurrence_count && +o.lead_occurrence_count > 1 ? <span className="prio-tag tl">revisit #{o.lead_occurrence_count}</span> : null}
+                {revIndex?.get(o.id)?.isRevisit ? <RevisitTag info={revIndex.get(o.id)} /> : null}
               </div>
               {fb ? <div style={{ fontSize: 11, color: 'var(--mut)', marginTop: 5, fontStyle: 'italic' }}>"{String(fb).slice(0, 140)}"</div> : null}
             </div>

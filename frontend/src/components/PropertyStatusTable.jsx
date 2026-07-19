@@ -22,6 +22,8 @@ const BUCKET_COLOR = {
 };
 const STATUS_CLS = { Ready: 'good', Available: 'good', Booked: 'info', 'Coming Soon': 'warn' };
 const khAgeColor = (d) => (d == null ? undefined : d > 150 ? 'var(--bad)' : d > 90 ? 'var(--warn)' : 'var(--mut)');
+// Days-to-forfeiture urgency: ≤ 0 lapsed (critical/red), ≤ 30 approaching (amber), else muted.
+const forfeitColor = (d) => (d == null ? undefined : d <= 0 ? 'var(--bad)' : d <= 30 ? 'var(--warn)' : 'var(--mut)');
 
 function Num({ n, color }) {
   if (!n) return <span className="ps-zero">0</span>;
@@ -215,6 +217,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td>{r.responsible || '—'}</td>
                 <KhCell row={r} canEdit={canEditKh} onSave={saveKh} />
                 <td className="num ps-kh"><b style={{ color: khAgeColor(r.days_since_kh) }}>{r.days_since_kh == null ? '—' : r.days_since_kh}</b></td>
+                <td className="num"><b style={{ color: forfeitColor(r.days_to_forfeiture) }}>{r.days_to_forfeiture == null ? '—' : r.days_to_forfeiture}</b></td>
                 <EditTextCell row={r} field="ongoing_offer" canEdit={canEditReview} onSave={saveReview} />
                 <EditTextCell row={r} field="demand_team_remark" canEdit={canEditReview} onSave={saveReview} />
                 <td className="num"><Num n={r.total} color="var(--ink)" /></td>
@@ -236,7 +239,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td className="ps-f" style={{ left: STICK.region.left, minWidth: STICK.region.w }}>Totals</td>
                 <td className="ps-f" style={{ left: STICK.society.left, minWidth: STICK.society.w }}>{int(rows.length)} properties</td>
                 <td className="ps-f ps-edge" style={{ left: STICK.unit.left, minWidth: STICK.unit.w }} />
-                <td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" /><td /><td />
+                <td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" /><td className="num" /><td /><td />
                 <td className="num"><b>{int(totals.total)}</b></td>
                 <td className="num"><b>{int(totals.lastWeek)}</b></td>
                 <td className="num"><b>{int(totals.prevWeek)}</b></td>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { fmtDate, fmtDay, fmtDateTime, daysBetween, TODAY, ymd } from '../lib/format.js';
 import {
   STAGES, STAGE_BY_KEY, STATUSES, FU_PRESETS,
-  visitStage, visitStatus, isVisitCompleted, nextFuFor, nextActivityFor, matchFuFilter, scopeVisits, isOldLead, visitUnitText,
+  visitStage, visitStatus, isVisitCompleted, nextFuFor, nextActivityFor, matchFuFilter, scopeVisits, isOldLead, visitUnitText, buildRevisitIndex,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -13,6 +13,7 @@ import { flatNo } from '../lib/propertyStatus.js';
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import ChipBar from '../components/ChipBar.jsx';
+import RevisitTag from '../components/RevisitTag.jsx';
 import { hasVisitRec } from '../lib/recordings.js';
 
 const CITIES = ['Gurgaon', 'Noida', 'Ghaziabad'];
@@ -160,14 +161,23 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     && TO_ACTION_STATUSES.has(visitStatus(v))
     && (matchFuFilter(v, 'overdue') || matchFuFilter(v, 'today') || matchFuFilter(v, 'no_fu'));
 
-  const oldCount = useMemo(() => scoped.filter(isOldLead).length, [scoped]);
+  // Per-property revisit chains (display-only). Computed over the FULL scoped set so chains
+  // are complete; the Visits list then shows ONE row per chain — its LATEST visit — tagged
+  // "🔁 Revisit". Earlier chain members drop out of THIS list only (still shown in the CP /
+  // property modals); no count anywhere else changes. ~132 chains out of 12k visits.
+  const revIndex = useMemo(() => buildRevisitIndex(scoped), [scoped]);
+  const clubbed = useMemo(
+    () => scoped.filter((v) => { const r = revIndex.get(v.id); return !r || r.isChainLatest; }),
+    [scoped, revIndex],
+  );
+  const oldCount = useMemo(() => clubbed.filter(isOldLead).length, [clubbed]);
   // deferred search keeps typing responsive (non-blocking recompute of the base)
   const dq = useDeferredValue(search);
   // The BASE set that drives BOTH the row list AND every chip "bubble" count:
   // scoping + city tab + lead-set + the Filters-modal predicates + search. The modal
   // filters live HERE (not just in `filtered`) so the bubble counts stay honest — they
   // now reflect the Filters tab and match the visible row count.
-  const cityBase = useMemo(() => scoped.filter((v) => {
+  const cityBase = useMemo(() => clubbed.filter((v) => {
     // city tab + lead-set segment
     if (filters.cities?.length && !filters.cities.includes(v.city)) return false;
     const old = isOldLead(v);
@@ -237,7 +247,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     }
     if (recsOnly && !hasVisitRec(seed, v.id)) return false;
     return true;
-  }), [scoped, filters, leadSet, dq, propBySociety, brokersByCode, recsOnly]);
+  }), [clubbed, filters, leadSet, dq, propBySociety, brokersByCode, recsOnly]);
 
   const statusCounts = useMemo(() => {
     const c = { all: cityBase.length, hot: 0, warm: 0, cold: 0, dead: 0, future_prospect: 0, unc: 0 };
@@ -550,6 +560,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                 const checked = selected.has(v.id);
                 const stLabel = STATUSES.find((s) => s.k === st)?.label || st;
                 const sub = [v.unit_address_line1, v.unit_address_line2].filter(Boolean).join('-') || (v.listing_status || '');
+                const rev = revIndex.get(v.id);
                 return (
                   <tr
                     key={v.id}
@@ -575,7 +586,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                       <div style={{ fontSize: '10.5px', color: 'var(--mut)', marginTop: 1 }}>{sub}</div>
                     </td>
                     <td>
-                      {v.buyer_name || '—'}
+                      {v.buyer_name || '—'} {rev?.isRevisit && <RevisitTag info={rev} />}
                       <div style={{ fontSize: '10.5px', color: 'var(--mut)', marginTop: 1 }}>{v.buyer_contact || ''}</div>
                     </td>
                     <td>
@@ -644,6 +655,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
               const checked = selected.has(v.id);
               const stLabel = STATUSES.find((s) => s.k === st)?.label || st;
               const sub = [v.unit_address_line1, v.unit_address_line2].filter(Boolean).join('-') || (v.listing_status || '');
+              const rev = revIndex.get(v.id);
               return (
                 <div
                   key={v.id}
@@ -668,8 +680,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
                   <div className="mc-meta">
                     <span>👤 <b>{v.buyer_name || '—'}</b></span>
                     {v.buyer_contact ? <span style={{ color: 'var(--mut)' }}>{v.buyer_contact}</span> : null}
-                    {v.lead_occurrence_count && +v.lead_occurrence_count > 1
-                      ? <span style={{ color: 'var(--acc)', fontWeight: 600 }}>revisit #{v.lead_occurrence_count}</span> : null}
+                    {rev?.isRevisit ? <RevisitTag info={rev} /> : null}
                   </div>
                   <div className="mc-meta">
                     <span>🤝 <b>{v.broker_name || '—'}</b></span>

@@ -7,7 +7,7 @@
 // scoping + the SAME Visits filters + a revisit-date range + the stage tabs.
 import { useMemo, useDeferredValue } from 'react';
 import { daysBetween } from '../lib/format.js';
-import { visitStage, scopeVisits, nextFuFor, nextActivityFor } from '../lib/visits.js';
+import { visitStage, scopeVisits, nextFuFor, nextActivityFor, buildRevisitIndex } from '../lib/visits.js';
 import { flatNo } from '../lib/propertyStatus.js';
 import ChipBar from '../components/ChipBar.jsx';
 import PipelineQueue from '../components/PipelineQueue.jsx';
@@ -16,6 +16,7 @@ import { useStickyState } from '../lib/sessionFilters.js';
 const FUNNEL = ['revisit_scheduled', 'after_revisit_fu'];
 const STAGE_TABS = [
   { k: 'all', label: 'All', cls: '' },
+  { k: 'revisited', label: '🔁 Revisited', cls: 'sg-rev' },
   { k: 'revisit_scheduled', label: 'Revisit Scheduled', cls: 'sg-rev' },
   { k: 'after_revisit_fu', label: 'After Revisit FU', cls: 'sg-avfu' },
 ];
@@ -50,7 +51,19 @@ export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = 
   const dq = useDeferredValue(search);
   const resetFilters = () => { setStageTab([]); setRevFrom(''); setRevTo(''); onResetGlobalFilters?.(); };
 
-  const funnel = useMemo(() => scoped.filter((v) => FUNNEL.includes(visitStage(v))), [scoped]);
+  // Revisit index over the FULL scoped set (chains complete within scope). An "actual
+  // revisit" = the LATEST visit of a chain that has an earlier COMPLETED visit to the same
+  // unit + broker + buyer. The Revisits tab = the follow-up-scheduled revisit funnel UNION
+  // the actual revisits (which keep their own pipeline stage; surfaced here as a focus signal).
+  const revIndex = useMemo(() => buildRevisitIndex(scoped), [scoped]);
+  const isActualRev = (v) => { const r = revIndex.get(v.id); return !!(r && r.isRevisit && r.isChainLatest); };
+  const funnel = useMemo(() => {
+    const seen = new Set(); const out = [];
+    for (const v of scoped) {
+      if ((FUNNEL.includes(visitStage(v)) || isActualRev(v)) && !seen.has(v.id)) { seen.add(v.id); out.push(v); }
+    }
+    return out;
+  }, [scoped, revIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = useMemo(() => funnel.filter((v) => {
     if (filters.cities?.length && !filters.cities.includes(v.city)) return false;
@@ -120,14 +133,16 @@ export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = 
   }), [funnel, filters, dq, propBySociety, brokersByCode, revFrom, revTo]);
 
   const stageCounts = useMemo(() => {
-    const c = { all: base.length, revisit_scheduled: 0, after_revisit_fu: 0 };
-    base.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; });
+    const c = { all: base.length, revisited: 0, revisit_scheduled: 0, after_revisit_fu: 0 };
+    base.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; if (isActualRev(v)) c.revisited += 1; });
     return c;
-  }, [base]);
+  }, [base, revIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(
-    () => (stageTab.length ? base.filter((v) => stageTab.includes(visitStage(v))) : base),
-    [base, stageTab],
+    () => (stageTab.length
+      ? base.filter((v) => stageTab.includes(visitStage(v)) || (stageTab.includes('revisited') && isActualRev(v)))
+      : base),
+    [base, stageTab, revIndex], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return (
@@ -151,10 +166,10 @@ export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = 
       <ChipBar label="Stage" options={STAGE_TABS} counts={stageCounts} value={stageTab} onChange={setStageTab} multi />
 
       <div className="neg-count" style={{ margin: '8px 2px', color: 'var(--mut)', fontSize: 13 }}>
-        <b>{rows.length}</b> in the revisit funnel
+        <b>{rows.length}</b> revisit lead{rows.length === 1 ? '' : 's'} — scheduled revisits + buyers who came back to the same unit (🔁 Revisited)
       </div>
 
-      <PipelineQueue seed={seed} rows={rows} mode="revisit" onOpenBroker={onOpenBroker} onSaved={reloadSeed} />
+      <PipelineQueue seed={seed} rows={rows} mode="revisit" onOpenBroker={onOpenBroker} onSaved={reloadSeed} revIndex={revIndex} />
     </div>
   );
 }
