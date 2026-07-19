@@ -329,6 +329,53 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-07-19 (Claude session — per-property REVISITS + "Days to Forfeiture" column; FRONTEND-only, display layer):**
+  - **Part 1 — Property Performance "Days to Forfeiture" column.** `propertyStatus.js`: new `FORFEITURE_DAYS = 150`;
+    per row `days_to_forfeiture = 150 − days_since_kh`; column added right after "Days Since KH" (CSV auto-picks it up).
+    `PropertyStatusTable.jsx`: renders it with urgency colour (**red ≤ 0** = window lapsed, **amber ≤ 30**, else muted);
+    footer cell left blank (not a sum). Purely additive; no other column or count changed.
+  - **Part 2 — per-property revisit detection (a THIRD, distinct notion from the follow-up-scheduled
+    `revisit_scheduled` STAGE and the buyer-total `lead_occurrence_count` badge).** A visit is a "revisit" when the
+    SAME `home_id` + `cp_code` + buyer (`buyer_contact` phone, else `lead_key`) has an EARLIER **completed** visit.
+    New pure helper `buildRevisitIndex(visits)` in `lib/visits.js` → `Map(id → {isRevisit, revisitSeq, isChainLatest,
+    chainSize, …})`. Validated on live data: **152 chains / ~181 clubbed rows out of 12,244 visits** (~98.5% unchanged).
+    - **Visits tab** (`VisitsView.jsx`): each revisit chain is **clubbed to its latest real (completed/upcoming) visit**
+      — earlier members drop out of the LIST ONLY (still shown in the CP/property modals) — and tagged **🔁 Revisit #N**
+      (`components/RevisitTag.jsx`). The tab's own filter-chip counts follow the clubbed rows.
+    - **Revisits tab** (`RevisitsView.jsx`): new **"🔁 Revisited" sub-tab** = the follow-up-scheduled funnel UNION the
+      actual per-property revisits (deduped); each lead ALSO stays in its own stage funnel — nothing moved.
+    - **Tagging** added wherever a visit row renders: `PipelineQueue.jsx` (Revisits + Negotiations, via a `revIndex`
+      prop), `BrokerModal.jsx`, `PropertyModal.jsx`. The old buyer-total "revisit #N" badge (misleading — counted a
+      buyer's visits across ALL homes) is **replaced** by the accurate per-property `revisitSeq` in all four places.
+  - **Explicitly UNCHANGED (blast-radius guard):** NO backend / DB / migration / `sheet_sync` / seed-shape change. Every
+    numeric count stays per-physical-visit — Property Status "Total Visits" + weekly columns, Properties list, all of
+    Analytics, Team Performance, Home Gold/Silver, seller-report emails, `ai_suggestions`, and modal totals are all
+    untouched (a revisit is still a real visit). `visitStage`, the Negotiations funnel, and `scopeVisits` are unchanged.
+  - **Validated** live (Admin, desktop) via the local stack: Saloni's 3 visits to Godrej Oasis 201-D collapse to one
+    tagged row (earlier two hidden even with "All" leads shown — DOM-confirmed), "Revisited" sub-tab lists 149 tagged
+    revisits, forfeiture column computes + colours correctly, zero console errors on every view + the CP modal.
+    `npm run build` clean. Files: `lib/visits.js`, `lib/propertyStatus.js`, `views/VisitsView.jsx`,
+    `views/RevisitsView.jsx`, `views/NegotiationsView.jsx`, `components/PipelineQueue.jsx`, `components/BrokerModal.jsx`,
+    `components/PropertyModal.jsx`, `components/PropertyStatusTable.jsx`, `components/RevisitTag.jsx` (new).
+- **2026-07-15 (Claude session — CP book split: 50 CPs Shubham→Deepak Rawat + Deepak promoted to KAM Gurgaon; DATA change, no code/PR):**
+  - **Ownership:** moved **50 channel partners** from Shubham Sharma (`shubham`) → Deepak Rawat (`deepak-rawat`) in
+    `cp_assignments` (history-preserving via `_set_owner` semantics: old open rows closed `effective_to=2026-07-15`,
+    new rows opened, `assigned_by=akshit`, `reason='reassign_shubham_to_deepak_2026-07-15'`). Shubham **114→64**,
+    Deepak **0→50**. Other KAMs untouched (mukul 52 / mayank 45 / saket 29 unchanged; `open_total` 246 unchanged).
+  - **Role:** promoted Deepak `team Ground→KAM`, `role ground→kam` (everything else byte-identical; he had 0 active
+    `property_assignments`, so no PM coverage orphaned). Now the 5th KAM, Gurgaon.
+  - **Selection logic** (per Akshit): Shubham retains his **25 named** "Gold/Silver" CPs + his **24 most-active live
+    threads** (ranked by visits + conversations) + 15 quiet. Deepak gets a **mixed bag of 50** = 20 "okay-activity"
+    active CPs (moderate, deliberately NOT Shubham's hottest) + 30 "silent" CPs (no follow-up in 15 days) to
+    activate — so his ability to lift dormant/low brokers is measurable. "Active conversation" = a follow-up Shubham
+    logged in the last 15 days (66 of his 114 CPs; the `engagements` table is unused — he logs via follow-ups).
+  - **Executed** as ONE self-verifying transaction (`scratchpad/execute_reassign.py`): in-DB `DO $$…RAISE$$` +
+    Python assertions force a full rollback unless Deepak=50, Shubham=64, `open_total` unchanged, exactly 1 user row
+    changed, role=(KAM,kam). Pre-flight confirmed all 50 were Shubham's; post-commit re-verified on a fresh
+    connection (Deepak-owned == intended-50, audit trail intact, 0 of the 50 still Shubham's). No migration, no
+    deploy; `sheet_sync` never writes `cp_assignments`/team/role, so nothing reverts.
+  - The exact 50-CP list is recoverable from the DB: `SELECT b.cp_code FROM cp_assignments ca JOIN brokers b ON
+    b.id=ca.broker_id WHERE ca.reason='reassign_shubham_to_deepak_2026-07-15'`.
 - **2026-06-27 (Claude session — per-tab filter persistence + Reset, PR #44):**
   - Every tab now **remembers the filters it applied for the session** (persists across tab navigation;
     resets on page refresh / closing the link), plus an obvious **"↺ Reset filters"** in each tab. Web + mobile.

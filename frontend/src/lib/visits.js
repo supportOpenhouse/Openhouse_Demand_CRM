@@ -235,3 +235,65 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
   }
   return [];
 }
+
+// ---- Per-property REVISIT detection (display-only; no counts/data affected). A visit is a
+// "revisit" when the SAME unit (home_id) + broker (cp_code) + buyer (lead_key, else phone)
+// has an EARLIER visit whose status is 'completed'. This is a THIRD, distinct notion from:
+//   • the follow-up-scheduled `revisit_scheduled`/`after_revisit_fu` STAGE (visitStage), and
+//   • the buyer-total `lead_occurrence_count` badge (a buyer's visits across ALL homes).
+// Returns Map(visit.id → { isRevisit, revisitSeq, isChainLatest, chainLatestId, chainSize,
+// firstDate }). Only visits that belong to a genuine revisit chain appear in the map; every
+// other visit is absent (treated as a normal standalone row). Pure O(n) over tiny groups.
+const isCompletedStatus = (v) => (v.status || '').toLowerCase() === 'completed';
+const isRealStatus = (v) => { const s = (v.status || '').toLowerCase(); return s === 'completed' || s === 'upcoming'; };
+const visitDay = (v) => v.visit_date || v.selected_date || '';   // 'YYYY-MM-DD' (sorts lexically)
+function revisitBuyerKey(v) {
+  const ph = (v.buyer_contact || '').trim();
+  if (ph.length >= 5) return 'ph:' + ph;          // phone = the stable buyer identity (name varies)
+  const lk = (v.lead_key || '').trim().toLowerCase();
+  return lk ? 'lk:' + lk : '';                     // fallback only when phone is blank/too short
+}
+export function buildRevisitIndex(visits = []) {
+  const groups = new Map();
+  for (const v of visits) {
+    const hid = String(v.home_id || '').trim();
+    const cp = (v.cp_code || '').trim();
+    const bk = revisitBuyerKey(v);
+    if (!hid || !cp || !bk) continue;               // missing any key → never a revisit
+    const key = hid + '|' + cp + '|' + bk;
+    let g = groups.get(key);
+    if (!g) { g = []; groups.set(key, g); }
+    g.push(v);
+  }
+  const index = new Map();
+  for (const [key, arr] of groups) {
+    if (arr.length < 2) continue;                   // singletons are never revisits
+    const sorted = arr.slice().sort((a, b) => (visitDay(a) || '9999-99-99').localeCompare(visitDay(b) || '9999-99-99'));
+    const info = new Map();
+    let anyRevisit = false;
+    for (const v of sorted) {
+      const day = visitDay(v);
+      // a REVISIT iff a strictly-earlier visit in the group is 'completed'
+      const priorCompleted = day ? sorted.filter((x) => x !== v && isCompletedStatus(x) && visitDay(x) && visitDay(x) < day).length : 0;
+      const isRevisit = priorCompleted >= 1 && isRealStatus(v);   // a cancelled later visit is NOT a revisit
+      if (isRevisit) anyRevisit = true;
+      info.set(v, { isRevisit, revisitSeq: priorCompleted + 1 });
+    }
+    if (!anyRevisit) continue;                       // repeat rows but no completed-prior → not a revisit chain
+    // representative row (shown in the Visits tab) = the LATEST real (completed/upcoming)
+    // visit — never a cancelled one; falls back to latest-dated if somehow none are real.
+    const real = sorted.filter((v) => visitDay(v) && isRealStatus(v));
+    const latest = real[real.length - 1] || sorted[sorted.length - 1];
+    const firstDated = sorted.find((v) => visitDay(v));
+    const firstDate = firstDated ? visitDay(firstDated) : '';
+    for (const v of sorted) {
+      const s = info.get(v);
+      index.set(v.id, {
+        chainKey: key, chainSize: arr.length,
+        isRevisit: s.isRevisit, revisitSeq: s.revisitSeq,
+        isChainLatest: v.id === latest.id, chainLatestId: latest.id, firstDate,
+      });
+    }
+  }
+  return index;
+}

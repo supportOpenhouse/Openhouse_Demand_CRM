@@ -7,7 +7,7 @@
 // shared `filters` from FiltersModal) + a negotiation-meeting-date range + the stage tabs.
 import { useMemo, useDeferredValue } from 'react';
 import { daysBetween } from '../lib/format.js';
-import { visitStage, scopeVisits, nextFuFor, nextActivityFor } from '../lib/visits.js';
+import { visitStage, scopeVisits, nextFuFor, nextActivityFor, buildRevisitIndex } from '../lib/visits.js';
 import { flatNo } from '../lib/propertyStatus.js';
 import ChipBar from '../components/ChipBar.jsx';
 import PipelineQueue from '../components/PipelineQueue.jsx';
@@ -32,6 +32,9 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
     // own (T1/T2) CP leads here — never the wider extra-cities pipeline they keep in Visits.
     return me.team === 'KAM' ? v.filter((x) => cpOwner[x.cp_code] === me.id) : v;
   }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Revisit index for tagging only: a negotiation lead whose buyer already came back to the
+  // SAME unit shows the 🔁 Revisit tag. Membership + counts of this funnel are unchanged.
+  const revIndex = useMemo(() => buildRevisitIndex(scoped), [scoped]);
   const brokersByCode = useMemo(() => {
     const m = {}; (seed.brokers || []).forEach((b) => { m[b.cp_code] = b; }); return m;
   }, [seed]);
@@ -161,7 +164,7 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
         <b>{rows.length}</b> in the negotiation funnel
       </div>
 
-      <PipelineQueue seed={seed} rows={rows} mode="negotiation" onOpenBroker={onOpenBroker} onSaved={reloadSeed} />
+      <PipelineQueue seed={seed} rows={rows} mode="negotiation" onOpenBroker={onOpenBroker} onSaved={reloadSeed} revIndex={revIndex} />
     </div>
   );
 }

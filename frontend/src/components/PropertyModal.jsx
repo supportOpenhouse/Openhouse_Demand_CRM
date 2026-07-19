@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TODAY, ymd, fmtDate, fmtDay, fmtDateTime, initials } from '../lib/format.js';
-import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor, NO_KAM_GROUND_CITIES } from '../lib/visits.js';
+import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor, NO_KAM_GROUND_CITIES, buildRevisitIndex } from '../lib/visits.js';
+import RevisitTag from './RevisitTag.jsx';
 import { usersBySlug } from '../lib/brokers.js';
 import { top99ForSociety } from '../lib/properties.js';
 import { TEAM_PILL, nextFuClass, classifyClosingSignal, visitIntentItems } from '../lib/legacy.js';
@@ -48,6 +49,9 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
     return m;
   }, [seed]);
   const allVisits = seed.visits || [];
+  // Per-property revisit index over ALL visits (so the buyer-history badges at OTHER units
+  // are also accurate). Drives the per-unit "🔁 Revisit #N" (vs the buyer-total badge).
+  const revIndex = useMemo(() => buildRevisitIndex(allVisits), [allVisits]);
   // Scope to THIS unit, not the whole society. home_id is the authoritative join
   // (set on both visits + properties by the sheet sync); fall back to the old
   // society-wide match only when this property has no home_id mapped yet.
@@ -279,6 +283,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
               broker={brokersByCode[v.cp_code] || {}}
               allVisits={allVisits}
               brokersByCode={brokersByCode}
+              revIndex={revIndex}
               open={expanded.has(String(v.id))}
               draft={drafts[v.id] || {}}
               nudgeSent={sentNudges.has(String(v.id)) || ((nudgesByVisit[v.id] || []).some((n) => !n.resolved))}
@@ -368,7 +373,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
 // renderPropVisitRow — expandable visit row with the followup editor
 // ---------------------------------------------------------------------------
 function PropVisitRow({
-  v, p, me, owner, broker, allVisits, brokersByCode, open, draft, nudgeSent, composerOpen,
+  v, p, me, owner, broker, allVisits, brokersByCode, revIndex, open, draft, nudgeSent, composerOpen,
   onToggle, onPatch, onOpenComposer, onNudged, onCloseComposer, onSaved, onOpenBrokerArrow,
 }) {
   const status = visitStatus(v);
@@ -403,7 +408,8 @@ function PropVisitRow({
         <span className="vh-caret">▶</span>
         <div className="vh-buyer">
           <div className="b">{v.buyer_name || '—'}</div>
-          <div className="ph">{v.buyer_contact || ''}{v.lead_occurrence_count && +v.lead_occurrence_count > 1 ? ` · revisit #${v.lead_occurrence_count}` : ''}</div>
+          <div className="ph">{v.buyer_contact || ''}</div>
+          {revIndex?.get(v.id)?.isRevisit ? <div style={{ marginTop: 2 }}><RevisitTag info={revIndex.get(v.id)} /></div> : null}
           {(() => { const na = nextActivityFor(v); return na ? (
             <div style={{ marginTop: 3 }}><span className={'fu-chip ' + (na.kind === 'negotiation' ? 'today' : 'later')} title={na.label}><span className="d" />{na.kind === 'negotiation' ? '🤝 Negotiation ' : '↻ Revisit '}{fmtDateTime(na.date)}</span></div>
           ) : null; })()}
@@ -443,7 +449,7 @@ function PropVisitRow({
             ) : null}
 
             <VisitIntent v={v} />
-            <BuyerHistory v={v} allVisits={allVisits} brokersByCode={brokersByCode} />
+            <BuyerHistory v={v} allVisits={allVisits} brokersByCode={brokersByCode} revIndex={revIndex} />
             <RecentFeedback v={v} />
 
             {nudgeOk && composerOpen ? (
@@ -486,7 +492,7 @@ function VisitIntent({ v }) {
   );
 }
 
-function BuyerHistory({ v, allVisits, brokersByCode }) {
+function BuyerHistory({ v, allVisits, brokersByCode, revIndex }) {
   const key = (v.lead_key || '').toLowerCase();
   const phone = (v.buyer_contact || '').trim();
   if (!key && !phone) return null;
@@ -515,7 +521,7 @@ function BuyerHistory({ v, allVisits, brokersByCode }) {
               <div style={{ display: 'flex', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
                 <span className={'stpill ' + stat}><span className="d" />{stD ? stD.label : stat}</span>
                 <span className={'sgpill ' + stg}><span className="d" />{sgD ? sgD.label : stg}</span>
-                {o.lead_occurrence_count && +o.lead_occurrence_count > 1 ? <span className="prio-tag tl">revisit #{o.lead_occurrence_count}</span> : null}
+                {revIndex?.get(o.id)?.isRevisit ? <RevisitTag info={revIndex.get(o.id)} /> : null}
               </div>
               {fb ? <div style={{ fontSize: 11, color: 'var(--mut)', marginTop: 5, fontStyle: 'italic' }}>"{esc(fb).slice(0, 140)}"</div> : null}
             </div>

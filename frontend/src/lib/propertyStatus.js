@@ -7,6 +7,10 @@ import { parsePrice } from './legacy.js';
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
+// Days from key-handover to forfeiture. "Days to Forfeiture" = FORFEITURE_DAYS − days-since-KH;
+// ≤ 0 means the window has lapsed (critical). Fixed business constant (edit here to change it).
+export const FORFEITURE_DAYS = 150;
+
 // society → canonical (alnum, upper) so "Gaur City 2 - 14th Avenue" == "Gaur City 2 14th Avenue"
 export const normSoc = (s) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
@@ -189,12 +193,14 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
     // a manual override (edited in the table, persisted to the backend) always wins
     const ovr = homeId && overrides[homeId] ? overrides[homeId] : '';
     const kh = ovr || matchedKh;
+    const dsk = kh ? daysBetween(kh) : null;
     return {
       region: p.micro_market || '', society: p.society_name || '', unit,
       config: p.configuration || '', flat_status: p.listing_status || '',
       ask_price: p.listing_price || '', responsible: p.sales_manager || '',
       city: p.city_name || p.city || '', home_id: homeId,
-      kh_date: kh, days_since_kh: kh ? daysBetween(kh) : null, kh_overridden: !!ovr,
+      kh_date: kh, days_since_kh: dsk, kh_overridden: !!ovr,
+      days_to_forfeiture: dsk == null ? null : FORFEITURE_DAYS - dsk,
       ongoing_offer: (homeId && review[homeId] && review[homeId].ongoing_offer) || '',
       demand_team_remark: (homeId && review[homeId] && review[homeId].demand_team_remark) || '',
       ...c,
@@ -213,6 +219,7 @@ export const PS_COLUMNS = [
   { k: 'responsible', label: 'Responsible Person', type: 'text' },
   { k: 'kh_date', label: 'KH Date', type: 'text' },
   { k: 'days_since_kh', label: 'Days Since KH', type: 'num' },
+  { k: 'days_to_forfeiture', label: 'Days to Forfeiture', type: 'num' },
   { k: 'ongoing_offer', label: 'Ongoing Offer', type: 'text' },
   { k: 'demand_team_remark', label: 'Demand Remark', type: 'text' },
   { k: 'total', label: 'Total Visits', type: 'num' },
@@ -247,6 +254,6 @@ export function sortRows(rows, key, dir) {
 export function psToCsv(rows) {
   const esc = (s) => { const t = String(s ?? ''); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
   const head = PS_COLUMNS.map((c) => c.label).join(',');
-  const body = rows.map((r) => PS_COLUMNS.map((c) => esc(c.k === 'days_since_kh' ? (r[c.k] == null ? '' : r[c.k]) : r[c.k])).join(',')).join('\n');
+  const body = rows.map((r) => PS_COLUMNS.map((c) => esc((c.k === 'days_since_kh' || c.k === 'days_to_forfeiture') ? (r[c.k] == null ? '' : r[c.k]) : r[c.k])).join(',')).join('\n');
   return head + '\n' + body;
 }

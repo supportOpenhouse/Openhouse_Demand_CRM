@@ -21,6 +21,7 @@ import {
 import { toast } from '../lib/toast.js';
 import { saveFollowup as apiSaveFollowup } from '../api.js';
 import useIsMobile from '../lib/useIsMobile.js';
+import RevisitTag from './RevisitTag.jsx';
 
 const CLOSING = new Set(['booking', 'ats', 'not_interested', 'future_prospect']);
 const plusDays = (n) => { const d = new Date(TODAY); d.setDate(d.getDate() + n); return ymd(d); };
@@ -67,7 +68,7 @@ const CFG = {
 };
 const pillLabel = (k, cfg) => (k === cfg.scheduledStage ? 'Reschedule' : (STAGE_BY_KEY[k]?.label || k));
 
-export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved }) {
+export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved, revIndex }) {
   const cfg = CFG[mode];
   const isMobile = useIsMobile();
   const properties = seed.properties || [];
@@ -328,7 +329,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved 
                     <td><span className="city-pill">{v.city || ''}</span></td>
                     <td>{v.sales_manager || '—'}</td>
                     <td><b>{v.society_name || '—'}</b><div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1 }}>{sub}</div></td>
-                    <td>{v.buyer_name || '—'}<div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1 }}>{v.buyer_contact || ''}</div></td>
+                    <td>{v.buyer_name || '—'} {revIndex?.get(v.id)?.isRevisit && <RevisitTag info={revIndex.get(v.id)} />}<div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1 }}>{v.buyer_contact || ''}</div></td>
                     <td>
                       <button type="button" onClick={(e) => { e.stopPropagation(); onOpenBroker?.(v.cp_code, v.id); }} title="Open channel partner"
                               style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--acc,#2563EB)', textAlign: 'left' }}>
@@ -375,6 +376,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved 
             </div>
             <div className="mc-meta">
               <span>👤 <b>{v.buyer_name || '—'}</b></span>
+              {revIndex?.get(v.id)?.isRevisit ? <RevisitTag info={revIndex.get(v.id)} /> : null}
               <span className={'sgpill ' + sg}><span className="d" />{sgDef ? sgDef.label.replace(' Visit', '') : sg}</span>
             </div>
             <div className="mc-meta">
