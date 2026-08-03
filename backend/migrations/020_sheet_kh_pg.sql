@@ -1,0 +1,14 @@
+-- ============================================================================
+-- 020 · PG (performance-guarantee) amount from the AMA-register sheet (2026-08-03)
+-- ============================================================================
+-- The acquisitions ("properties") DB carries performance_guarantee for ~144/188
+-- Ready/Coming-Soon units; the rest are simply not entered there. The AMA-register
+-- sheet's "Token Paid" column IS the same figure (verified: 92/109 clean overlaps
+-- match exactly) and covers additional units. We capture it into this existing
+-- sheet-synced table (sheet_sync.sync_key_handovers) as an ADDITIVE nullable column
+-- and expose it via /api/key-handovers ("pg_sheet"). The frontend uses it ONLY as a
+-- clearly-labelled "from sheet" fallback when the acquisitions performance_guarantee
+-- is absent — the acquisitions DB always wins. Touches no existing row or constraint.
+-- Idempotent.
+-- ============================================================================
+ALTER TABLE sheet_key_handovers ADD COLUMN IF NOT EXISTS pg_amount numeric;

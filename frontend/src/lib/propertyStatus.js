@@ -186,7 +186,7 @@ export function visitsForProperty(p, idx) {
   return (idx.bySoc[normSoc(p.society_name)] || []).filter((v) => visitUnitKey(v) === uk);
 }
 
-export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}, review = {}, pgMap = {}) {
+export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}, review = {}, pgMap = {}, pgSheetMap = {}) {
   const w = weekWindows();
   const idx = indexVisitsByProperty(visits);
   // Dedup: the inventory sheet sometimes lists the SAME unit twice (same home_id,
@@ -235,6 +235,15 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
     const ovr = homeId && overrides[homeId] ? overrides[homeId] : '';
     const kh = ovr || matchedKh;
     const dsk = kh ? daysBetween(kh) : null;
+    // PG amount: the acquisitions DB (pgMap) is authoritative; fall back to the
+    // AMA-register sheet's Token Paid (pgSheetMap) ONLY when the DB has none — flagged
+    // via pg_source so the table can label the fallback "from sheet".
+    let pgAmount = lookupPg(pgMap, homeId, p.society_name, unit);
+    let pgSource = pgAmount == null ? null : 'db';
+    if (pgAmount == null) {
+      const sheetPg = lookupPg(pgSheetMap, '', p.society_name, unit);
+      if (sheetPg != null) { pgAmount = sheetPg; pgSource = 'sheet'; }
+    }
     return {
       region: p.micro_market || '', society: p.society_name || '', unit,
       config: p.configuration || '', flat_status: p.listing_status || '',
@@ -242,7 +251,7 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
       city: p.city_name || p.city || '', home_id: homeId,
       kh_date: kh, days_since_kh: dsk, kh_overridden: !!ovr,
       days_to_forfeiture: dsk == null ? null : FORFEITURE_DAYS - dsk,
-      pg_amount: lookupPg(pgMap, homeId, p.society_name, unit),
+      pg_amount: pgAmount, pg_source: pgSource,
       ongoing_offer: (homeId && review[homeId] && review[homeId].ongoing_offer) || '',
       demand_team_remark: (homeId && review[homeId] && review[homeId].demand_team_remark) || '',
       ...c,
