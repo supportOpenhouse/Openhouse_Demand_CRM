@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
-import { buildKhMap, buildPropertyStatusRows, PS_COLUMNS, sortRows, psToCsv } from '../lib/propertyStatus.js';
+import { buildKhMap, buildPgMap, buildPropertyStatusRows, PS_COLUMNS, sortRows, psToCsv } from '../lib/propertyStatus.js';
 import { setKhOverride, setPropertyReview } from '../api.js';
 import { parsePrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
@@ -92,7 +92,7 @@ function EditTextCell({ row, field, canEdit, onSave }) {
   );
 }
 
-export default function PropertyStatusTable({ seed, filters = {}, khItems = [], khOverrides = {}, khSource = 'unset', review = {} }) {
+export default function PropertyStatusTable({ seed, filters = {}, khItems = [], khOverrides = {}, khSource = 'unset', review = {}, pgItems = [] }) {
   const me = seed.current_user || {};
   const canEditKh = me.team === 'Admin';   // KH editing is admin-only (the backend enforces it too)
   const canEditReview = me.team === 'Admin' || me.team === 'TL';   // Ongoing offer / Demand remark: Admin + TL
@@ -127,9 +127,10 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
   }, [reviewState]);
 
   const khMap = useMemo(() => buildKhMap(khItems), [khItems]);
+  const pgMap = useMemo(() => buildPgMap(pgItems), [pgItems]);
   const allRows = useMemo(
-    () => buildPropertyStatusRows(seed.properties || [], seed.visits || [], khMap, overrides, reviewState),
-    [seed, khMap, overrides, reviewState],
+    () => buildPropertyStatusRows(seed.properties || [], seed.visits || [], khMap, overrides, reviewState, pgMap),
+    [seed, khMap, overrides, reviewState, pgMap],
   );
 
   // Apply the page filters. Every dimension is additive — an empty/unset filter is a
@@ -218,6 +219,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <KhCell row={r} canEdit={canEditKh} onSave={saveKh} />
                 <td className="num ps-kh"><b style={{ color: khAgeColor(r.days_since_kh) }}>{r.days_since_kh == null ? '—' : r.days_since_kh}</b></td>
                 <td className="num"><b style={{ color: forfeitColor(r.days_to_forfeiture) }}>{r.days_to_forfeiture == null ? '—' : r.days_to_forfeiture}</b></td>
+                <td className="num">{r.pg_amount == null ? '—' : '₹' + Number(r.pg_amount).toLocaleString('en-IN')}</td>
                 <EditTextCell row={r} field="ongoing_offer" canEdit={canEditReview} onSave={saveReview} />
                 <EditTextCell row={r} field="demand_team_remark" canEdit={canEditReview} onSave={saveReview} />
                 <td className="num"><Num n={r.total} color="var(--ink)" /></td>
@@ -239,7 +241,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td className="ps-f" style={{ left: STICK.region.left, minWidth: STICK.region.w }}>Totals</td>
                 <td className="ps-f" style={{ left: STICK.society.left, minWidth: STICK.society.w }}>{int(rows.length)} properties</td>
                 <td className="ps-f ps-edge" style={{ left: STICK.unit.left, minWidth: STICK.unit.w }} />
-                <td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" /><td className="num" /><td /><td />
+                <td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" /><td className="num" /><td className="num" /><td /><td />
                 <td className="num"><b>{int(totals.total)}</b></td>
                 <td className="num"><b>{int(totals.lastWeek)}</b></td>
                 <td className="num"><b>{int(totals.prevWeek)}</b></td>

@@ -329,6 +329,30 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-03 (Claude session — "PG Amount" column in Property Performance; backend + frontend, additive):**
+  - Adds the per-unit **performance-guarantee amount** to the Property Status report, sourced from
+    `properties.performance_guarantee` in the **acquisitions "properties" DB** (`PROPERTIES_DATABASE_URL` = the same
+    demand/acquisition/supply Neon source, host `ep-withered-violet`) — the SAME DB + endpoint the KH-date column
+    already reads.
+  - **Backend** (`api/main.py`, `/api/key-handovers`): on the existing acquisitions connection, an **independently
+    try/except-guarded** `SELECT society_name, unit_no, performance_guarantee FROM properties WHERE
+    performance_guarantee IS NOT NULL` runs AFTER the (byte-identical) KH query and returns a new `pg` list (cached
+    alongside KH, 5-min TTL). A missing column / DB hiccup here can NEVER affect KH — the KH fetch + `acq_items` are
+    untouched. Live check: KH 253 acquisitions / 475 merged unchanged; `pg` = 344 items.
+  - **Frontend**: `propertyStatus.js` gains `buildPgMap`/`lookupPg` (EXACT clones of `buildKhMap`/`lookupKh` — society
+    + de-zeroed unit-digits; larger amount wins on a duplicate key), a `pgMap` param on `buildPropertyStatusRows`
+    (defaulted, so the aging-ladder call is unchanged), a `pg_amount` row field, and a `{k:'pg_amount',
+    label:'PG Amount'}` column **right after "Days to Forfeiture"** (CSV auto-includes it). `PropertyStatusTable.jsx`
+    accepts `pgItems`, builds `pgMap`, renders the cell (₹ Indian-grouped, `—` when unmatched) + a blank footer.
+    `PropertyPerformanceView.jsx` passes `pgItems={kh.pg}`.
+  - **Nothing else touched**: KH column / overrides / review fields, visit counts, every other column identical —
+    display-only. Needs prod `PROPERTIES_DATABASE_URL` = this acquisitions DB (it is, same source as KH); if it ever
+    weren't, the column simply reads blank (KH unaffected).
+  - **Validated** live (Admin, local stack vs the acquisitions DB): PG column at position 10, 28 columns, 132/236
+    inventory units matched, values EXACT vs the DB (SS Coralwood 1103 ₹1,73,000, Antriksh 405 ₹94,000, Bestech 503
+    ₹1,75,000, DLF Regal 082 ₹2,03,000, Smart World Gems 40D ₹1,60,000), KH unaffected, zero console errors,
+    `npm run build` + `py_compile` clean. Files: `backend/api/main.py`, `frontend/src/lib/propertyStatus.js`,
+    `frontend/src/components/PropertyStatusTable.jsx`, `frontend/src/views/PropertyPerformanceView.jsx`.
 - **2026-07-19 (Claude session — per-property REVISITS + "Days to Forfeiture" column; FRONTEND-only, display layer):**
   - **Part 1 — Property Performance "Days to Forfeiture" column.** `propertyStatus.js`: new `FORFEITURE_DAYS = 150`;
     per row `days_to_forfeiture = 150 − days_since_kh`; column added right after "Days Since KH" (CSV auto-picks it up).
@@ -376,6 +400,18 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
     deploy; `sheet_sync` never writes `cp_assignments`/team/role, so nothing reverts.
   - The exact 50-CP list is recoverable from the DB: `SELECT b.cp_code FROM cp_assignments ca JOIN brokers b ON
     b.id=ca.broker_id WHERE ca.reason='reassign_shubham_to_deepak_2026-07-15'`.
+- **Backfilled changelog — PRs #45–#55 (merged 2026-06-28 → 07-09; entries reconstructed 2026-08-03 to close a §9 documentation gap):**
+  - **#45** `fix(inventory)`: reflect Sold/Archived status into the `properties` table so sold units surface correctly in the CRM.
+  - **#46** `feat(meetings)`: read-only meeting-recordings **annotation layer** — surfaces Meetings-app recordings + AI summaries on brokers/visits (`meeting_recordings` table).
+  - **#47** `feat(meetings)`: recordings-tab filters + a Visits **"has recording"** toggle.
+  - **#48** `feat(crm)`: **Batch-1 alerts** — follow-up discipline + CP-reactivation signals in the Morning Brief, inventory-aging in Property Performance, `booking_received_date` default.
+  - **#49** `fix(crm)`: show the **full follow-up history** per lead in the CP modal.
+  - **#50** `fix(inventory)`: **reconcile duplicate property rows** (root-cause + prevention) so the same unit isn't double-counted.
+  - **#51** `feat(analytics)`: **visit-assistance report** — by property manager + by unit.
+  - **#52** `fix(branding)`: "Openhouse" casing everywhere + full-name WhatsApp signature.
+  - **#53** `feat(snapshot)`: Inventory-Snapshot status filter, per-unit remark, locality, emerald price, unit-comma fix.
+  - **#54** `fix(snapshot)`: full "Coming Soon" (not "CS") + remark placed under Status in the poster.
+  - **#55** `fix(access)`: gate the **micro-market-manager override to TL/Admin only** (fixed a KAM seeing all visits).
 - **2026-06-27 (Claude session — per-tab filter persistence + Reset, PR #44):**
   - Every tab now **remembers the filters it applied for the session** (persists across tab navigation;
     resets on page refresh / closing the link), plus an obvious **"↺ Reset filters"** in each tab. Web + mobile.

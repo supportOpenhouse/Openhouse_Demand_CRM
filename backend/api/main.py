@@ -353,14 +353,14 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
 
     now = time.monotonic()
     if _kh_cache["items"] is not None and (now - _kh_cache["at"]) < _KH_TTL:
-        return {"items": _kh_cache["items"], "overrides": overrides, "review": review, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
+        return {"items": _kh_cache["items"], "pg": _kh_cache.get("pg", []), "overrides": overrides, "review": review, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
 
     def _row_to_item(r):
         return {"society": (r["society_name"] or "").strip(), "unit": (r["unit_no"] or "").strip(),
                 "kh_date": r["key_handover_date"].isoformat() if r["key_handover_date"] else ""}
 
     # 1. acquisitions DB (authoritative; wins on conflict)
-    acq_items, acq_source = [], "unset"
+    acq_items, acq_source, pg_items = [], "unset", []
     if config.PROPERTIES_DATABASE_URL:
         try:
             conn = await asyncpg.connect(config.PROPERTIES_DATABASE_URL, timeout=8)
@@ -369,6 +369,21 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
                     "SELECT society_name, unit_no, key_handover_date "
                     "FROM properties WHERE key_handover_date IS NOT NULL", timeout=8,
                 )
+                # PG (performance-guarantee) amount — ADDITIVE + independently guarded so a
+                # missing column / hiccup here can NEVER affect the key-handover fetch above.
+                try:
+                    pgrows = await conn.fetch(
+                        "SELECT society_name, unit_no, performance_guarantee "
+                        "FROM properties WHERE performance_guarantee IS NOT NULL", timeout=8,
+                    )
+                    pg_items = [
+                        {"society": (r["society_name"] or "").strip(),
+                         "unit": (r["unit_no"] or "").strip(),
+                         "pg": float(r["performance_guarantee"])}
+                        for r in pgrows if r["performance_guarantee"] is not None
+                    ]
+                except Exception as e:  # noqa: BLE001 — PG is optional; KH must stay unaffected
+                    log.warning("PG-amount fetch failed (non-fatal, KH unaffected): %s", e)
             finally:
                 await conn.close()
             acq_items = [_row_to_item(r) for r in rows]
@@ -398,10 +413,11 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
             seen.add(k); items.append(it)
 
     _kh_cache["items"] = items
+    _kh_cache["pg"] = pg_items
     _kh_cache["at"] = now
     source = "connected" if (acq_source == "connected" or sheet_items) else acq_source
-    return {"items": items, "overrides": overrides, "review": review, "source": source, "count": len(items),
-            "acquisitions": len(acq_items), "sheet": len(sheet_items)}
+    return {"items": items, "pg": pg_items, "overrides": overrides, "review": review, "source": source, "count": len(items),
+            "acquisitions": len(acq_items), "sheet": len(sheet_items), "pg_count": len(pg_items)}
 
 
 class KhOverrideBody(BaseModel):
