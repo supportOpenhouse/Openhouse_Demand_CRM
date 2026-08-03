@@ -167,7 +167,7 @@ export default function PropertyPerformanceView({ seed }) {
         </div>
       </div>
 
-      <PropertyStatusTable seed={seed} filters={f} khItems={kh.items} khOverrides={kh.overrides} review={kh.review} khSource={kh.source} />
+      <PropertyStatusTable seed={seed} filters={f} khItems={kh.items} khOverrides={kh.overrides} review={kh.review} khSource={kh.source} pgItems={kh.pg} />
     </div>
   );
 }

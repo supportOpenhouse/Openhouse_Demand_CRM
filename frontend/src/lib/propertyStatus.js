@@ -93,6 +93,38 @@ export function lookupKh(khMap, society, unit) {
   return socs.length === 1 ? u[socs[0]] : '';       // 0 or ambiguous → blank
 }
 
+// PG (performance-guarantee) amount maps — EXACT mirror of buildKhMap/lookupKh (society +
+// de-zeroed unit digits), carrying the ₹ amount instead of a date. On duplicate keys the
+// LARGER amount wins (deterministic — amounts, unlike dates, have no "earliest"). Returns
+// null (not '') when there's no match, so the numeric column reads "—".
+export function buildPgMap(items = []) {
+  const exact = {};   // "normSoc#unitDigitKey" -> pg amount
+  const byUnit = {};  // unitDigitKey -> { normSoc: pg amount }
+  items.forEach((it) => {
+    const dk = unitDigitKey(it.unit);
+    const amt = Number(it.pg);
+    if (!dk || !Number.isFinite(amt)) return;
+    const ns = normSoc(it.society);
+    const k = `${ns}#${dk}`;
+    if (exact[k] == null || amt > exact[k]) exact[k] = amt;
+    const u = (byUnit[dk] = byUnit[dk] || {});
+    if (u[ns] == null || amt > u[ns]) u[ns] = amt;
+  });
+  return { exact, byUnit };
+}
+export function lookupPg(pgMap, society, unit) {
+  if (!pgMap || !pgMap.exact) return null;
+  const dk = unitDigitKey(unit);
+  if (!dk) return null;
+  const ns = normSoc(society);
+  const ex = pgMap.exact[`${ns}#${dk}`];
+  if (ex != null) return ex;
+  const u = pgMap.byUnit[dk];
+  if (!u) return null;
+  const socs = Object.keys(u).filter((kns) => socPrefixMatch(kns, ns));
+  return socs.length === 1 ? u[socs[0]] : null;     // 0 or ambiguous → no match
+}
+
 export function weekWindows(today = TODAY) {
   const d0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const dow = (d0.getDay() + 6) % 7;                 // 0 = Monday
@@ -145,7 +177,7 @@ export function visitsForProperty(p, idx) {
   return (idx.bySoc[normSoc(p.society_name)] || []).filter((v) => visitUnitKey(v) === uk);
 }
 
-export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}, review = {}) {
+export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}, review = {}, pgMap = {}) {
   const w = weekWindows();
   const idx = indexVisitsByProperty(visits);
   // Dedup: the inventory sheet sometimes lists the SAME unit twice (same home_id,
@@ -201,6 +233,7 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
       city: p.city_name || p.city || '', home_id: homeId,
       kh_date: kh, days_since_kh: dsk, kh_overridden: !!ovr,
       days_to_forfeiture: dsk == null ? null : FORFEITURE_DAYS - dsk,
+      pg_amount: lookupPg(pgMap, p.society_name, unit),
       ongoing_offer: (homeId && review[homeId] && review[homeId].ongoing_offer) || '',
       demand_team_remark: (homeId && review[homeId] && review[homeId].demand_team_remark) || '',
       ...c,
@@ -220,6 +253,7 @@ export const PS_COLUMNS = [
   { k: 'kh_date', label: 'KH Date', type: 'text' },
   { k: 'days_since_kh', label: 'Days Since KH', type: 'num' },
   { k: 'days_to_forfeiture', label: 'Days to Forfeiture', type: 'num' },
+  { k: 'pg_amount', label: 'PG Amount', type: 'num' },
   { k: 'ongoing_offer', label: 'Ongoing Offer', type: 'text' },
   { k: 'demand_team_remark', label: 'Demand Remark', type: 'text' },
   { k: 'total', label: 'Total Visits', type: 'num' },
@@ -254,6 +288,6 @@ export function sortRows(rows, key, dir) {
 export function psToCsv(rows) {
   const esc = (s) => { const t = String(s ?? ''); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
   const head = PS_COLUMNS.map((c) => c.label).join(',');
-  const body = rows.map((r) => PS_COLUMNS.map((c) => esc((c.k === 'days_since_kh' || c.k === 'days_to_forfeiture') ? (r[c.k] == null ? '' : r[c.k]) : r[c.k])).join(',')).join('\n');
+  const body = rows.map((r) => PS_COLUMNS.map((c) => esc((c.k === 'days_since_kh' || c.k === 'days_to_forfeiture' || c.k === 'pg_amount') ? (r[c.k] == null ? '' : r[c.k]) : r[c.k])).join(',')).join('\n');
   return head + '\n' + body;
 }
