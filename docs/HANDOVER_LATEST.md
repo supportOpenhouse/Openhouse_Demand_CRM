@@ -329,6 +329,30 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-03 (Claude session — PG-Amount "from sheet" fallback for the units absent from the acquisitions DB):**
+  - Closes most of the "28 blank Ready/CS" gap from PR #58 (below). Root cause confirmed: those units have **no
+    `performance_guarantee` row in the acquisitions DB** (`ep-withered-violet`). Investigated all sources — Core
+    `oh-core-prod` has no PG column; the old acquisitions DB `ep-restless-lake` has **dead credentials**;
+    `legacy_properties` (48 rows) has no PG. The **only** other place the value exists is the **AMA-register sheet**
+    ("Openhouse Acquired Properties", `1PZC6…RWUL8`) — the same sheet we already sync KH from — in its **"Token Paid"**
+    column. Verified sheet Token-Paid == DB `performance_guarantee` on **92/109 clean overlaps (84%)**, so the DB stays
+    authoritative and the sheet is a **clearly-labelled fallback only** (per user: "fill from sheet … write 'from sheet'").
+  - **Migration 020** (`020_sheet_kh_pg.sql`, additive+idempotent): `ALTER TABLE sheet_key_handovers ADD COLUMN IF NOT
+    EXISTS pg_amount numeric`. Applied manually to the CRM DB (not by `run_schema`, which only applies 001).
+  - **Sync** (`sheet_sync.sync_key_handovers`): also reads the "Token Paid" column (`_money()` parser, drops garbage
+    < ₹1000) → upserts `sheet_key_handovers.pg_amount` alongside KH. Fully guarded; KH capture unchanged. Backfilled the
+    289 existing rows once from the sheet (UPDATE-only) so it works immediately; the daily sync keeps it fresh.
+  - **Endpoint** (`/api/key-handovers`): new **independently-guarded** read returns `pg_sheet: [{society,unit,pg}]`
+    (a missing column can NEVER affect KH). **Frontend** (`propertyStatus.js` `buildPropertyStatusRows` +
+    `PropertyStatusTable.jsx`): DB PG wins; when absent, fall back to `pgSheetMap` (same society+unit matcher) and set
+    `pg_source='sheet'` → the cell shows the amount with a muted **"from sheet"** sub-label.
+  - **Validated** live (local stack vs prod DBs, Admin): all 236 rows → **184 DB + 35 "from sheet" + 17 blank**;
+    **Ready/CS 145 DB + 17 sheet = 162/171 (95%)**, only **9 genuinely blank** (no PG in DB *or* sheet — e.g. Godrej
+    Aria F-0105, 3× Gaur City 2 14th Ave, Raj Nagar D-806/G-904, Lotus Shristi C-117, Gaur City 6th Ave A-1801, Mahagun
+    Mywoods T6-07103). Values exact, DB rows unlabelled, KH unaffected, zero console errors, `npm run build` +
+    `py_compile` clean. Files: `backend/migrations/020_sheet_kh_pg.sql`, `backend/api/sheet_sync.py`,
+    `backend/api/main.py`, `frontend/src/lib/propertyStatus.js`, `frontend/src/components/PropertyStatusTable.jsx`,
+    `frontend/src/views/PropertyPerformanceView.jsx`.
 - **2026-08-03 (Claude session — PG-Amount matching fix: match by home_id, PR #58):**
   - The initial PG column (below) matched inventory to the acquisitions DB by **fuzzy society + unit-digits**, filling
     only ~106/174 Ready-CS. Deep validation showed the authoritative key is **`core_home_id` ↔ our `home_id`**.

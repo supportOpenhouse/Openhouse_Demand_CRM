@@ -353,7 +353,7 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
 
     now = time.monotonic()
     if _kh_cache["items"] is not None and (now - _kh_cache["at"]) < _KH_TTL:
-        return {"items": _kh_cache["items"], "pg": _kh_cache.get("pg", []), "overrides": overrides, "review": review, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
+        return {"items": _kh_cache["items"], "pg": _kh_cache.get("pg", []), "pg_sheet": _kh_cache.get("pg_sheet", []), "overrides": overrides, "review": review, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
 
     def _row_to_item(r):
         return {"society": (r["society_name"] or "").strip(), "unit": (r["unit_no"] or "").strip(),
@@ -405,6 +405,26 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
     except Exception as e:  # noqa: BLE001
         log.warning("key-handovers (sheet) fetch failed: %s", e)
 
+    # 2b. sheet-synced PG ("Token Paid") — INDEPENDENTLY guarded so a not-yet-migrated
+    # pg_amount column (migration 020) can NEVER affect the KH fetch/merge. The frontend
+    # uses this ONLY as a clearly-labelled "from sheet" fallback when the acquisitions
+    # performance_guarantee is absent; the acquisitions DB (pg_items) always wins.
+    pg_sheet = []
+    try:
+        async with acquire() as conn:
+            prows = await conn.fetch(
+                "SELECT society_name, unit_no, pg_amount "
+                "FROM sheet_key_handovers WHERE pg_amount IS NOT NULL"
+            )
+        pg_sheet = [
+            {"society": (r["society_name"] or "").strip(),
+             "unit": (r["unit_no"] or "").strip(),
+             "pg": float(r["pg_amount"])}
+            for r in prows if r["pg_amount"] is not None
+        ]
+    except Exception as e:  # noqa: BLE001 — PG-sheet is optional; KH must stay unaffected
+        log.warning("key-handovers (sheet PG) fetch failed (non-fatal): %s", e)
+
     # 3. merge: acquisitions first, sheet only fills keys not already present
     seen = {_kh_key(it["society"], it["unit"]) for it in acq_items}
     items = list(acq_items)
@@ -415,10 +435,11 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
 
     _kh_cache["items"] = items
     _kh_cache["pg"] = pg_items
+    _kh_cache["pg_sheet"] = pg_sheet
     _kh_cache["at"] = now
     source = "connected" if (acq_source == "connected" or sheet_items) else acq_source
-    return {"items": items, "pg": pg_items, "overrides": overrides, "review": review, "source": source, "count": len(items),
-            "acquisitions": len(acq_items), "sheet": len(sheet_items), "pg_count": len(pg_items)}
+    return {"items": items, "pg": pg_items, "pg_sheet": pg_sheet, "overrides": overrides, "review": review, "source": source, "count": len(items),
+            "acquisitions": len(acq_items), "sheet": len(sheet_items), "pg_count": len(pg_items), "pg_sheet_count": len(pg_sheet)}
 
 
 class KhOverrideBody(BaseModel):

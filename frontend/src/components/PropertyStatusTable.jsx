@@ -92,7 +92,7 @@ function EditTextCell({ row, field, canEdit, onSave }) {
   );
 }
 
-export default function PropertyStatusTable({ seed, filters = {}, khItems = [], khOverrides = {}, khSource = 'unset', review = {}, pgItems = [] }) {
+export default function PropertyStatusTable({ seed, filters = {}, khItems = [], khOverrides = {}, khSource = 'unset', review = {}, pgItems = [], pgSheetItems = [] }) {
   const me = seed.current_user || {};
   const canEditKh = me.team === 'Admin';   // KH editing is admin-only (the backend enforces it too)
   const canEditReview = me.team === 'Admin' || me.team === 'TL';   // Ongoing offer / Demand remark: Admin + TL
@@ -128,9 +128,10 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
 
   const khMap = useMemo(() => buildKhMap(khItems), [khItems]);
   const pgMap = useMemo(() => buildPgMap(pgItems), [pgItems]);
+  const pgSheetMap = useMemo(() => buildPgMap(pgSheetItems), [pgSheetItems]);
   const allRows = useMemo(
-    () => buildPropertyStatusRows(seed.properties || [], seed.visits || [], khMap, overrides, reviewState, pgMap),
-    [seed, khMap, overrides, reviewState, pgMap],
+    () => buildPropertyStatusRows(seed.properties || [], seed.visits || [], khMap, overrides, reviewState, pgMap, pgSheetMap),
+    [seed, khMap, overrides, reviewState, pgMap, pgSheetMap],
   );
 
   // Apply the page filters. Every dimension is additive — an empty/unset filter is a
@@ -219,7 +220,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <KhCell row={r} canEdit={canEditKh} onSave={saveKh} />
                 <td className="num ps-kh"><b style={{ color: khAgeColor(r.days_since_kh) }}>{r.days_since_kh == null ? '—' : r.days_since_kh}</b></td>
                 <td className="num"><b style={{ color: forfeitColor(r.days_to_forfeiture) }}>{r.days_to_forfeiture == null ? '—' : r.days_to_forfeiture}</b></td>
-                <td className="num">{r.pg_amount == null ? '—' : '₹' + Number(r.pg_amount).toLocaleString('en-IN')}</td>
+                <td className="num">{r.pg_amount == null ? '—' : (<>{'₹' + Number(r.pg_amount).toLocaleString('en-IN')}{r.pg_source === 'sheet' && <span title="From the AMA-register sheet (Token Paid) — not in the acquisitions DB; unverified" style={{ display: 'block', fontSize: '0.66rem', fontWeight: 400, color: 'var(--mut2)', lineHeight: 1.1 }}>from sheet</span>}</>)}</td>
                 <EditTextCell row={r} field="ongoing_offer" canEdit={canEditReview} onSave={saveReview} />
                 <EditTextCell row={r} field="demand_team_remark" canEdit={canEditReview} onSave={saveReview} />
                 <td className="num"><Num n={r.total} color="var(--ink)" /></td>

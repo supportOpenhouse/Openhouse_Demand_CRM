@@ -815,6 +815,20 @@ def _kh_date(v: str | None) -> dt.date | None:
         return None
 
 
+def _money(v: str | None) -> float | None:
+    """Parse the AMA-register 'Token Paid' cell (e.g. '1,73,000', '₹94000') into a
+    rupee amount. Returns None for blanks and obvious garbage (< 1000 — a real PG is
+    lakhs; the sheet has stray '1' placeholders). Purely additive: never raises."""
+    d = re.sub(r"[^0-9]", "", str(v or ""))
+    if not d:
+        return None
+    try:
+        n = int(d)
+    except ValueError:
+        return None
+    return float(n) if n >= 1000 else None
+
+
 async def sync_key_handovers(conn: asyncpg.Connection) -> dict:
     """Society Name / Unit No / City / Key Handover Date from the AMA-register
     sheet's Gurgaon / Noida-GN / Ghaziabad tabs → sheet_key_handovers. The header
@@ -853,6 +867,9 @@ async def sync_key_handovers(conn: asyncpg.Connection) -> dict:
         ci_unit = col("unit no", "unit no.", "unit")
         ci_city = col("city")
         ci_kh = next((j for h, j in idx.items() if "key handover" in h), -1)
+        # PG (performance-guarantee) amount — the AMA-register "Token Paid" column.
+        # Optional/additive: -1 when absent → pg stays None, KH capture unaffected.
+        ci_pg = next((j for h, j in idx.items() if "token" in h and "paid" in h), -1)
         if ci_soc < 0 or ci_unit < 0 or ci_kh < 0:
             errors.append({"tab": tab, "error": "missing society/unit/kh column"})
             continue
@@ -862,22 +879,24 @@ async def sync_key_handovers(conn: asyncpg.Connection) -> dict:
             unit = _safe(r[ci_unit]) if ci_unit < len(r) else ""
             kh = _kh_date(r[ci_kh]) if ci_kh < len(r) else None
             city = _safe(r[ci_city]) if (0 <= ci_city < len(r)) else ""
+            pg = _money(r[ci_pg]) if (0 <= ci_pg < len(r)) else None
             if not soc or not unit or kh is None:
                 skipped += 1
                 continue
-            rows_out[(soc.lower(), unit.lower())] = (city or None, soc, unit, kh, tab)
+            rows_out[(soc.lower(), unit.lower())] = (city or None, soc, unit, kh, tab, pg)
 
     upserted = 0
     if rows_out:
         try:
             await conn.executemany(
                 """
-                INSERT INTO sheet_key_handovers (city, society_name, unit_no, key_handover_date, source_tab, synced_at)
-                VALUES ($1,$2,$3,$4,$5, now())
+                INSERT INTO sheet_key_handovers (city, society_name, unit_no, key_handover_date, source_tab, pg_amount, synced_at)
+                VALUES ($1,$2,$3,$4,$5,$6, now())
                 ON CONFLICT (society_name, unit_no) DO UPDATE SET
                   city = EXCLUDED.city,
                   key_handover_date = EXCLUDED.key_handover_date,
                   source_tab = EXCLUDED.source_tab,
+                  pg_amount = EXCLUDED.pg_amount,
                   synced_at = now()
                 """,
                 list(rows_out.values()),
