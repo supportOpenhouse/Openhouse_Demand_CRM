@@ -373,12 +373,13 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
                 # missing column / hiccup here can NEVER affect the key-handover fetch above.
                 try:
                     pgrows = await conn.fetch(
-                        "SELECT society_name, unit_no, performance_guarantee "
+                        "SELECT society_name, unit_no, core_home_id, performance_guarantee "
                         "FROM properties WHERE performance_guarantee IS NOT NULL", timeout=8,
                     )
                     pg_items = [
                         {"society": (r["society_name"] or "").strip(),
                          "unit": (r["unit_no"] or "").strip(),
+                         "home_id": (str(r["core_home_id"]).strip() if r["core_home_id"] is not None else ""),
                          "pg": float(r["performance_guarantee"])}
                         for r in pgrows if r["performance_guarantee"] is not None
                     ]
