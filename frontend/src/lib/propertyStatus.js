@@ -98,22 +98,31 @@ export function lookupKh(khMap, society, unit) {
 // LARGER amount wins (deterministic — amounts, unlike dates, have no "earliest"). Returns
 // null (not '') when there's no match, so the numeric column reads "—".
 export function buildPgMap(items = []) {
-  const exact = {};   // "normSoc#unitDigitKey" -> pg amount
-  const byUnit = {};  // unitDigitKey -> { normSoc: pg amount }
+  const byHome = {};  // core_home_id (== our home_id) -> pg amount — EXACT, authoritative
+  const exact = {};   // "normSoc#unitDigitKey" -> pg amount — fallback when no home_id link
+  const byUnit = {};  // unitDigitKey -> { normSoc: pg amount } — society-prefix fallback
   items.forEach((it) => {
-    const dk = unitDigitKey(it.unit);
     const amt = Number(it.pg);
-    if (!dk || !Number.isFinite(amt)) return;
+    if (!Number.isFinite(amt)) return;
+    const hid = String(it.home_id || '').trim();
+    if (hid && (byHome[hid] == null || amt > byHome[hid])) byHome[hid] = amt;
+    const dk = unitDigitKey(it.unit);
+    if (!dk) return;
     const ns = normSoc(it.society);
     const k = `${ns}#${dk}`;
     if (exact[k] == null || amt > exact[k]) exact[k] = amt;
     const u = (byUnit[dk] = byUnit[dk] || {});
     if (u[ns] == null || amt > u[ns]) u[ns] = amt;
   });
-  return { exact, byUnit };
+  return { byHome, exact, byUnit };
 }
-export function lookupPg(pgMap, society, unit) {
-  if (!pgMap || !pgMap.exact) return null;
+// Resolve a property's PG: EXACT core_home_id first (authoritative), else the SAME
+// society+unit matcher KH uses (exact, then a UNIQUE society-prefix). null = no match.
+export function lookupPg(pgMap, homeId, society, unit) {
+  if (!pgMap) return null;
+  const hid = String(homeId || '').trim();
+  if (hid && pgMap.byHome && pgMap.byHome[hid] != null) return pgMap.byHome[hid];
+  if (!pgMap.exact) return null;
   const dk = unitDigitKey(unit);
   if (!dk) return null;
   const ns = normSoc(society);
@@ -233,7 +242,7 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
       city: p.city_name || p.city || '', home_id: homeId,
       kh_date: kh, days_since_kh: dsk, kh_overridden: !!ovr,
       days_to_forfeiture: dsk == null ? null : FORFEITURE_DAYS - dsk,
-      pg_amount: lookupPg(pgMap, p.society_name, unit),
+      pg_amount: lookupPg(pgMap, homeId, p.society_name, unit),
       ongoing_offer: (homeId && review[homeId] && review[homeId].ongoing_offer) || '',
       demand_team_remark: (homeId && review[homeId] && review[homeId].demand_team_remark) || '',
       ...c,

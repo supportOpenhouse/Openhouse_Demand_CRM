@@ -329,6 +329,21 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-03 (Claude session — PG-Amount matching fix: match by home_id, PR #58):**
+  - The initial PG column (below) matched inventory to the acquisitions DB by **fuzzy society + unit-digits**, filling
+    only ~106/174 Ready-CS. Deep validation showed the authoritative key is **`core_home_id` ↔ our `home_id`**.
+  - **Backend** (`/api/key-handovers`): the PG query now also selects `core_home_id`, returned as `home_id` per PG item.
+  - **Frontend** (`propertyStatus.js`): `buildPgMap` gains a `byHome` map; `lookupPg(pgMap, homeId, society, unit)`
+    tries **home_id first** (exact), then the society+unit matcher as fallback; `buildPropertyStatusRows` passes the
+    row's `homeId`. Ready/CS coverage **106 → 146 of 174 (84%)**, and more accurate (recovers 40 units the fuzzy
+    match dropped on society-name mismatches).
+  - **28 Ready/CS units remain blank — the PG is GENUINELY ABSENT from the acquisitions DB** (`ep-withered-violet`):
+    those units aren't in `properties` at any stage / have no `core_home_id`, Core `oh_home` has no PG field, and no
+    other table in that Neon source carries PG. They look like older acquisitions predating that DB — their PG must be
+    entered at source or sourced from a separate acquisition DB (TBD with the team). Not a code bug.
+  - **Validated** live (Admin, local stack vs the acquisitions DB): 184/236 rows filled, **146/174 Ready-CS**, values
+    exact, KH unaffected, zero console errors, `npm run build` + `py_compile` clean. Files: `backend/api/main.py`,
+    `frontend/src/lib/propertyStatus.js`.
 - **2026-08-03 (Claude session — "PG Amount" column in Property Performance; backend + frontend, additive):**
   - Adds the per-unit **performance-guarantee amount** to the Property Status report, sourced from
     `properties.performance_guarantee` in the **acquisitions "properties" DB** (`PROPERTIES_DATABASE_URL` = the same
