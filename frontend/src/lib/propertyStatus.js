@@ -144,12 +144,19 @@ export function weekWindows(today = TODAY) {
   const firstThis = new Date(today.getFullYear(), today.getMonth(), 1);
   const lmEnd = addDays(firstThis, -1);
   const lmStart = new Date(lmEnd.getFullYear(), lmEnd.getMonth(), 1);
+  // calendar months FURTHER back, same convention as lastMonth (n=2 → the month before
+  // last). Date(y, m-n, 1) and Date(y, m-n+1, 0) roll over year boundaries correctly
+  // (Jan → Dec of the previous year), and day 0 = the last day of the preceding month.
+  const monFrom = (n) => ymd(new Date(today.getFullYear(), today.getMonth() - n, 1));
+  const monTo = (n) => ymd(new Date(today.getFullYear(), today.getMonth() - n + 1, 0));
   return {
     lastFrom: from(1), lastTo: to(1),     // last week (Mon–Sun)
     prevFrom: from(2), prevTo: to(2),     // 2 weeks ago
     w3From: from(3), w3To: to(3),         // 3 weeks ago
     w4From: from(4), w4To: to(4),         // 4 weeks ago
     lmFrom: ymd(lmStart), lmTo: ymd(lmEnd),   // last calendar month
+    m2From: monFrom(2), m2To: monTo(2),       // 2 calendar months ago
+    m3From: monFrom(3), m3To: monTo(3),       // 3 calendar months ago
   };
 }
 
@@ -208,7 +215,7 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
     const unit = unitNoOf(p);
     const vs = visitsForProperty(p, idx);
     const c = {
-      total: 0, lastWeek: 0, prevWeek: 0, week3: 0, week4: 0, lastMonth: 0,
+      total: 0, lastWeek: 0, prevWeek: 0, week3: 0, week4: 0, lastMonth: 0, month2: 0, month3: 0,
       hot: 0, warm: 0, cold: 0,
       revisit: 0, negotiation: 0, booking: 0, not_interested: 0, need_more: 0, future_prospect: 0,
     };
@@ -224,6 +231,8 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
       else if (d >= w.w3From && d <= w.w3To) c.week3 += 1;
       else if (d >= w.w4From && d <= w.w4To) c.week4 += 1;
       if (d >= w.lmFrom && d <= w.lmTo) c.lastMonth += 1;   // calendar month — separate, may overlap weeks
+      if (d >= w.m2From && d <= w.m2To) c.month2 += 1;      // 2 calendar months ago (disjoint from lastMonth)
+      if (d >= w.m3From && d <= w.m3To) c.month3 += 1;      // 3 calendar months ago (disjoint from the above)
       const st = visitStatus(v);
       if (st === 'hot' || st === 'warm' || st === 'cold') c[st] += 1;
       const b = stageBucket(visitStage(v));
@@ -280,6 +289,8 @@ export const PS_COLUMNS = [
   { k: 'week3', label: '3 Weeks Ago', type: 'num' },
   { k: 'week4', label: '4 Weeks Ago', type: 'num' },
   { k: 'lastMonth', label: 'Last Month', type: 'num' },
+  { k: 'month2', label: '2 Months Ago', type: 'num' },
+  { k: 'month3', label: '3 Months Ago', type: 'num' },
   { k: 'hot', label: 'Hot Leads', type: 'num' },
   { k: 'warm', label: 'Warm Leads', type: 'num' },
   { k: 'cold', label: 'Cold Leads', type: 'num' },

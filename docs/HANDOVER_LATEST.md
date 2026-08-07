@@ -329,6 +329,28 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-07 (Claude session — Property Performance: "2 Months Ago" + "3 Months Ago" visit columns):**
+  - Adds two visit-count columns after **Last Month**, extending the existing calendar-month convention
+    (Last Month = previous calendar month, so on 7 Aug 2026: LM = July, M2 = June, M3 = May).
+  - **`propertyStatus.js`** — `weekWindows()` gains `m2From/m2To` + `m3From/m3To` via two helpers
+    (`Date(y, m-n, 1)` / `Date(y, m-n+1, 0)`, which roll over year boundaries and handle leap Februaries);
+    `buildPropertyStatusRows` gains `month2`/`month3` counters incremented by **two new independent `if`s** —
+    the existing `lastMonth` line is left byte-identical, and the three month windows are disjoint so nothing
+    double-counts. `PS_COLUMNS` gains the two entries (28 → **30 columns**), which auto-drives the header,
+    CSV export, sorting and the empty-state `colSpan`.
+  - **`PropertyStatusTable.jsx`** — `month2`/`month3` added to the `totals` accumulator + one `<td>` each in the
+    body row and the footer row (kept in column order).
+  - **FRONTEND-ONLY: no backend, no API, no DB, no migration** — purely a display computation over visit data
+    already in the seed. No lead, user, CP or property record is read or written differently.
+  - **Validated**: (a) window unit-test across Jan/Feb/Mar/Dec, year rollover and leap-2024 — all exact;
+    (b) boundary bucketing test (1st/last day of each month) — correct + disjoint; (c) **A/B regression, OLD (HEAD)
+    vs NEW on identical data: 380 rows × 32 pre-existing fields = 12,160 comparisons, ZERO differences**, only
+    `month2`/`month3` added; (d) live local stack vs prod DB @ prod-parity seed — header/body/footer all 30 cells,
+    totals **LM 2,401 / M2 2,201 / M3 1,481** with footer == sum of body, sorting works both directions, CSV
+    exports both columns, `npm run build` clean, no render errors.
+  - Note: local runs must use a `SEED_VISITS_LIMIT` that covers 3 months back (prod default is **20000** and the
+    visits table holds ~13.8k rows, so production loads everything); a low local limit truncates M2/M3 to near-zero.
+  - Files: `frontend/src/lib/propertyStatus.js`, `frontend/src/components/PropertyStatusTable.jsx`.
 - **2026-08-03 (Claude session — PG-Amount "from sheet" fallback for the units absent from the acquisitions DB):**
   - Closes most of the "28 blank Ready/CS" gap from PR #58 (below). Root cause confirmed: those units have **no
     `performance_guarantee` row in the acquisitions DB** (`ep-withered-violet`). Investigated all sources — Core

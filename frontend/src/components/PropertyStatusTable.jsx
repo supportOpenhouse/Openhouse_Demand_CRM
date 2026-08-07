@@ -163,7 +163,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
   const rows = useMemo(() => sortRows(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
   const matched = useMemo(() => allRows.filter((r) => r.kh_date).length, [allRows]);
   const totals = useMemo(() => {
-    const t = { total: 0, lastWeek: 0, prevWeek: 0, week3: 0, week4: 0, lastMonth: 0, hot: 0, warm: 0, cold: 0, revisit: 0, negotiation: 0, booking: 0, not_interested: 0, need_more: 0, future_prospect: 0 };
+    const t = { total: 0, lastWeek: 0, prevWeek: 0, week3: 0, week4: 0, lastMonth: 0, month2: 0, month3: 0, hot: 0, warm: 0, cold: 0, revisit: 0, negotiation: 0, booking: 0, not_interested: 0, need_more: 0, future_prospect: 0 };
     rows.forEach((r) => Object.keys(t).forEach((k) => { t[k] += r[k] || 0; }));
     return t;
   }, [rows]);
@@ -229,6 +229,8 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td className="num"><Num n={r.week3} /></td>
                 <td className="num"><Num n={r.week4} /></td>
                 <td className="num"><Num n={r.lastMonth} /></td>
+                <td className="num"><Num n={r.month2} /></td>
+                <td className="num"><Num n={r.month3} /></td>
                 {BUCKETS.map((b) => <td key={b} className="num"><Num n={r[b]} color={BUCKET_COLOR[b]} /></td>)}
               </tr>
             ))}
@@ -249,6 +251,8 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td className="num"><b>{int(totals.week3)}</b></td>
                 <td className="num"><b>{int(totals.week4)}</b></td>
                 <td className="num"><b>{int(totals.lastMonth)}</b></td>
+                <td className="num"><b>{int(totals.month2)}</b></td>
+                <td className="num"><b>{int(totals.month3)}</b></td>
                 {BUCKETS.map((b) => <td key={b} className="num"><b>{int(totals[b])}</b></td>)}
               </tr>
             </tfoot>
