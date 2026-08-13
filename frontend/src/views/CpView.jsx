@@ -42,6 +42,15 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
   const cpIndex = useMemo(() => buildCpIndex(visits, ubs), [visits, ubs]); // one pass — fixes #1
   const mineSet = useMemo(() => ownedCpCodes(brokers, me, cpOwner, properties, visits), [seed]); // eslint-disable-line
   const ownerOptions = useMemo(() => (seed.users || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')), [seed]);
+  // Past KAM (transition aid): cp_code → ex-KAM slug, from the retired KAM programme.
+  // Display + filter only; it grants no access. Empty {} once the label is retired → the
+  // dropdown simply stops rendering and every CP keeps showing exactly as it does now.
+  const pastKamMap = seed.past_kam || {};
+  const pastKamOptions = useMemo(() => {
+    const slugs = new Set(Object.values(pastKamMap));
+    return (seed.users || []).filter((u) => slugs.has(u.slug))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Per-CP visit list — used for last-FU + nudge derivation (one map, O(1) per CP).
   const visitsByCp = useMemo(() => {
@@ -53,14 +62,16 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
     return m;
   }, [visits]);
 
-  // Same universe/scope as the prior file: my CPs + every T3/T4 (visible to all).
+  // KAM programme retired: CP ownership no longer restricts visibility, so every CP the
+  // backend sends is shown (T1/T2 are no longer private to their owning KAM). `_mine`
+  // still flags the viewer's own CPs so the list keeps sorting those first.
   const universe = useMemo(() => brokers
-    .filter((b) => mineSet.has(b.cp_code) || b.tier === 'T3' || b.tier === 'T4')
     .map((b) => ({ ...b, _mine: mineSet.has(b.cp_code) })), [brokers, mineSet]);
 
   const [tier, setTier] = useStickyState('cps:tier', 'T1');
   const [city, setCity] = useStickyState('cps:city', 'all');
   const [owner, setOwner] = useStickyState('cps:owner', 'all');   // all | __none__ | slug
+  const [pastKam, setPastKam] = useStickyState('cps:pastKam', 'all'); // all | slug — ex-KAM book (transition)
   const [unit, setUnit] = useStickyState('cps:unit', '');         // #4 typeable unit number
   const [sort, setSort] = useStickyState('cps:sort', 'rank');
   // #4 clickable column-header sort — overrides the dropdown when a header is clicked.
@@ -73,7 +84,7 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
   // Reset the filters (keeps the current tier segment): the two chip-bars, the city/owner/
   // sort/unit controls + the per-tab search. (tier persists across tabs but isn't a "filter".)
   const resetFilters = () => {
-    setCity('all'); setOwner('all'); setUnit(''); setSort('rank');
+    setCity('all'); setOwner('all'); setPastKam('all'); setUnit(''); setSort('rank');
     setHdrField(null); setHdrDir('asc'); setLastFu('all'); setPriority('all');
     setPage(1); onResetSearch?.();
   };
@@ -121,6 +132,7 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
   const filteredAll = useMemo(() => universe.filter((b) => {
     if (city !== 'all' && b.city !== city) return false;
     if (owner !== 'all') { const o = cpOwner[b.cp_code]; if (owner === '__none__' ? !!o : o !== owner) return false; }
+    if (pastKam !== 'all' && pastKamMap[b.cp_code] !== pastKam) return false;   // transition: "CPs I used to hold"
     if (unit.trim()) { const u = cpIndex[b.cp_code]?.units || []; if (!u.some((x) => x.includes(unit.trim().toLowerCase()))) return false; }
     if (dq.trim()) {
       const s = dq.trim().toLowerCase();
@@ -131,7 +143,7 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
     if (priority === 'nudged' && !nudgedForCp[b.cp_code]) return false;
     if (priority === 'tl_ask' && !tlAskForCp[b.cp_code]) return false;
     return true;
-  }), [universe, city, owner, unit, dq, lastFu, priority, cpIndex, cpOwner, visitsByCp, nudgedForCp, tlAskForCp]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [universe, city, owner, pastKam, pastKamMap, unit, dq, lastFu, priority, cpIndex, cpOwner, visitsByCp, nudgedForCp, tlAskForCp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo(() => {
     const g = { T1: [], T2: [], T3: [], T4: [] };
@@ -189,11 +201,20 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE));
   const pg = Math.min(page, totalPages);
   const pageRows = useMemo(() => sorted.slice((pg - 1) * PAGE, pg * PAGE), [sorted, pg]);
-  useEffect(() => { setPage(1); }, [activeTier, city, owner, unit, dq, sort, hdrField, hdrDir, lastFu, priority]);
+  useEffect(() => { setPage(1); }, [activeTier, city, owner, pastKam, unit, dq, sort, hdrField, hdrDir, lastFu, priority]);
 
   // ---- desktop row ----
+  // The ex-KAM label only renders when it ADDS information — i.e. the CP has no current
+  // owner, or the past KAM isn't the person who owns it now. Once CP ownership is cleared
+  // it becomes the primary label automatically; no further code change needed.
+  const pastKamFor = (b) => {
+    const s = pastKamMap[b.cp_code];
+    return s && s !== cpOwner[b.cp_code] ? ubs[s] : null;
+  };
+
   const renderRow = (b) => {
     const ownerU = ubs[cpOwner[b.cp_code]];
+    const pastKamU = pastKamFor(b);
     const e = cpIndex[b.cp_code] || {};
     const lf = lfForCp[b.cp_code];
     const nud = nudgedForCp[b.cp_code];
@@ -208,6 +229,10 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
         <td>
           <b>{b.name}</b>
           <div style={{ fontSize: '10.5px', color: 'var(--mut)', marginTop: 1 }}>{(b.company_name || '')} · {b.phone_number}</div>
+          {/* Sits under the NAME (not the owner cell) so it stays visible on the T3/T4
+              tabs, where the CP Owner column is hidden — that's exactly where an ex-KAM
+              CP has no current owner and the label matters most. */}
+          {pastKamU && <div title="Key-account manager who previously held this CP (KAM programme retired)" style={{ fontSize: '10px', color: 'var(--mut2)', marginTop: 1, fontWeight: 500 }}>ex-KAM · {pastKamU.name}</div>}
         </td>
         <td>
           <span className="city-pill">{b.city || ''}</span>
@@ -241,6 +266,7 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
   // ---- mobile card ----
   const renderCard = (b) => {
     const ownerU = ubs[cpOwner[b.cp_code]];
+    const pastKamU = pastKamFor(b);
     const e = cpIndex[b.cp_code] || {};
     const lf = lfForCp[b.cp_code];
     const nud = nudgedForCp[b.cp_code];
@@ -284,6 +310,9 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
             {tl && <span className="prio-tag tl">📌 TL</span>}
           </div>
         )}
+        {pastKamU && (
+          <div style={{ marginTop: 4, fontSize: '10.5px', color: 'var(--mut2)' }}>ex-KAM · <b>{pastKamU.name}</b></div>
+        )}
       </div>
     );
   };
@@ -319,6 +348,14 @@ export default function CpView({ seed, onOpenBroker, search = '', onResetSearch 
             <option value="all">All owners</option>
             <option value="__none__">Unassigned</option>
             {ownerOptions.map((u) => <option key={u.slug} value={u.slug}>{u.name}</option>)}
+          </select>
+        )}
+        {/* Past KAM — transition filter ("the CPs I used to hold"). Renders only while
+            historical KAM ownership exists; disappears by itself once it's cleared. */}
+        {pastKamOptions.length > 0 && (
+          <select className="rx-sel" value={pastKam} onChange={(e) => setPastKam(e.target.value)}>
+            <option value="all">All past KAMs</option>
+            {pastKamOptions.map((u) => <option key={u.slug} value={u.slug}>Past KAM: {u.name}</option>)}
           </select>
         )}
         <select className="rx-sel" value={sort} onChange={(e) => onPickSort(e.target.value)}>

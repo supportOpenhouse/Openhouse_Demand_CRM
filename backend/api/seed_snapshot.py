@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 
 import asyncpg
 
 from . import config
+
+log = logging.getLogger(__name__)
 
 
 def _date_str(v) -> str:
@@ -83,6 +86,7 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
     if team == "Report":
         snap["brokers"] = []
         snap["cp_owner"] = {}
+        snap["past_kam"] = {}
         snap["engagements"] = {}
         snap["followups"] = []
         snap["visits"] = []
@@ -103,17 +107,19 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
     properties = snap["properties"]
     cp_owner = snap["cp_owner"]
 
-    # T3/T4 CPs are visible to EVERYONE (the frontend sorts the viewer's own first).
-    # Every scoped role keeps its own set PLUS all T3/T4.
-    t34 = {b["cp_code"] for b in brokers if b.get("tier") in ("T3", "T4")}
+    # KAM programme retired: CP ownership no longer restricts who can SEE a CP, so
+    # EVERY CP is visible to EVERYONE (previously only T3/T4 were; T1/T2 were private
+    # to their owning KAM + TL/Admin). The frontend still sorts the viewer's own first.
+    # Widens CP visibility only — no visit/property/lead scope is affected by this line.
+    all_cps = {b["cp_code"] for b in brokers}
 
     def keep_brokers(codes):
-        codes = codes | t34
+        codes = codes | all_cps
         snap["brokers"] = [b for b in brokers if b["cp_code"] in codes]
         snap["cp_owner"] = {cp: o for cp, o in cp_owner.items() if cp in codes}
         # engagement + followup history follow the broker they belong to.
-        # `codes` already includes all T3/T4 (t34), so history on ownerless T3/T4
-        # CPs stays visible to everyone — same rule as the brokers themselves.
+        # `codes` now includes every CP (all_cps), so a CP's history is visible wherever
+        # the CP is — same rule as the brokers themselves.
         snap["engagements"] = {cp: e for cp, e in snap.get("engagements", {}).items() if cp in codes}
         snap["followups"] = [f for f in snap.get("followups", []) if f.get("cp_code") in codes]
 
@@ -168,10 +174,30 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
                 if v.get("city") in extra and v["cp_code"]:
                     owned.add(v["cp_code"])
         keep_brokers(owned)
+        # ── KAM programme retired → these users become property managers. This block is
+        # STRICTLY ADDITIVE (a superset of the previous scope), so nothing they can see
+        # today disappears mid-transition. On top of their own CPs' visits they now see:
+        #   1. Ground/PM-style scope — visits in societies they are the assigned PM of,
+        #      plus visits they personally ran as the RM (their new property book), and
+        #   2. their PAST CPs' visits — the pipeline of the book they used to hold, so the
+        #      handover has continuity ("see who I had as CPs").
+        first = name.split(" ", 1)[0] if name else ""
+        def _is_pm(sm):
+            return bool(sm) and (sm == name or (first != "" and sm == first))
+        pm_by_property = snap.get("pm_by_property", {})
+        my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
+        my_socs = {p["society_name"] for p in properties
+                   if p["property_name"] in my_props or _is_pm(p["sales_manager"])}
+        past_mine = {cp for cp, s in (snap.get("past_kam") or {}).items() if s == slug}
         snap["visits"] = [v for v in visits
                           if cp_owner.get(v["cp_code"]) == slug
+                          or v["cp_code"] in past_mine
+                          or v["society_name"] in my_socs
+                          or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))
                           or (extra and v.get("city") in extra)]
-        # KAMs keep ALL properties (they suggest inventory to buyers).
+        # Properties: still ALL, deliberately UNCHANGED. Property assignments for these
+        # users are a separate, later task — 3 of the 5 have none today, so narrowing to
+        # Ground-style society scope now would blank their inventory tab mid-transition.
         _scope_personal(snap, slug)
         return snap
 
@@ -289,6 +315,34 @@ async def build(conn: asyncpg.Connection) -> dict:
         })
         if r["owner_slug"]:
             cp_owner[r["cp_code"]] = r["owner_slug"]
+
+    # --- past KAM (transition aid; READ-ONLY label) --------------------------
+    # The KAM programme is being retired (no dedicated CP RMs). This maps each CP to
+    # the MOST RECENT KAM who ever owned it — current OR closed assignment — purely so
+    # the CP page can show a "Past KAM" label and an ex-KAM can filter to the book they
+    # used to hold during the transition. It grants NO access by itself and changes no
+    # existing field. Independently guarded: a failure here must never break the seed.
+    past_kam: dict[str, str] = {}
+    try:
+        pk_rows = await conn.fetch(
+            """
+            SELECT b.cp_code, pk.slug AS past_kam_slug
+              FROM brokers b
+              JOIN LATERAL (
+                SELECT u2.slug
+                  FROM cp_assignments ca2
+                  JOIN users u2 ON u2.id = ca2.owner_user_id
+                 WHERE ca2.broker_id = b.id
+                   AND (u2.team = 'KAM' OR u2.role IN ('kam', 'kam_tl'))
+                 ORDER BY ca2.effective_from DESC NULLS LAST, ca2.created_at DESC
+                 LIMIT 1
+              ) pk ON TRUE
+             WHERE b.deleted_at IS NULL
+            """
+        )
+        past_kam = {r["cp_code"]: r["past_kam_slug"] for r in pk_rows if r["past_kam_slug"]}
+    except Exception as e:  # noqa: BLE001 — transition label only; seed must stay up
+        log.warning("past-KAM map fetch failed (non-fatal, seed unaffected): %s", e)
 
     # --- visits (most recent N for snapshot) --------------------------------
     visit_rows = await conn.fetch(
@@ -746,6 +800,7 @@ async def build(conn: asyncpg.Connection) -> dict:
         "live_by_home_id": live_by_home_id,   # server-side only (AI-Suggestions filter); popped by get_seed
         "to_assign_cps": to_assign_cps,
         "cp_owner": cp_owner,
+        "past_kam": past_kam,
         "pm_by_property": pm_by_property,
         "nudges_by_visit": nudges_by_visit,
         "notifications": notifications,

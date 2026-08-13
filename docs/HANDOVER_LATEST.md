@@ -329,6 +329,35 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-13 (Claude session — KAM programme retirement: step 1, the transition layer):**
+  - The KAM programme is being wound down (no dedicated CP RMs). This change is the **transition layer only** —
+    it does NOT remove tiers, tier tabs, tier data or `cp_assignments`; those stay live and are retired later.
+  - **State at the time of the change**: 5 KAMs (shubham 64 CPs, mukul 52, deepak-rawat 50, mayank 45, saket 29 =
+    240) and **KAM-owned ≡ T1+T2 exactly** (T1 114 + T2 126). **Property assignments for KAMs were NOT done**:
+    shubham 7, mayank 1, mukul/deepak-rawat/saket **0** — hence the property decision below.
+  - **1 · "Past KAM" label + filter (additive).** `seed_snapshot.build` gains an **independently-guarded** query
+    → `snap["past_kam"] = {cp_code: kam_slug}`, the MOST RECENT KAM ever to own each CP (current OR closed
+    `cp_assignments` row; the table has ~8.2k history rows, so nothing had to be destroyed). **276 CPs** carry a
+    past KAM (shubham 64, saket 59, mukul 55, deepak-rawat 50, mayank 48). Grants NO access on its own. Frontend
+    (`CpView.jsx`): a **"Past KAM: <name>"** dropdown filter + an **"ex-KAM · Name"** line under the CP NAME.
+    The label deliberately sits under the name, NOT in the CP Owner cell — the T3/T4 tabs hide that column, and
+    that is exactly where an ex-KAM CP has no current owner. It renders only when it adds information (no current
+    owner, or a different one), so it becomes the primary label automatically once ownership is cleared.
+  - **2 · All CPs visible to everyone.** `seed_snapshot`: `t34` (T3/T4 only) → `all_cps`. Previously T1/T2 were
+    private to their owning KAM + TL/Admin; **241 CPs** (and the engagement/follow-up history that follows them)
+    are now visible to all staff. Frontend `CpView` universe filter dropped to match (two-layer scoping).
+  - **3 · Ex-KAMs → property-manager scope, STRICTLY ADDITIVE.** The `team == "KAM"` branch now ALSO includes
+    Ground/PM-style visits (societies they're the assigned PM of + visits they personally ran as RM) **and their
+    PAST CPs' visits**, so the old pipeline stays visible through the handover. **Properties left at ALL,
+    deliberately** — 3 of 5 have no property assignments, so narrowing to society scope would have blanked their
+    inventory tab. Property assignment is a separate, later task.
+  - **Validated**: A/B simulation of OLD (HEAD) vs NEW scoping for **all 50 users** against the real snapshot —
+    **no user lost a single CP, visit or property**; CP visibility +97…+241 each, visits unchanged for everyone
+    except the 5 ex-KAMs who GAINED (saket +116, deepak-rawat +15, mayank/shubham +2, mukul +0), properties
+    unchanged for all. Live UI: Ground user (ashwani) now sees T1 115 / T2 126; "Past KAM: Shubham" → 64 CPs and
+    "Saket" → 59, both matching the DB exactly; ex-KAM label renders on the T3 tab where the owner column is
+    hidden; ex-KAM shubham still sees all 273 properties; `py_compile` + `npm run build` clean, no console errors.
+  - Files: `backend/api/seed_snapshot.py`, `frontend/src/views/CpView.jsx`.
 - **2026-08-07 (Claude session — Property Performance: "2 Months Ago" + "3 Months Ago" visit columns):**
   - Adds two visit-count columns after **Last Month**, extending the existing calendar-month convention
     (Last Month = previous calendar month, so on 7 Aug 2026: LM = July, M2 = June, M3 = May).
