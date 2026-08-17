@@ -90,7 +90,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   }, [seed]);
 
   const scoped = useMemo(
-    () => scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}),
+    () => scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}, seed.past_kam || {}),
     [seed], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // overlay seed.followups so 'Last FU' reflects followups even when the visit

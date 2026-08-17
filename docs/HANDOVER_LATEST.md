@@ -329,6 +329,36 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-17 (Claude session — visit visibility now follows the property handover):**
+  - **Reported**: properties reassigned Pramveer → Deepak, but the follow-ups stayed visible to Pramveer;
+    likewise Antriksh Heights is Aditya Rao's yet Ankit Kumar still saw its follow-ups.
+  - **Diagnosis — the property data was already correct** (`property_assignments` + `properties.sales_manager`
+    both showed Deepak). Two *scoping* leaks caused it:
+    1. **Stale RM.** A 2026-07 change made the RM *shown* follow the unit's current PM but deliberately left
+       scoping on `sales_manager_raw` (the sheet RM at visit time) — "who-sees-what is unchanged". So the
+       previous RM kept the leads. 35% of visits (5.2k) had display-RM ≠ scoping-RM.
+    2. **Dead stock opened a society.** `my_socs` was built from ALL assigned units incl. Sold/Archived, and
+       visit scope is society-level — so ONE sold unit kept granting a whole society. Pramveer held 2 *Sold*
+       Sare Homes units; Ankit's only live Antriksh row is `AJ - 2002 (Top Floor)`, **Sold** (the Ready
+       duplicate was soft-deleted 2026-07-01). Both therefore inherited the entire society.
+  - **Fix (both layers, `seed_snapshot.py` + `lib/visits.js`)**: visit scope now uses (a) `my_socs_live`, built
+    from LIVE listings only via the new `DEAD_LISTING_STATUSES = {Sold, Archived}`, and (b) the CURRENT RM
+    (`sales_manager`, already resolved to the unit's assigned PM) instead of `sales_manager_raw`.
+    **`snap["properties"]` deliberately still uses the unfiltered `my_socs`**, so no PM loses their own sold
+    units from the Properties tab. The TL micro-market branch still uses `sales_manager_raw` (manager-level
+    scope, untouched on both layers).
+  - Also fixed a gap from the KAM-retirement change: the **frontend** KAM branch of `scopeVisits` had never
+    mirrored the widened backend scope (it kept own-CP visits only), which would have hidden the handed-over
+    visits from Deepak. It now mirrors the backend (own CPs + past-KAM CPs + live PM societies + current RM +
+    extra cities); `scopeVisits` gained a 6th arg `pastKam`, passed by all 4 callers.
+  - **Validated** — A/B of OLD vs NEW scoping for **all 62 users** on the real snapshot: **−3,324 stale
+    visit-views, +0 added, 0 ORPHANED** (all 15,003 visits still owned by ≥1 Ground/KAM user), and **0 users'
+    Properties tab changed**. Leaks closed: Pramveer DLF Regal Gardens 92→0, Bestech Sanskruti 63→0, Sare Homes
+    267→125; Ankit Antriksh 733→109 (the residue in each case is that user's OWN unit's visits, kept so their
+    follow-up history isn't destroyed). Unaffected as intended: Deepak keeps all three societies (267/453/121),
+    Aditya keeps Antriksh 733→733. `py_compile` + `npm run build` clean.
+  - **Operational note surfaced**: `udit` drops to 19 visits because his single assigned property is Sold — he
+    manages **no live inventory at all**. Not a code issue; he needs properties assigned.
 - **2026-08-13 (Claude session — KAM programme retirement: step 1, the transition layer):**
   - The KAM programme is being wound down (no dedicated CP RMs). This change is the **transition layer only** —
     it does NOT remove tiers, tier tabs, tier data or `cp_assignments`; those stay live and are retired later.

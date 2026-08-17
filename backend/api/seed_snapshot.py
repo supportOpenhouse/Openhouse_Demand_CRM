@@ -37,6 +37,13 @@ def _intent_str(intent: dict | None, key: str) -> str:
 # KEEP IN SYNC with the frontend NO_KAM_GROUND_CITIES (lib/visits.js, lib/brokers.js).
 NO_KAM_GROUND_CITIES = {"Ghaziabad"}
 
+# A Sold/Archived unit is dead stock. It must NOT keep granting its PM society-wide
+# VISIT visibility after the sale — that is what let a previous RM keep seeing a whole
+# society through one sold unit. Used for visit scope only; the Properties tab still
+# lists every unit a PM owns (including sold ones), so nobody loses their own history.
+# KEEP IN SYNC with the frontend DEAD_LISTING_STATUSES (lib/visits.js).
+DEAD_LISTING_STATUSES = {"Sold", "Archived"}
+
 
 def scope_for_user(snap: dict, user: dict) -> dict:
     """Public entry: scope the snapshot for `user`, then trim the meeting-recording
@@ -189,11 +196,17 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
         my_socs = {p["society_name"] for p in properties
                    if p["property_name"] in my_props or _is_pm(p["sales_manager"])}
         past_mine = {cp for cp, s in (snap.get("past_kam") or {}).items() if s == slug}
+        # VISIT scope follows LIVE stock only (a sold unit no longer opens its society)
+        # and the CURRENT RM (`sales_manager`, already resolved to the unit's assigned PM
+        # below) rather than the historical sheet RM — so a handover moves the leads too.
+        my_socs_live = {p["society_name"] for p in properties
+                        if p.get("listing_status") not in DEAD_LISTING_STATUSES
+                        and (p["property_name"] in my_props or _is_pm(p["sales_manager"]))}
         snap["visits"] = [v for v in visits
                           if cp_owner.get(v["cp_code"]) == slug
                           or v["cp_code"] in past_mine
-                          or v["society_name"] in my_socs
-                          or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))
+                          or v["society_name"] in my_socs_live
+                          or _is_pm(v["sales_manager"])
                           or (extra and v.get("city") in extra)]
         # Properties: still ALL, deliberately UNCHANGED. Property assignments for these
         # users are a separate, later task — 3 of the 5 have none today, so narrowing to
@@ -214,6 +227,12 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
         my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
         my_socs = {p["society_name"] for p in properties
                    if p["property_name"] in my_props or _is_pm(p["sales_manager"])}
+        # Same set, but LIVE stock only — drives VISIT visibility. `my_socs` above still
+        # drives the Properties tab, so a PM keeps seeing their own sold units; they just
+        # stop inheriting every visit in a society they only hold dead stock in.
+        my_socs_live = {p["society_name"] for p in properties
+                        if p.get("listing_status") not in DEAD_LISTING_STATUSES
+                        and (p["property_name"] in my_props or _is_pm(p["sales_manager"]))}
         # Cities with no KAM (Ghaziabad): this PM sees every lead + every CP (all tiers)
         # there. Empty for PMs whose cities aren't in NO_KAM_GROUND_CITIES → no change.
         no_kam = cities & NO_KAM_GROUND_CITIES
@@ -233,8 +252,8 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
         # the property is managed by someone else and the CP isn't theirs (e.g. VST8592);
         # plus EVERY visit in a no-KAM city (Ghaziabad), since there's no KAM to route them.
         snap["visits"] = [v for v in visits
-                          if v["society_name"] in my_socs or cp_owner.get(v["cp_code"]) == slug
-                          or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))
+                          if v["society_name"] in my_socs_live or cp_owner.get(v["cp_code"]) == slug
+                          or _is_pm(v["sales_manager"])
                           or (no_kam and v.get("city") in no_kam)]
         _scope_personal(snap, slug)
         return snap
@@ -558,9 +577,10 @@ async def build(conn: asyncpg.Connection) -> dict:
 
     # Make the RM SHOWN follow the unit's current PM assignment. Precedence:
     #   manual rm_override  >  current PM (by home_id, else single-PM society)  >  sheet RM.
-    # Only `sales_manager` (display) changes; `sales_manager_raw` (scoping) is untouched, so
-    # who-sees-what is unchanged. Resolves stale RMs after a society handover (e.g. Godrej
-    # Oasis → Puran) without anyone having to re-key the visits sheet.
+    # `sales_manager` is now BOTH the displayed and the scoping RM for Ground/KAM: when a
+    # unit is handed over, its leads follow the new PM and the previous RM stops seeing
+    # them. (`sales_manager_raw` is kept for the TL micro-market branch only.) Resolves
+    # stale RMs after a handover without anyone having to re-key the visits sheet.
     for v in visits:
         if v.pop("_has_rm_override", False):
             continue  # an explicit admin/TL reassignment always wins
