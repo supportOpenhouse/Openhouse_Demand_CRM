@@ -329,6 +329,26 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-17b (Claude session — newly-assigned PMs could SEE the handed-over leads but not EDIT them):**
+  - Follow-on to the scoping fix below. Visibility (`seed_snapshot.scope_for_user`) and write permission
+    (`main._can_edit_visit`) are separate code paths; the previous change moved visibility only, so the
+    codebase's documented **"see ⟹ edit"** invariant broke for the users who had just been given properties.
+  - **Measured before the fix**: **1,640 visible-but-un-editable visits** — `deepak-rawat` **1,515 of 2,321**
+    (Sare Crescent Parc 727, DLF Regal Gardens 352, Sare Homes 258, Bestech Sanskruti 110, GLS Avenue 51 68)
+    and `saket` 125. Every Ground user was already consistent (0).
+  - **Cause 1** — `_can_edit_visit` granted the property-assignment branch only to `team == "Ground"`. The
+    retired-KAM users are now property managers, so `at_my_property` was true but the team gate blocked them →
+    403 on every edit. Fixed: `team in ("Ground", "KAM")`.
+  - **Cause 2** — ex-KAMs still SEE their pre-retirement CP book's pipeline (the `past_kam` transition grant)
+    but had no matching edit right. Fixed with a `was_my_kam_cp` EXISTS that mirrors the seed's `past_kam`
+    map exactly (most recent KAM owner of the visit's broker), so the two stay in lock-step.
+  - **Validated** — A/B of OLD vs NEW `_can_edit_visit` for every non-privileged user against the real
+    snapshot: **see-but-cannot-edit 1,640 → 0**, and **over-grant (editable but not visible) unchanged for
+    everyone** (deepak 12→12, saket 1→1, all others 0). No other user's permissions moved. `py_compile` clean;
+    the new SQL was executed against the live DB before shipping.
+  - Deliberately NOT changed: `at_my_property` still ignores `listing_status` (a tiny pre-existing over-grant
+    on invisible visits — harmless, and filtering it would REMOVE rights); `_can_engage_broker` stays
+    ownership-based (CP engagement is an ownership action, not a visibility one).
 - **2026-08-17 (Claude session — visit visibility now follows the property handover):**
   - **Reported**: properties reassigned Pramveer → Deepak, but the follow-ups stayed visible to Pramveer;
     likewise Antriksh Heights is Aditya Rao's yet Ankit Kumar still saw its follow-ups.

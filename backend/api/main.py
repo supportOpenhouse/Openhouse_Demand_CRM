@@ -2013,7 +2013,21 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
                  SELECT 1 FROM properties p
                   WHERE (p.home_id = v.home_id OR p.society_name = v.society_name)
                     AND p.micro_market = ANY($3::text[])
-               ) AS in_my_mm
+               ) AS in_my_mm,
+               -- Ex-KAM transition: the MOST RECENT KAM owner of this visit's CP, matching
+               -- the seed's `past_kam` map exactly, so edit stays in lock-step with the
+               -- past-book visibility granted when the KAM programme was retired.
+               EXISTS (
+                 SELECT 1 FROM (
+                   SELECT ca2.owner_user_id AS uid
+                     FROM cp_assignments ca2
+                     JOIN users u2 ON u2.id = ca2.owner_user_id
+                    WHERE ca2.broker_id = v.broker_id
+                      AND (u2.team = 'KAM' OR u2.role IN ('kam', 'kam_tl'))
+                    ORDER BY ca2.effective_from DESC NULLS LAST, ca2.created_at DESC
+                    LIMIT 1
+                 ) pk WHERE pk.uid = $1
+               ) AS was_my_kam_cp
           FROM visits v
      LEFT JOIN v_broker_current_owner co ON co.broker_id = v.broker_id
          WHERE v.id = $2
@@ -2025,6 +2039,10 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
     # CP owner — the broker this visit points to is owned by the user.
     if row["owner_user_id"] == user["id"]:
         return True
+    # Ex-KAM: they still SEE their pre-retirement CP book's pipeline, so they can act on
+    # it too. No-op for everyone who never held a KAM book.
+    if row["was_my_kam_cp"]:
+        return True
     # The RM who actually ran the visit can edit it. The visits sheet records some
     # RMs by FIRST name only ("Vinay" vs user "Vinay Kumar"), so match full OR first
     # name — same rule the seed scoping uses to SHOW these visits to the RM.
@@ -2033,8 +2051,11 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
     if sm and nm and (sm == nm or sm == nm.split(" ", 1)[0]):
         return True
     city = (row["city"] or "")
-    # Ground PM at one of their assigned properties.
-    if user["team"] == "Ground" and row["at_my_property"]:
+    # PM at one of their assigned properties. Covers Ground AND KAM: the retired-KAM
+    # users are now property managers with real assignments, and the seed shows them
+    # those societies' visits — without KAM here they could SEE the handed-over leads
+    # but got a 403 on every edit.
+    if user["team"] in ("Ground", "KAM") and row["at_my_property"]:
         return True
     # KAM with admin-granted extra-city access — mirrors the extra-city VISIBILITY grant
     # in scope_for_user (matched on the corrected city). Default off / no cities → no-op.
