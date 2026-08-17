@@ -194,7 +194,13 @@ function isAdminOrTL(me) {
 // assigned societies). KEEP IN SYNC with backend NO_KAM_GROUND_CITIES (seed_snapshot.py).
 export const NO_KAM_GROUND_CITIES = new Set(['Ghaziabad']);
 
-export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByProperty = {}) {
+// A Sold/Archived unit is dead stock and no longer opens up its society's visits — that
+// is what let a previous RM keep seeing a whole society through one sold unit. Visit
+// scope only; the Properties tab still lists every unit a PM owns.
+// KEEP IN SYNC with the backend DEAD_LISTING_STATUSES (seed_snapshot.py).
+export const DEAD_LISTING_STATUSES = new Set(['Sold', 'Archived']);
+
+export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByProperty = {}, pastKam = {}) {
   if (!me || !me.id) return visits;
   // MM-manager: micro-market scope takes precedence over team/city (mirrors the
   // backend scope_for_user). GATED to TL/Admin only — a manager-level grant, so
@@ -214,10 +220,20 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
     return visits;
   }
   if (me.team === 'KAM') {
-    // optional admin-granted extra-city visit access (mirrors the backend KAM scope).
-    // Default off / empty → identical to before (own-CP visits only).
+    // Mirrors the backend KAM scope exactly: own CPs, the CPs they held before the KAM
+    // programme was retired, the LIVE societies they are now PM of, visits where they are
+    // the current RM, plus any admin-granted extra city.
     const extra = me.extra_cities_enabled ? (me.extra_cities || []) : [];
-    return visits.filter((v) => cpOwner[v.cp_code] === me.id || (extra.length > 0 && extra.includes(v.city)));
+    const firstK = (me.name || '').split(' ')[0];
+    const isPmK = (sm) => !!sm && (sm === me.name || (firstK && sm === firstK));
+    const socsK = new Set(properties
+      .filter((p) => !DEAD_LISTING_STATUSES.has(p.listing_status)
+        && (pmByProperty[p.property_name] === me.slug || isPmK(p.sales_manager)))
+      .map((p) => p.society_name));
+    const pastMine = new Set(Object.keys(pastKam).filter((cp) => pastKam[cp] === me.slug));
+    return visits.filter((v) => cpOwner[v.cp_code] === me.id || pastMine.has(v.cp_code)
+      || socsK.has(v.society_name) || isPmK(v.sales_manager)
+      || (extra.length > 0 && extra.includes(v.city)));
   }
   if (me.team === 'Ground') {
     // PM's properties via the authoritative assignment (pm_by_property → slug), with the
@@ -225,13 +241,16 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
     // ("Anuj" vs "Anuj Kumar"), so match full name OR first name.
     const first = (me.name || '').split(' ')[0];
     const isPm = (sm) => !!sm && (sm === me.name || (first && sm === first));
+    // LIVE stock only — a sold unit no longer opens up its whole society.
     const socs = new Set(properties
-      .filter((p) => pmByProperty[p.property_name] === me.slug || isPm(p.sales_manager))
+      .filter((p) => !DEAD_LISTING_STATUSES.has(p.listing_status)
+        && (pmByProperty[p.property_name] === me.slug || isPm(p.sales_manager)))
       .map((p) => p.society_name));
     // no-KAM cities (Ghaziabad): the PM also sees EVERY visit in those cities.
     const noKam = new Set((me.cities || []).filter((c) => NO_KAM_GROUND_CITIES.has(c)));
-    // also: visits the PM personally ran (they are the RM), even at others' properties.
-    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || isPm(v.sales_manager_raw ?? v.sales_manager) || noKam.has(v.city));
+    // Match the CURRENT RM (`sales_manager`, already resolved to the unit's assigned PM
+    // server-side), not the historical sheet RM — so a handover moves the leads too.
+    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || isPm(v.sales_manager) || noKam.has(v.city));
   }
   return [];
 }
