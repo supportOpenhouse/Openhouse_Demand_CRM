@@ -396,7 +396,14 @@ function PropVisitRow({
   // GATED to TL/Admin only (mirrors scopeVisits) — micro_markets on a Ground PM must not
   // grant edit rights across a whole micro-market.
   const mmManager = (me.micro_markets || []).length > 0 && (me.team === 'TL' || me.team === 'Admin');
-  const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit || (me.team === 'Ground' && isMyProperty) || kamExtra || noKam || mmManager;
+  // Ex-KAM: still sees (and so may act on) the pipeline of the CP book they held before the
+  // KAM programme was retired. Mirrors `was_my_kam_cp` in backend _can_edit_visit.
+  const wasMyKamCp = (seed.past_kam || {})[v.cp_code] === me.slug;
+  // The property branch covers Ground AND KAM — the retired KAMs are property managers now,
+  // so without KAM here they could see a handed-over lead but got a 403 on every edit.
+  const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit
+    || ((me.team === 'Ground' || me.team === 'KAM') && isMyProperty)
+    || wasMyKamCp || kamExtra || noKam || mmManager;
   const nfc = nextFuClass(nextFuFor(v));
   const nudgeOk = (!isMine && !!owner);
   const stDef = STATUSES.find((s) => s.k === status);
