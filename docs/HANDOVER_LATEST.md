@@ -329,6 +329,24 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-21 (Claude session — Property Performance: "Locality" + "Area (sqft)" columns):**
+  - Two additive columns: **Locality** (`locality_or_sector`, e.g. "Sector 16C (Greater Noida)") and
+    **Area (sqft)** (`super_sqft`). Placed as `… Unit No | Locality | Config | Area (sqft) | Flat Status …`
+    — inserted AFTER the pinned `unit` column, which is safe because `STICK` is keyed by column NAME, not index.
+  - **FRONTEND-ONLY, no backend change**: the seed already carried `locality_or_sector`, `super_sqft` and
+    `carpet_sqft` (`seed_snapshot.py` property rows). Live coverage on Ready/Coming-Soon: **super_sqft 190/190
+    (100%)**, locality **190/190 (100%)**, carpet_sqft 189/190 — so `super_sqft` was chosen as "Area".
+  - **`propertyStatus.js`**: new `sqftNum()` parses the sheet's free TEXT ("1,129", "1129 sqft") to a NUMBER —
+    required because `sortRows` compares raw values, so a string would sort "955" above "1340". Blank/0 → null
+    → renders "—". Row gains `locality` + `area_sqft`; `PS_COLUMNS` 30 → **32** (auto-drives header, CSV,
+    sorting, and the empty-state `colSpan`). **`PropertyStatusTable.jsx`**: one `<td>` each in the body and
+    footer rows.
+  - **Validated**: (a) A/B regression OLD vs NEW row-builder on 290 synthetic rows × 34 pre-existing fields =
+    **9,860 comparisons, ZERO differences**, only `locality`/`area_sqft` added; (b) header/body/footer all 32
+    cells; CSV exports both and correctly QUOTES the comma-containing locality; (c) live UI (Admin, local stack
+    vs prod DB): 289 rows, **0 blank locality, 0 blank area**, numeric sort verified descending 2,366 → 625;
+    (d) the Properties modal + expanded follow-up editor re-checked on a clean reload (the `PropVisitRow`
+    console errors seen mid-session were stale HMR state from editing, not a defect).
 - **2026-08-17c (Claude session — HOTFIX: Properties view crashed with "Can't find variable: seed"):**
   - **Regression I introduced in the edit-permission fix below.** `wasMyKamCp` was added to the `canEdit`
     calculation using `seed.past_kam`, but that code lives in **`PropVisitRow`** — a sibling component that
