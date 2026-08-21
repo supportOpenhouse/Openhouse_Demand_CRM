@@ -284,6 +284,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
               allVisits={allVisits}
               brokersByCode={brokersByCode}
               revIndex={revIndex}
+              pastKam={seed.past_kam || {}}
               open={expanded.has(String(v.id))}
               draft={drafts[v.id] || {}}
               nudgeSent={sentNudges.has(String(v.id)) || ((nudgesByVisit[v.id] || []).some((n) => !n.resolved))}
@@ -374,6 +375,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
 // ---------------------------------------------------------------------------
 function PropVisitRow({
   v, p, me, owner, broker, allVisits, brokersByCode, revIndex, open, draft, nudgeSent, composerOpen,
+  pastKam = {},
   onToggle, onPatch, onOpenComposer, onNudged, onCloseComposer, onSaved, onOpenBrokerArrow,
 }) {
   const status = visitStatus(v);
@@ -398,7 +400,7 @@ function PropVisitRow({
   const mmManager = (me.micro_markets || []).length > 0 && (me.team === 'TL' || me.team === 'Admin');
   // Ex-KAM: still sees (and so may act on) the pipeline of the CP book they held before the
   // KAM programme was retired. Mirrors `was_my_kam_cp` in backend _can_edit_visit.
-  const wasMyKamCp = (seed.past_kam || {})[v.cp_code] === me.slug;
+  const wasMyKamCp = pastKam[v.cp_code] === me.slug;
   // The property branch covers Ground AND KAM — the retired KAMs are property managers now,
   // so without KAM here they could see a handed-over lead but got a 403 on every edit.
   const canEdit = isAdmin(me) || me.team === 'TL' || isMine || isMyVisit
