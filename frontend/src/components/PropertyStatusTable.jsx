@@ -213,7 +213,9 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td className="ps-f" style={{ left: STICK.region.left, minWidth: STICK.region.w }}>{r.region || '—'}</td>
                 <td className="ps-f ps-strong" style={{ left: STICK.society.left, minWidth: STICK.society.w }}>{r.society || '—'}</td>
                 <td className="ps-f ps-edge" style={{ left: STICK.unit.left, minWidth: STICK.unit.w }}>{r.unit || '—'}</td>
+                <td>{r.locality || '—'}</td>
                 <td>{r.config || '—'}</td>
+                <td className="num">{r.area_sqft == null ? '—' : Number(r.area_sqft).toLocaleString('en-IN')}</td>
                 <td>{r.flat_status ? <span className={'ps-pill ' + (STATUS_CLS[r.flat_status] || '')}>{r.flat_status}</span> : '—'}</td>
                 <td className="ps-strong">{r.ask_price || '—'}</td>
                 <td>{r.responsible || '—'}</td>
@@ -244,7 +246,7 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
                 <td className="ps-f" style={{ left: STICK.region.left, minWidth: STICK.region.w }}>Totals</td>
                 <td className="ps-f" style={{ left: STICK.society.left, minWidth: STICK.society.w }}>{int(rows.length)} properties</td>
                 <td className="ps-f ps-edge" style={{ left: STICK.unit.left, minWidth: STICK.unit.w }} />
-                <td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" /><td className="num" /><td className="num" /><td /><td />
+                <td /><td /><td /><td /><td /><td /><td className="ps-kh" /><td className="num ps-kh" /><td className="num" /><td className="num" /><td /><td />
                 <td className="num"><b>{int(totals.total)}</b></td>
                 <td className="num"><b>{int(totals.lastWeek)}</b></td>
                 <td className="num"><b>{int(totals.prevWeek)}</b></td>

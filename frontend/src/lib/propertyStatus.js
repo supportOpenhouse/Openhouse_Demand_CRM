@@ -27,6 +27,14 @@ export function unitKey(s) {
     .join('|');
 }
 
+// super_sqft arrives as free TEXT from the inventory sheet ("1,129", "1129 sqft").
+// Parse to a NUMBER so the column sorts numerically (sortRows compares raw values,
+// so a string would sort "955" above "1340"). Blank / 0 / unparseable -> null ("—").
+export const sqftNum = (v) => {
+  const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
 // our property_name is "{unit}, {society}" → the unit is the part before the first
 // comma. If there's no comma we can't tell the unit apart from the society, so return
 // '' (no unit) rather than mis-using the whole name.
@@ -256,6 +264,7 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
     return {
       region: p.micro_market || '', society: p.society_name || '', unit,
       config: p.configuration || '', flat_status: p.listing_status || '',
+      locality: p.locality_or_sector || '', area_sqft: sqftNum(p.super_sqft),
       ask_price: p.listing_price || '', responsible: p.sales_manager || '',
       city: p.city_name || p.city || '', home_id: homeId,
       kh_date: kh, days_since_kh: dsk, kh_overridden: !!ovr,
@@ -273,7 +282,9 @@ export const PS_COLUMNS = [
   { k: 'region', label: 'Region', type: 'text' },
   { k: 'society', label: 'Society Name', type: 'text' },
   { k: 'unit', label: 'Unit No', type: 'text' },
+  { k: 'locality', label: 'Locality', type: 'text' },
   { k: 'config', label: 'Config', type: 'text' },
+  { k: 'area_sqft', label: 'Area (sqft)', type: 'num' },
   { k: 'flat_status', label: 'Flat Status', type: 'text' },
   { k: 'ask_price', label: 'Ask Price', type: 'price' },
   { k: 'responsible', label: 'Responsible Person', type: 'text' },
