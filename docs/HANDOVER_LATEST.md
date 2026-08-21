@@ -329,6 +329,21 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-08-17c (Claude session — HOTFIX: Properties view crashed with "Can't find variable: seed"):**
+  - **Regression I introduced in the edit-permission fix below.** `wasMyKamCp` was added to the `canEdit`
+    calculation using `seed.past_kam`, but that code lives in **`PropVisitRow`** — a sibling component that
+    never receives `seed` (only `PropertyModal` does). Every render of a visit row threw a ReferenceError, the
+    error boundary caught it, and the whole **Properties view** showed "Something went wrong in this view".
+    It affected ANY user opening a property with visits, not just KAMs.
+  - **Fix (3 lines, frontend only)**: `PropVisitRow` now takes a `pastKam = {}` prop (safe default → cannot
+    throw even if omitted), uses `pastKam[v.cp_code] === me.slug`, and `PropertyModal` passes
+    `pastKam={seed.past_kam || {}}` at the call site. No permission logic changed — same predicate, correct scope.
+  - **Validated**: audited EVERY `seed.` reference in all six files touched by PRs #62/#63 — each now sits in a
+    component that receives `seed`; `PropVisitRow` has none left. Then verified in a real browser as
+    `deepak-rawat` (the user whose past-KAM path triggers that exact line): Properties list renders (289
+    properties), the D-082 modal opens with all 149 visits, a visit row expands with the full follow-up editor,
+    and the console is clean. **Lesson: the original bug shipped because I never exercised this modal — a build
+    passes on an out-of-scope variable; only a runtime render catches it.**
 - **2026-08-17b (Claude session — newly-assigned PMs could SEE the handed-over leads but not EDIT them):**
   - Follow-on to the scoping fix below. Visibility (`seed_snapshot.scope_for_user`) and write permission
     (`main._can_edit_visit`) are separate code paths; the previous change moved visibility only, so the
