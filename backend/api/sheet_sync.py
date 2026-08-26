@@ -970,8 +970,19 @@ async def reconcile_property_statuses(conn: asyncpg.Connection) -> dict:
     `all_properties` table (the "All Properties" tab, just refreshed by
     `sync_all_properties` immediately above) is the authoritative full mirror,
     Sold/Archived included. Copy ONLY a terminal status across, ONLY where it
-    diverges, keyed on the UNIQUE `property_name` (NOT home_id, which differs
-    between the two tabs).
+    diverges, keyed on the UNIQUE `property_name`.
+
+    `property_name` is NOT globally unique across physical units: the "All
+    Properties" tab currently carries 4 names that each cover TWO different
+    homes (e.g. "C - 101, Umang Winter Hills" = home 341 Ready AND home 126
+    Archived). The all_properties upsert (ON CONFLICT property_name) keeps
+    whichever row is written last, so the terminal status of the OLD home was
+    being stamped onto the LIVE one every cycle -- sync_properties wrote
+    'Ready' from Sheet1, this reconcile flipped it back to 'Archived' 90s
+    later, on repeat. Hence the home_id guard below: when BOTH sides know
+    their home_id and they disagree, the rows are different physical units and
+    no status may cross. home_ids agree on 300 of 304 name-matched pairs, so
+    the guard is inert everywhere except those collisions.
 
     Scope guarantees (validated against live data): touches `listing_status` +
     `updated_at` only; never inserts; never alters an active unit (the
@@ -995,6 +1006,9 @@ async def reconcile_property_statuses(conn: asyncpg.Connection) -> dict:
           AND ap.deleted_at IS NULL
           AND ap.listing_status IN ('Sold', 'Archived')
           AND p.listing_status IS DISTINCT FROM ap.listing_status
+          -- same name, different physical unit -> never cross-stamp status
+          AND NOT (p.home_id IS NOT NULL AND ap.home_id IS NOT NULL
+                   AND p.home_id <> ap.home_id)
         RETURNING p.property_name, p.listing_status
         """
     )
