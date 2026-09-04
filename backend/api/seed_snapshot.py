@@ -143,7 +143,17 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
         pm_by_property = snap.get("pm_by_property", {})
         my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
         in_scope_prop = lambda p: (p.get("micro_market") in mms) or (p["property_name"] in my_props)
-        mm_socs = {p["society_name"] for p in properties if in_scope_prop(p)}
+        # Society-wide VISIT grants come from LIVE stock only (the same
+        # DEAD_LISTING_STATUSES rule the Ground/KAM branches got in #62): a TL's own
+        # Sold/Archived unit OUTSIDE their micro-markets must not keep opening that
+        # whole society's visits — that is what let the old New Gurgaon TL keep seeing
+        # four NG2 societies after the NG1/NG2 split. Own dead units stay in
+        # `properties` and keep their own direct visits via mm_homeids; only the
+        # society-wide expansion is gated. KEEP IN SYNC with lib/visits.js.
+        _soc_grant = lambda p: (p.get("micro_market") in mms) or (
+            p["property_name"] in my_props
+            and p.get("listing_status") not in DEAD_LISTING_STATUSES)
+        mm_socs = {p["society_name"] for p in properties if _soc_grant(p)}
         mm_homeids = {p["home_id"] for p in properties if in_scope_prop(p) and p.get("home_id")}
         def _in_mm(v):
             return ((v.get("home_id") and v["home_id"] in mm_homeids)

@@ -209,7 +209,12 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
   const mms = me.micro_markets || [];
   if (mms.length && (me.team === 'TL' || me.team === 'Admin')) {
     const inScope = (p) => mms.includes(p.micro_market) || pmByProperty[p.property_name] === me.slug;
-    const mmSocs = new Set(properties.filter(inScope).map((p) => p.society_name));
+    // Society-wide grants from LIVE stock only (mirrors backend seed_snapshot.py):
+    // a TL's own Sold/Archived unit outside their micro-markets must not keep opening
+    // that whole society's visits. Own dead units keep their direct visits via mmHomes.
+    const socGrant = (p) => mms.includes(p.micro_market)
+      || (pmByProperty[p.property_name] === me.slug && !DEAD_LISTING_STATUSES.has(p.listing_status));
+    const mmSocs = new Set(properties.filter(socGrant).map((p) => p.society_name));
     const mmHomes = new Set(properties.filter((p) => inScope(p) && p.home_id).map((p) => String(p.home_id)));
     return visits.filter((v) => (v.home_id && mmHomes.has(String(v.home_id))) || mmSocs.has(v.society_name) || (v.sales_manager_raw ?? v.sales_manager) === me.name);
   }
