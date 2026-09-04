@@ -1992,9 +1992,49 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
     (a Ghaziabad PM sees+edits every lead in the city) and micro-market managers. This is
     purely additive vs the old check: it only grants edit WITHIN visibility, never removes
     a grant. Validated over all active users: see ⟹ edit holds with zero over-grant."""
-    if user["team"] in ("Admin", "TL"):
+    if user["team"] == "Admin":
         return True
     mms = list(user.get("micro_markets") or [])
+    if user["team"] == "TL":
+        if not mms:
+            return True
+        # MM-manager TL: edit follows the MM VISIT scope exactly (seed_snapshot's MM
+        # branch, incl. its live-stock society rule): a visit at a property in their
+        # micro-markets (by home or society), at a society where they hold LIVE stock,
+        # at one of their OWN units (any status — own history), or a visit they
+        # personally ran (raw RM name). Without this, an MM TL could edit every visit
+        # in the company while seeing only their micro-markets — edit outside see.
+        row = await conn.fetchrow(
+            """
+            SELECT v.sales_manager,
+                   EXISTS (
+                     SELECT 1 FROM properties p
+                      WHERE (p.home_id = v.home_id OR p.society_name = v.society_name)
+                        AND p.micro_market = ANY($3::text[])
+                   ) AS in_my_mm,
+                   EXISTS (
+                     SELECT 1 FROM property_assignments pa
+                       JOIN properties p ON p.id = pa.property_id
+                      WHERE pa.pm_user_id = $1 AND pa.effective_to IS NULL
+                        AND p.society_name = v.society_name
+                        AND COALESCE(p.listing_status, '') <> ALL($4::text[])
+                   ) AS my_live_society,
+                   EXISTS (
+                     SELECT 1 FROM property_assignments pa
+                       JOIN properties p ON p.id = pa.property_id
+                      WHERE pa.pm_user_id = $1 AND pa.effective_to IS NULL
+                        AND v.home_id IS NOT NULL AND p.home_id = v.home_id
+                   ) AS my_unit
+              FROM visits v
+             WHERE v.id = $2
+            """,
+            user["id"], visit_id, mms, sorted(seed_snapshot.DEAD_LISTING_STATUSES),
+        )
+        if not row:
+            return False
+        sm_raw = (row["sales_manager"] or "").strip()
+        return bool(row["in_my_mm"] or row["my_live_society"] or row["my_unit"]
+                    or (sm_raw and sm_raw == (user.get("name") or "").strip()))
     row = await conn.fetchrow(
         """
         SELECT v.broker_id, v.society_name, v.sales_manager,
@@ -2067,8 +2107,10 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
     if user["team"] == "Ground" \
             and city in (set(user.get("cities") or []) & seed_snapshot.NO_KAM_GROUND_CITIES):
         return True
-    # Micro-market manager (users.micro_markets set): edit every lead in those MMs,
-    # mirroring the MM-manager VISIBILITY branch. Default empty → no-op.
-    if mms and row["in_my_mm"]:
-        return True
+    # NOTE: the old `if mms and row["in_my_mm"]` grant is gone. MM-manager edit rights
+    # are handled in the TL branch above; by the time execution reaches here the user
+    # is Ground/KAM, where the MM VISIBILITY grant never applies (#55 gated it to
+    # TL/Admin) — so granting MM-wide EDIT here gave Ground PMs with a leftover
+    # micro_markets value write access to leads they could not see. Removed to
+    # restore "see ⟹ edit with zero over-grant" in both directions.
     return False
