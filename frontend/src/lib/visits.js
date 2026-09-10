@@ -213,12 +213,16 @@ const last10 = (s) => {
 };
 export const rmTextIsMe = (v, sm, me, dupRmNames, { allowFirst = true } = {}) => {
   if (!sm) return false;
+  // The name must be MINE first — the dup guard only NARROWS a legacy grant, never
+  // creates one. Without this the city fallback matched any user in the visit's city.
+  const first = (me.name || '').split(' ')[0];
+  const mine = sm === me.name || (allowFirst && !!first && sm === first);
   if ((dupRmNames || []).includes(sm)) {
+    if (!mine) return false;           // someone else's namesake — never mine
     if (v.rm_core_id && me.core_sales_manager_id) return v.rm_core_id === me.core_sales_manager_id;
     return (me.cities || []).includes(v.city);
   }
-  const first = (me.name || '').split(' ')[0];
-  return sm === me.name || (allowFirst && !!first && sm === first);
+  return mine;
 };
 export const pmTextIsMe = (p, me, dupRmNames, { allowFirst = true } = {}) => {
   const sm = p.sales_manager || '';

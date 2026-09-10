@@ -133,12 +133,21 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
     def _rm_text_is_me(v, sm, allow_first=True):
         if not sm:
             return False
+        # The name must be MINE first — the duplicate-name guard only ever NARROWS a
+        # legacy grant, it must never create one. Without this precondition the
+        # pre-identity city fallback below matched any user in the visit's city, so an
+        # RM-less visit that the PM-resolution pass stamps with a duplicated PM name
+        # (e.g. a blank-RM lead in a society whose PM is one of the two "Ankit Kumar"s)
+        # leaked to every PM in that city.
+        mine = sm == name or (allow_first and _first_tok != "" and sm == _first_tok)
         if sm in _dup:
+            if not mine:
+                return False          # someone else's namesake — never mine
             rc = v.get("rm_core_id")
             if rc and _my_core:
                 return rc == _my_core
             return (v.get("city") or "") in cities
-        return sm == name or (allow_first and _first_tok != "" and sm == _first_tok)
+        return mine
 
     def _pm_text_is_me(p):
         sm = p.get("sales_manager") or ""
@@ -834,7 +843,7 @@ async def build(conn: asyncpg.Connection) -> dict:
     # --- full roster (DB is the source of truth; frontend merges over its
     # hardcoded USERS array so team/city/role edits show up without a code change) ---
     user_rows = await conn.fetch(
-        "SELECT slug, email, name, phone, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active FROM users WHERE active ORDER BY name"
+        "SELECT slug, email, name, phone, core_sales_manager_id, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active FROM users WHERE active ORDER BY name"
     )
     users = [{
         "id": r["slug"],                 # frontend convention: id == slug
@@ -842,6 +851,9 @@ async def build(conn: asyncpg.Connection) -> dict:
         "email": r["email"],
         "name": r["name"],
         "phone": r["phone"] or "",       # so an edited phone shows on reopen (was dropped → "saved but blank")
+        # identity for the duplicate-name guard — without it an admin's "View as"
+        # re-scopes with an undefined id and previews a WIDER set than the user has.
+        "core_sales_manager_id": r["core_sales_manager_id"],
         "team": r["team"],
         "role": r["role"],
         "cities": list(r["cities"] or []),
