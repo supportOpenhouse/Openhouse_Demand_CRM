@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TODAY, ymd, fmtDate, fmtDay, fmtDateTime, initials } from '../lib/format.js';
-import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor, NO_KAM_GROUND_CITIES, buildRevisitIndex } from '../lib/visits.js';
+import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor, NO_KAM_GROUND_CITIES, buildRevisitIndex, rmTextIsMe, pmTextIsMe } from '../lib/visits.js';
 import RevisitTag from './RevisitTag.jsx';
 import { usersBySlug } from '../lib/brokers.js';
 import { top99ForSociety } from '../lib/properties.js';
@@ -285,6 +285,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
               brokersByCode={brokersByCode}
               revIndex={revIndex}
               pastKam={seed.past_kam || {}}
+              dupRmNames={seed.dup_rm_names || []}
               open={expanded.has(String(v.id))}
               draft={drafts[v.id] || {}}
               nudgeSent={sentNudges.has(String(v.id)) || ((nudgesByVisit[v.id] || []).some((n) => !n.resolved))}
@@ -376,17 +377,18 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
 function PropVisitRow({
   v, p, me, owner, broker, allVisits, brokersByCode, revIndex, open, draft, nudgeSent, composerOpen,
   pastKam = {},
+  dupRmNames = [],
   onToggle, onPatch, onOpenComposer, onNudged, onCloseComposer, onSaved, onOpenBrokerArrow,
 }) {
   const status = visitStatus(v);
   const stage = visitStage(v);
   const tier = broker.tier || 'T4';
-  // sheet records some PMs/RMs by first name only ("Vinay" vs "Vinay Kumar") — match either
-  const fn = (me.name || '').split(' ')[0];
-  const nameMatch = (s) => !!s && (s === me.name || (fn && s === fn));
+  // sheet records some PMs/RMs by first name only ("Vinay" vs "Vinay Kumar") — match
+  // either; names shared by 2+ active users resolve by hard identity instead
+  // (rm_core_id / contact phone — KEEP IN SYNC with backend _can_edit_visit).
   const isMine = !!(owner && (owner.id === me.id || owner.slug === me.slug));
-  const isMyProperty = nameMatch(p.sales_manager);
-  const isMyVisit = nameMatch(v.sales_manager);   // the RM who actually ran this visit
+  const isMyProperty = pmTextIsMe(p, me, dupRmNames);
+  const isMyVisit = rmTextIsMe(v, v.sales_manager, me, dupRmNames);   // the RM who actually ran this visit
   // KAM with admin-granted extra-city access can edit visits in those cities (mirrors
   // backend _can_edit_visit + the visibility grant). Default off → no effect.
   const kamExtra = me.team === 'KAM' && me.extra_cities_enabled && (me.extra_cities || []).includes(v.city);

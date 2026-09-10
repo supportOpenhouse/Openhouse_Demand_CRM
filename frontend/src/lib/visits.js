@@ -200,7 +200,38 @@ export const NO_KAM_GROUND_CITIES = new Set(['Ghaziabad']);
 // KEEP IN SYNC with the backend DEAD_LISTING_STATUSES (seed_snapshot.py).
 export const DEAD_LISTING_STATUSES = new Set(['Sold', 'Archived']);
 
-export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByProperty = {}, pastKam = {}) {
+// ── duplicate-RM-name identity guard ────────────────────────────────────────
+// KEEP IN SYNC with backend seed_snapshot.py (_rm_text_is_me / _pm_text_is_me).
+// When 2+ active users answer to the same RM name text (seed.dup_rm_names), the
+// name cannot identify a person. For exactly those texts, match by hard identity:
+// a visit's rm_core_id vs me.core_sales_manager_id (the visit's city as the
+// pre-identity fallback), and a property's sales_manager_contact phone vs
+// me.phone. Every other name takes the byte-identical legacy path.
+const last10 = (s) => {
+  const d = String(s || '').replace(/\D/g, '');
+  return d.length >= 10 ? d.slice(-10) : '';
+};
+export const rmTextIsMe = (v, sm, me, dupRmNames, { allowFirst = true } = {}) => {
+  if (!sm) return false;
+  if ((dupRmNames || []).includes(sm)) {
+    if (v.rm_core_id && me.core_sales_manager_id) return v.rm_core_id === me.core_sales_manager_id;
+    return (me.cities || []).includes(v.city);
+  }
+  const first = (me.name || '').split(' ')[0];
+  return sm === me.name || (allowFirst && !!first && sm === first);
+};
+export const pmTextIsMe = (p, me, dupRmNames, { allowFirst = true } = {}) => {
+  const sm = p.sales_manager || '';
+  if (!sm) return false;
+  if ((dupRmNames || []).includes(sm)) {
+    const c10 = last10(p.sales_manager_contact);
+    return !!c10 && c10 === last10(me.phone);
+  }
+  const first = (me.name || '').split(' ')[0];
+  return sm === me.name || (allowFirst && !!first && sm === first);
+};
+
+export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByProperty = {}, pastKam = {}, dupRmNames = []) {
   if (!me || !me.id) return visits;
   // MM-manager: micro-market scope takes precedence over team/city (mirrors the
   // backend scope_for_user). GATED to TL/Admin only — a manager-level grant, so
@@ -216,7 +247,7 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
       || (pmByProperty[p.property_name] === me.slug && !DEAD_LISTING_STATUSES.has(p.listing_status));
     const mmSocs = new Set(properties.filter(socGrant).map((p) => p.society_name));
     const mmHomes = new Set(properties.filter((p) => inScope(p) && p.home_id).map((p) => String(p.home_id)));
-    return visits.filter((v) => (v.home_id && mmHomes.has(String(v.home_id))) || mmSocs.has(v.society_name) || (v.sales_manager_raw ?? v.sales_manager) === me.name);
+    return visits.filter((v) => (v.home_id && mmHomes.has(String(v.home_id))) || mmSocs.has(v.society_name) || rmTextIsMe(v, v.sales_manager_raw ?? v.sales_manager, me, dupRmNames, { allowFirst: false }));
   }
   if (isAdminOrTL(me)) {
     if (me.role === 'tl_closer' || (me.team === 'TL' && (me.cities || []).length === 1)) {
@@ -229,33 +260,29 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
     // programme was retired, the LIVE societies they are now PM of, visits where they are
     // the current RM, plus any admin-granted extra city.
     const extra = me.extra_cities_enabled ? (me.extra_cities || []) : [];
-    const firstK = (me.name || '').split(' ')[0];
-    const isPmK = (sm) => !!sm && (sm === me.name || (firstK && sm === firstK));
     const socsK = new Set(properties
       .filter((p) => !DEAD_LISTING_STATUSES.has(p.listing_status)
-        && (pmByProperty[p.property_name] === me.slug || isPmK(p.sales_manager)))
+        && (pmByProperty[p.property_name] === me.slug || pmTextIsMe(p, me, dupRmNames)))
       .map((p) => p.society_name));
     const pastMine = new Set(Object.keys(pastKam).filter((cp) => pastKam[cp] === me.slug));
     return visits.filter((v) => cpOwner[v.cp_code] === me.id || pastMine.has(v.cp_code)
-      || socsK.has(v.society_name) || isPmK(v.sales_manager)
+      || socsK.has(v.society_name) || rmTextIsMe(v, v.sales_manager, me, dupRmNames)
       || (extra.length > 0 && extra.includes(v.city)));
   }
   if (me.team === 'Ground') {
     // PM's properties via the authoritative assignment (pm_by_property → slug), with the
     // sheet-name match as fallback. The sheet stores some PMs by FIRST NAME only
     // ("Anuj" vs "Anuj Kumar"), so match full name OR first name.
-    const first = (me.name || '').split(' ')[0];
-    const isPm = (sm) => !!sm && (sm === me.name || (first && sm === first));
     // LIVE stock only — a sold unit no longer opens up its whole society.
     const socs = new Set(properties
       .filter((p) => !DEAD_LISTING_STATUSES.has(p.listing_status)
-        && (pmByProperty[p.property_name] === me.slug || isPm(p.sales_manager)))
+        && (pmByProperty[p.property_name] === me.slug || pmTextIsMe(p, me, dupRmNames)))
       .map((p) => p.society_name));
     // no-KAM cities (Ghaziabad): the PM also sees EVERY visit in those cities.
     const noKam = new Set((me.cities || []).filter((c) => NO_KAM_GROUND_CITIES.has(c)));
     // Match the CURRENT RM (`sales_manager`, already resolved to the unit's assigned PM
     // server-side), not the historical sheet RM — so a handover moves the leads too.
-    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || isPm(v.sales_manager) || noKam.has(v.city));
+    return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || rmTextIsMe(v, v.sales_manager, me, dupRmNames) || noKam.has(v.city));
   }
   return [];
 }

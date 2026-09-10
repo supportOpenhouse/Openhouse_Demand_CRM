@@ -367,6 +367,10 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
                 g(r, "latest_followup_note"),
                 _date_or_none(g(r, "created_at")),
                 g(r, "home_id") or None,
+                # RM identity from core (oh_salesmanager.id). None until the sheet
+                # exports the column; the upsert COALESCEs so an absent value never
+                # clears a backfilled one.
+                (_int(g(r, "sales_manager_id")) or None),
             ))
         except Exception as e:
             failed += 1
@@ -385,7 +389,8 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
           listing_status, sales_feedback, buyer_feedback, all_feedback,
           reminder_status, profession, intent,
           lead_status, latest_followup_date, latest_followup_note,
-          synced_from_sheet_at, created_at, updated_at, home_id
+          synced_from_sheet_at, created_at, updated_at, home_id,
+          sales_manager_core_id
         ) VALUES (
           $1,$2,$3,$4,
           $5,$6,$7,$8,
@@ -397,7 +402,8 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
           $33,$34,$35::jsonb,
           COALESCE(NULLIF($36, ''), 'select_status'),
           $37,$38,
-          now(), COALESCE($39, now()), now(), $40
+          now(), COALESCE($39, now()), now(), $40,
+          $41
         )
         ON CONFLICT (visit_code) DO UPDATE SET
           buyer_id = EXCLUDED.buyer_id,
@@ -443,6 +449,8 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
           latest_followup_note = CASE WHEN visits.latest_followup_at IS NULL
                                       THEN EXCLUDED.latest_followup_note ELSE visits.latest_followup_note END,
           home_id = EXCLUDED.home_id,
+          -- keep the backfilled identity when the sheet doesn't export the column yet
+          sales_manager_core_id = COALESCE(EXCLUDED.sales_manager_core_id, visits.sales_manager_core_id),
           synced_from_sheet_at = now(),
           updated_at = now()
     """

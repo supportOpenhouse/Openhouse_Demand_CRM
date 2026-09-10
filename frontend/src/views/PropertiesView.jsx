@@ -98,7 +98,7 @@ export default function PropertiesView({ seed, onOpenBroker, search = '', onRese
   const visits = seed.visits || [];
   const isMobile = useIsMobile();
 
-  const all = useMemo(() => propertiesForUser(seed.properties || [], me, seed.pm_by_property || {}), [seed]); // eslint-disable-line
+  const all = useMemo(() => propertiesForUser(seed.properties || [], me, seed.pm_by_property || {}, seed.dup_rm_names || []), [seed]); // eslint-disable-line
 
   // build the per-unit visit index once; reused by every row
   const idx = useMemo(() => indexVisitsByProperty(visits), [visits]);

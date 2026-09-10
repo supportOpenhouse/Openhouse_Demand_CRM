@@ -27,7 +27,7 @@ export default function NegotiationsView({ seed, onOpenBroker, reloadSeed, searc
   const properties = seed.properties || [];
 
   const scoped = useMemo(() => {
-    const v = scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}, seed.past_kam || {});
+    const v = scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}, seed.past_kam || {}, seed.dup_rm_names || []);
     // Negotiations is intentionally narrower than Visits for KAMs: a KAM sees ONLY their
     // own (T1/T2) CP leads here — never the wider extra-cities pipeline they keep in Visits.
     return me.team === 'KAM' ? v.filter((x) => cpOwner[x.cp_code] === me.id) : v;

@@ -173,6 +173,9 @@ async def get_seed(user: dict = Depends(auth.current_user)):
         "extra_cities_enabled": bool(user.get("extra_cities_enabled")),
         # true when this RM is mapped to a Core SalesManager → may book visits
         "can_book_visits": bool(_bk and _bk["core_sales_manager_id"]),
+        # identity for the duplicate-RM-name guard (KEEP IN SYNC: lib/visits.js,
+        # lib/properties.js, PropertyModal.jsx mirror seed_snapshot's rule)
+        "core_sales_manager_id": (_bk["core_sales_manager_id"] if _bk else None),
     }
     return snapshot
 
@@ -2007,6 +2010,12 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
         row = await conn.fetchrow(
             """
             SELECT v.sales_manager,
+                   v.sales_manager_core_id,
+                   (SELECT count(*) FROM users u3
+                     WHERE u3.active
+                       AND (trim(u3.name) = trim(v.sales_manager)
+                            OR split_part(trim(u3.name), ' ', 1) = trim(v.sales_manager))
+                   ) AS sm_name_claimants,
                    EXISTS (
                      SELECT 1 FROM properties p
                       WHERE (p.home_id = v.home_id OR p.society_name = v.society_name)
@@ -2033,11 +2042,23 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
         if not row:
             return False
         sm_raw = (row["sales_manager"] or "").strip()
-        return bool(row["in_my_mm"] or row["my_live_society"] or row["my_unit"]
-                    or (sm_raw and sm_raw == (user.get("name") or "").strip()))
+        ran_it = bool(sm_raw and sm_raw == (user.get("name") or "").strip())
+        if ran_it and (row["sm_name_claimants"] or 0) > 1:
+            # duplicate-name guard: 2+ active users answer to this text, so the name
+            # alone cannot identify the RM — require the hard identity to agree.
+            ran_it = bool(row["sales_manager_core_id"]
+                          and user.get("core_sales_manager_id")
+                          and row["sales_manager_core_id"] == user["core_sales_manager_id"])
+        return bool(row["in_my_mm"] or row["my_live_society"] or row["my_unit"] or ran_it)
     row = await conn.fetchrow(
         """
         SELECT v.broker_id, v.society_name, v.sales_manager,
+               v.sales_manager_core_id,
+               (SELECT count(*) FROM users u3
+                 WHERE u3.active
+                   AND (trim(u3.name) = trim(v.sales_manager)
+                        OR split_part(trim(u3.name), ' ', 1) = trim(v.sales_manager))
+               ) AS sm_name_claimants,
                COALESCE((SELECT ap.city FROM all_properties ap
                           WHERE ap.home_id = v.home_id AND NULLIF(ap.city, '') IS NOT NULL
                           LIMIT 1), v.city) AS city,
@@ -2088,9 +2109,20 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
     # name — same rule the seed scoping uses to SHOW these visits to the RM.
     sm = (row["sales_manager"] or "").strip()
     nm = (user.get("name") or "").strip()
-    if sm and nm and (sm == nm or sm == nm.split(" ", 1)[0]):
-        return True
     city = (row["city"] or "")
+    if sm and nm and (sm == nm or sm == nm.split(" ", 1)[0]):
+        if (row["sm_name_claimants"] or 0) <= 1:
+            return True                     # unique name — legacy grant, unchanged
+        # duplicate-name guard (mirrors seed_snapshot._rm_text_is_me): the text is
+        # shared by 2+ active users, so require hard identity — the visit's core
+        # sales-manager id; for pre-identity rows fall back to the user's own city.
+        rc = row["sales_manager_core_id"]
+        mc = user.get("core_sales_manager_id")
+        if rc and mc:
+            if rc == mc:
+                return True
+        elif city in set(user.get("cities") or []):
+            return True
     # PM at one of their assigned properties. Covers Ground AND KAM: the retired-KAM
     # users are now property managers with real assignments, and the seed shows them
     # those societies' visits — without KAM here they could SEE the handed-over leads

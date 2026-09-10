@@ -45,6 +45,13 @@ NO_KAM_GROUND_CITIES = {"Ghaziabad"}
 DEAD_LISTING_STATUSES = {"Sold", "Archived"}
 
 
+def _last10(s: str | None) -> str:
+    """Digits-only tail of a phone — the same normalisation sheet_sync's PM
+    resolver uses, so property-contact identity matches resolve identically."""
+    d = "".join(ch for ch in (s or "") if ch.isdigit())
+    return d[-10:] if len(d) >= 10 else ""
+
+
 def scope_for_user(snap: dict, user: dict) -> dict:
     """Public entry: scope the snapshot for `user`, then trim the meeting-recording
     markers to that same scope (additive; a no-op when the feature is dormant)."""
@@ -109,6 +116,39 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
     name = user.get("name") or ""
     cities = set(user.get("cities") or [])
 
+    # ── duplicate-name identity guard. `dup_rm_names` (see build()) holds every RM
+    # name TEXT that 2+ active users answer to — full names held twice ("Ankit Kumar")
+    # plus bare first-name tokens shared across users ("Akshit"). Such a text cannot
+    # identify a person, so for those texts ONLY, name-grants switch to hard identity:
+    # the visit's core sales-manager id (backfilled + sheet-synced), else the visit's
+    # city as a transition fallback; a property's sales_manager_contact phone. Every
+    # name NOT in the set takes the byte-identical legacy path, so unique-named users'
+    # scopes are provably unchanged. KEEP IN SYNC with lib/visits.js,
+    # lib/properties.js, PropertyModal.jsx and main.py:_can_edit_visit.
+    _dup = set(snap.get("dup_rm_names") or [])
+    _my_core = user.get("core_sales_manager_id")
+    _my_ph = _last10(user.get("phone"))
+    _first_tok = name.split(" ", 1)[0] if name else ""
+
+    def _rm_text_is_me(v, sm, allow_first=True):
+        if not sm:
+            return False
+        if sm in _dup:
+            rc = v.get("rm_core_id")
+            if rc and _my_core:
+                return rc == _my_core
+            return (v.get("city") or "") in cities
+        return sm == name or (allow_first and _first_tok != "" and sm == _first_tok)
+
+    def _pm_text_is_me(p):
+        sm = p.get("sales_manager") or ""
+        if not sm:
+            return False
+        if sm in _dup:
+            c10 = _last10(p.get("sales_manager_contact"))
+            return bool(c10) and c10 == _my_ph
+        return sm == name or (_first_tok != "" and sm == _first_tok)
+
     brokers = snap["brokers"]
     visits = snap["visits"]
     properties = snap["properties"]
@@ -158,7 +198,8 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
         def _in_mm(v):
             return ((v.get("home_id") and v["home_id"] in mm_homeids)
                     or v["society_name"] in mm_socs
-                    or v.get("sales_manager_raw", v["sales_manager"]) == name)
+                    or _rm_text_is_me(v, v.get("sales_manager_raw", v["sales_manager"]),
+                                      allow_first=False))
         codes = {b["cp_code"] for b in brokers if cp_owner.get(b["cp_code"]) == slug}
         for v in visits:
             if _in_mm(v) and v["cp_code"]:
@@ -198,25 +239,22 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
         #      plus visits they personally ran as the RM (their new property book), and
         #   2. their PAST CPs' visits — the pipeline of the book they used to hold, so the
         #      handover has continuity ("see who I had as CPs").
-        first = name.split(" ", 1)[0] if name else ""
-        def _is_pm(sm):
-            return bool(sm) and (sm == name or (first != "" and sm == first))
         pm_by_property = snap.get("pm_by_property", {})
         my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
         my_socs = {p["society_name"] for p in properties
-                   if p["property_name"] in my_props or _is_pm(p["sales_manager"])}
+                   if p["property_name"] in my_props or _pm_text_is_me(p)}
         past_mine = {cp for cp, s in (snap.get("past_kam") or {}).items() if s == slug}
         # VISIT scope follows LIVE stock only (a sold unit no longer opens its society)
         # and the CURRENT RM (`sales_manager`, already resolved to the unit's assigned PM
         # below) rather than the historical sheet RM — so a handover moves the leads too.
         my_socs_live = {p["society_name"] for p in properties
                         if p.get("listing_status") not in DEAD_LISTING_STATUSES
-                        and (p["property_name"] in my_props or _is_pm(p["sales_manager"]))}
+                        and (p["property_name"] in my_props or _pm_text_is_me(p))}
         snap["visits"] = [v for v in visits
                           if cp_owner.get(v["cp_code"]) == slug
                           or v["cp_code"] in past_mine
                           or v["society_name"] in my_socs_live
-                          or _is_pm(v["sales_manager"])
+                          or _rm_text_is_me(v, v["sales_manager"])
                           or (extra and v.get("city") in extra)]
         # Properties: still ALL, deliberately UNCHANGED. Property assignments for these
         # users are a separate, later task — 3 of the 5 have none today, so narrowing to
@@ -230,19 +268,16 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
         # FIRST NAME only ("Anuj" vs user "Anuj Kumar", "Ayush" vs "Ayush Ojha"), so an
         # exact full-name match silently hid their visits/properties (e.g. Anuj saw 0).
         # Match full name OR first name as the fallback.
-        first = name.split(" ", 1)[0] if name else ""
-        def _is_pm(sm):
-            return bool(sm) and (sm == name or (first != "" and sm == first))
         pm_by_property = snap.get("pm_by_property", {})
         my_props = {pn for pn, ps in pm_by_property.items() if ps == slug}
         my_socs = {p["society_name"] for p in properties
-                   if p["property_name"] in my_props or _is_pm(p["sales_manager"])}
+                   if p["property_name"] in my_props or _pm_text_is_me(p)}
         # Same set, but LIVE stock only — drives VISIT visibility. `my_socs` above still
         # drives the Properties tab, so a PM keeps seeing their own sold units; they just
         # stop inheriting every visit in a society they only hold dead stock in.
         my_socs_live = {p["society_name"] for p in properties
                         if p.get("listing_status") not in DEAD_LISTING_STATUSES
-                        and (p["property_name"] in my_props or _is_pm(p["sales_manager"]))}
+                        and (p["property_name"] in my_props or _pm_text_is_me(p))}
         # Cities with no KAM (Ghaziabad): this PM sees every lead + every CP (all tiers)
         # there. Empty for PMs whose cities aren't in NO_KAM_GROUND_CITIES → no change.
         no_kam = cities & NO_KAM_GROUND_CITIES
@@ -253,7 +288,7 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
                 codes.add(b["cp_code"])
         for v in visits:
             if (v["society_name"] in my_socs
-                    or _is_pm(v.get("sales_manager_raw", v["sales_manager"]))
+                    or _rm_text_is_me(v, v.get("sales_manager_raw", v["sales_manager"]))
                     or (no_kam and v.get("city") in no_kam)) and v["cp_code"]:
                 codes.add(v["cp_code"])
         keep_brokers(codes)
@@ -263,7 +298,7 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
         # plus EVERY visit in a no-KAM city (Ghaziabad), since there's no KAM to route them.
         snap["visits"] = [v for v in visits
                           if v["society_name"] in my_socs_live or cp_owner.get(v["cp_code"]) == slug
-                          or _is_pm(v["sales_manager"])
+                          or _rm_text_is_me(v, v["sales_manager"])
                           or (no_kam and v.get("city") in no_kam)]
         _scope_personal(snap, slug)
         return snap
@@ -373,6 +408,24 @@ async def build(conn: asyncpg.Connection) -> dict:
     except Exception as e:  # noqa: BLE001 — transition label only; seed must stay up
         log.warning("past-KAM map fetch failed (non-fatal, seed unaffected): %s", e)
 
+    # --- duplicate RM-name texts (identity guard input) ---------------------
+    # Every text 2+ ACTIVE users answer to: full names held more than once, plus
+    # bare first-name tokens shared across users. Scoping switches exactly these
+    # texts from name matching to hard identity; all other names take the legacy
+    # path unchanged. See _scope_for_user_core.
+    _name_rows = await conn.fetch(
+        "SELECT name FROM users WHERE active AND COALESCE(name, '') <> ''"
+    )
+    _fullc: dict[str, int] = {}
+    _firstc: dict[str, int] = {}
+    for _nr in _name_rows:
+        _n = _nr["name"].strip()
+        _fullc[_n] = _fullc.get(_n, 0) + 1
+        _f = _n.split(" ", 1)[0]
+        _firstc[_f] = _firstc.get(_f, 0) + 1
+    dup_rm_names = sorted({n for n, k in _fullc.items() if k > 1}
+                          | {f for f, k in _firstc.items() if k > 1})
+
     # --- visits (most recent N for snapshot) --------------------------------
     visit_rows = await conn.fetch(
         """
@@ -388,7 +441,8 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.lead_status, v.current_stage, v.latest_followup_at, v.latest_followup_note,
           v.latest_followup_date, v.next_followup_date, v.revisit_date, v.negotiation_date,
           v.negotiation_happened, v.booking_received_date,
-          v.created_at, v.updated_at, v.home_id, v.is_old_lead
+          v.created_at, v.updated_at, v.home_id, v.is_old_lead,
+          v.sales_manager_core_id
           FROM visits v
          ORDER BY COALESCE(v.visit_date, v.selected_date) DESC NULLS LAST, v.created_at DESC
          LIMIT $1
@@ -456,6 +510,8 @@ async def build(conn: asyncpg.Connection) -> dict:
             # that all SCOPING reads, so visibility is byte-identical to before.
             "sales_manager": rm_override or (r["sales_manager"] or ""),
             "sales_manager_raw": rm_override or (r["sales_manager"] or ""),
+            # RM identity (core oh_salesmanager.id) — disambiguates same-name users.
+            "rm_core_id": r["sales_manager_core_id"],
             "_has_rm_override": bool(rm_override),
             "sales_feedback": r["sales_feedback"] or "",
             "buyer_feedback": r["buyer_feedback"] or "",
@@ -832,6 +888,7 @@ async def build(conn: asyncpg.Connection) -> dict:
         "cp_owner": cp_owner,
         "past_kam": past_kam,
         "pm_by_property": pm_by_property,
+        "dup_rm_names": dup_rm_names,
         "nudges_by_visit": nudges_by_visit,
         "notifications": notifications,
         "team_tasks": team_tasks,
