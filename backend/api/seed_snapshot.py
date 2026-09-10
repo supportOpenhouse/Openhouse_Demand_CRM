@@ -422,8 +422,15 @@ async def build(conn: asyncpg.Connection) -> dict:
     # bare first-name tokens shared across users. Scoping switches exactly these
     # texts from name matching to hard identity; all other names take the legacy
     # path unchanged. See _scope_for_user_core.
+    # ALL roster rows, not just active ones: a departed colleague's name is still
+    # stamped as the RM text on live visits, so the moment a namesake is hired that
+    # text stops identifying a person. Counting inactive rows makes it resolve by
+    # identity (or the city fallback) instead of handing the newcomer the leaver's
+    # whole book. Verified against live data: this newly duplicates only 'Abhishek'
+    # and 'Manish', whose only active holders are Admin/Report — both of which return
+    # before any name matching — so no current user's scope moves.
     _name_rows = await conn.fetch(
-        "SELECT name FROM users WHERE active AND COALESCE(name, '') <> ''"
+        "SELECT name FROM users WHERE COALESCE(name, '') <> ''"
     )
     _fullc: dict[str, int] = {}
     _firstc: dict[str, int] = {}

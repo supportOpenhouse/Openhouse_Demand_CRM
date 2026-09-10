@@ -1264,6 +1264,18 @@ async def bulk_reassign_visits(body: VisitBulkReassignBody, user: dict = Depends
 
 VALID_TEAMS = {"Admin", "TL", "KAM", "Ground", "Report"}
 
+# ── Team Lead ("Manager") member-creation guardrails ─────────────────────────
+# A TL may ADD members but not EDIT them (PATCH /api/users stays Admin-only), and
+# only within their own patch. Admin is never subject to any of this.
+TL_CREATABLE_TEAMS = {"Ground", "KAM"}
+# `role` is a PRIVILEGE VECTOR, not a label: seed_snapshot grants full TL scope to
+# role in ("kam_tl", "caller_tl"), and the frontend grants TL/Admin-level views to
+# any role containing/starting with "tl" (lib/properties.js, lib/brokers.js,
+# lib/visits.js) and the admin UI to role == "admin" (TeamView.jsx). So a TL does
+# not get to choose it — each creatable team has one canonical role, which is what
+# 100% of the current active roster already uses.
+TL_ROLE_BY_TEAM = {"Ground": "ground", "KAM": "kam"}
+
 
 class UserCreateBody(BaseModel):
     name: str = Field(..., min_length=1)
@@ -1316,16 +1328,23 @@ def _check_email_domain(email: str) -> str:
 
 @app.post("/api/users")
 async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_user)):
-    """Add a roster member. Admin only. Persists to the users table (the sheet
-    sync never writes users, so manually-added people are not wiped)."""
-    _require_admin(user)
+    """Add a roster member. Admin, or a Team Lead within their own patch
+    (_tl_create_guardrails). EDITING a member stays Admin-only — see update_user.
+    Persists to the users table (the sheet sync never writes users, so
+    manually-added people are not wiped)."""
+    _require_admin_or_tl(user)
     if body.team not in VALID_TEAMS:
         raise HTTPException(400, f"Invalid team: {body.team}")
     email = _check_email_domain(body.email)
     cities = [c.strip() for c in (body.cities or []) if c.strip()]
     mms = [m.strip() for m in (body.micro_markets or []) if m.strip()]
     extra = [c.strip() for c in (body.extra_cities or []) if c.strip()]
+    role = body.role.strip()
+    if user["team"] != "Admin":                      # TL: narrow to their own patch
+        role = _tl_create_guardrails(user, body.team, cities, mms, extra)
     async with acquire() as conn:
+        if user["team"] != "Admin":
+            await _tl_reject_orphan_name(conn, body.name)
         if await conn.fetchval("SELECT 1 FROM users WHERE email = $1", email):
             raise HTTPException(409, "A user with this email already exists")
         requested = (body.slug or "").strip().lower()
@@ -1339,12 +1358,14 @@ async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_us
             slug = await _unique_slug(conn, _slugify(body.name))
         row = await conn.fetchrow(
             """
-            INSERT INTO users (slug, email, name, phone, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, joined_at, active)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true)
+            INSERT INTO users (slug, email, name, phone, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, joined_at, active, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12::jsonb)
             RETURNING slug, name
             """,
             slug, email, body.name.strip(), (body.phone or "").strip() or None,
-            body.team, body.role.strip(), cities, mms, extra, bool(body.extra_cities_enabled), _date_or_none(body.joined_at),
+            body.team, role, cities, mms, extra, bool(body.extra_cities_enabled), _date_or_none(body.joined_at),
+            # who added them — same `created_by` convention already in users.metadata
+            json.dumps({"created_by": user["slug"]}),
         )
     return {"ok": True, "slug": row["slug"], "name": row["name"]}
 
@@ -1933,6 +1954,84 @@ def _require_admin_or_tl(user: dict) -> None:
         raise HTTPException(403, "Admin or Team Lead only")
 
 
+def _tl_create_guardrails(actor: dict, team: str, cities: list, mms: list, extra: list) -> str:
+    """Narrow a Team Lead's member-creation to their own patch; returns the role to
+    write. Admin never reaches here. Each rule closes a concrete escalation:
+      team           — an Admin or TL minted by a TL would out-rank or match its creator.
+      role           — grants scope independently of team (see TL_ROLE_BY_TEAM), so it is
+                       FORCED to the team's canonical value rather than accepted from the body.
+      cities         — a member's city list is what bounds their visibility, so a TL may
+                       not seat someone outside their own cities.
+      extra_cities   — widens a KAM to whole extra cities; same bound.
+      micro_markets  — inert on Ground/KAM today (the MM grant is gated to TL/Admin), but it
+                       would activate on a later promotion, so it is bounded by the creator's.
+    Raises 403 with a specific message rather than silently dropping values."""
+    if team not in TL_CREATABLE_TEAMS:
+        raise HTTPException(
+            403, f"A Team Lead can add {' or '.join(sorted(TL_CREATABLE_TEAMS))} members only — "
+                 f"ask an admin to add a {team} member.")
+    my_cities = set(actor.get("cities") or [])
+    my_mms = set(actor.get("micro_markets") or [])
+    outside = sorted(set(cities) - my_cities)
+    if outside:
+        raise HTTPException(
+            403, f"You can only add members in your own cities "
+                 f"({', '.join(sorted(my_cities)) or 'none set'}) — not {', '.join(outside)}.")
+    outside_extra = sorted(set(extra) - my_cities)
+    if outside_extra:
+        raise HTTPException(
+            403, f"Extra-city access is limited to your own cities — not {', '.join(outside_extra)}.")
+    outside_mm = sorted(set(mms) - my_mms)
+    if outside_mm:
+        raise HTTPException(
+            403, f"Micro-markets are limited to your own "
+                 f"({', '.join(sorted(my_mms)) or 'none'}) — not {', '.join(outside_mm)}.")
+    return TL_ROLE_BY_TEAM[team]
+
+
+async def _tl_reject_orphan_name(conn, name: str) -> None:
+    """A member's NAME is itself a scope grant, so a Team Lead may not seat one on a
+    stranger's data footprint.
+
+    seed_snapshot._rm_text_is_me / _pm_text_is_me give a Ground/KAM user every visit and
+    property whose sales_manager TEXT equals their name or first token, with NO city
+    predicate. The duplicate-name identity guard narrows a text only once two ROSTER rows
+    answer to it — so a name matching a HISTORICAL RM string that belongs to nobody on the
+    roster (1,102 visits sit behind such texts today, e.g. 'Anil Kumar Phogat' across three
+    cities) would take the legacy unbounded path and hand the new member another city's
+    pipeline, defeating the city bound this guardrail exists to enforce.
+
+    A name that matches an existing roster row — active OR inactive — is fine and NOT
+    rejected: dup_rm_names counts every roster row, so such a text resolves by identity and
+    falls back to the member's own cities. Only orphan texts are refused, and an Admin (who
+    can also correct the underlying data) is never routed here."""
+    full = (name or "").strip()
+    if not full:
+        return
+    first = full.split(" ", 1)[0]
+    for text in ({full, first} if first else {full}):
+        row = await conn.fetchrow(
+            """
+            SELECT
+              (SELECT count(*) FROM visits WHERE trim(sales_manager) = $1) AS visits,
+              (SELECT count(*) FROM properties
+                WHERE deleted_at IS NULL AND trim(sales_manager) = $1) AS props,
+              (SELECT count(*) FROM users
+                WHERE trim(name) = $1 OR split_part(trim(name), ' ', 1) = $1) AS roster
+            """,
+            text,
+        )
+        grants = (row["visits"] or 0) + (row["props"] or 0)
+        if grants and not row["roster"]:
+            raise HTTPException(
+                409,
+                f"\u201c{text}\u201d is already recorded as the sales manager on {grants} "
+                f"existing lead(s)/propert(ies) but is not on the roster, so a member with "
+                f"that name would inherit them. Use the person's full name as it should "
+                f"appear, or ask an admin to add them.",
+            )
+
+
 async def _slug_to_id(conn, slug: str):
     row = await conn.fetchrow("SELECT id FROM users WHERE slug = $1", slug)
     return row["id"] if row else None
@@ -2011,9 +2110,10 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
             """
             SELECT v.sales_manager,
                    v.sales_manager_core_id,
+                   -- ALL roster rows, active or not: KEEP IN SYNC with
+                   -- seed_snapshot's dup_rm_names, which counts the same way.
                    (SELECT count(*) FROM users u3
-                     WHERE u3.active
-                       AND (trim(u3.name) = trim(v.sales_manager)
+                     WHERE (trim(u3.name) = trim(v.sales_manager)
                             OR split_part(trim(u3.name), ' ', 1) = trim(v.sales_manager))
                    ) AS sm_name_claimants,
                    EXISTS (
@@ -2054,9 +2154,9 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
         """
         SELECT v.broker_id, v.society_name, v.sales_manager,
                v.sales_manager_core_id,
+               -- ALL roster rows, active or not: KEEP IN SYNC with dup_rm_names.
                (SELECT count(*) FROM users u3
-                 WHERE u3.active
-                   AND (trim(u3.name) = trim(v.sales_manager)
+                 WHERE (trim(u3.name) = trim(v.sales_manager)
                         OR split_part(trim(u3.name), ' ', 1) = trim(v.sales_manager))
                ) AS sm_name_claimants,
                COALESCE((SELECT ap.city FROM all_properties ap

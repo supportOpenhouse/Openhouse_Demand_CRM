@@ -3,6 +3,13 @@ import { createUser, updateUser } from '../api.js';
 import { toast } from '../lib/toast.js';
 
 const TEAMS = ['Admin', 'TL', 'KAM', 'Ground', 'Report'];   // Report = view-only Report Share + Add CP tier
+// A Team Lead ("Manager") may ADD members, but only non-privileged ones in their own
+// patch. KEEP IN SYNC with backend main.py TL_CREATABLE_TEAMS / TL_ROLE_BY_TEAM /
+// _tl_create_guardrails — the backend is the real gate; this only avoids offering the
+// user something that would 403. `role` is deliberately not editable for a TL: it
+// grants scope on its own (kam_tl/caller_tl server-side, "tl*"/"admin" client-side).
+const TL_TEAMS = ['Ground', 'KAM'];
+const TL_ROLE_BY_TEAM = { Ground: 'ground', KAM: 'kam' };
 
 // FastAPI errors come back as {"detail":"…"} text — pull the message out.
 function errMsg(e) {
@@ -14,15 +21,20 @@ function errMsg(e) {
 // slug preview mirrors the backend's _slugify so the admin sees what they'll get.
 const slugify = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'user';
 
-export default function UserModal({ mode, user, seed, onClose, onSaved }) {
+export default function UserModal({ mode, user, seed, me, onClose, onSaved }) {
   const editing = mode === 'edit';
+  // Admin picks anything; a Team Lead is narrowed to their own patch.
+  const fullPower = me?.team === 'Admin' || me?.role === 'admin';
+  const teamOptions = fullPower ? TEAMS : TL_TEAMS;
+  const myCities = useMemo(() => (me?.cities || []).filter(Boolean), [me]);
+  const myMms = useMemo(() => (me?.micro_markets || []).filter(Boolean), [me]);
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [team, setTeam] = useState(user?.team || 'KAM');
+  const [team, setTeam] = useState(user?.team || (fullPower ? 'KAM' : 'Ground'));
   const [role, setRole] = useState(user?.role || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [slug, setSlug] = useState('');                       // create-only, optional override
-  const [cities, setCities] = useState(user?.cities || []);
+  const [cities, setCities] = useState(user?.cities || (fullPower ? [] : myCities));
   const [cityDraft, setCityDraft] = useState('');
   const [mms, setMms] = useState(user?.micro_markets || []);
   const [mmDraft, setMmDraft] = useState('');
@@ -46,19 +58,33 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
   const allUsers = seed?.users || [];
   const roleSuggest = useMemo(() => [...new Set(allUsers.map((u) => u.role).filter(Boolean))].sort(), [allUsers]);
   const citySuggest = useMemo(
-    () => [...new Set(allUsers.flatMap((u) => u.cities || []).filter(Boolean))].sort(),
-    [allUsers],
+    () => (fullPower
+      ? [...new Set(allUsers.flatMap((u) => u.cities || []).filter(Boolean))].sort()
+      : [...myCities].sort()),
+    [allUsers, fullPower, myCities],
   );
   const mmSuggest = useMemo(
-    () => [...new Set([
-      ...allUsers.flatMap((u) => u.micro_markets || []),
-      ...(seed?.properties || []).map((p) => p.micro_market),
-    ].filter(Boolean))].sort(),
-    [allUsers, seed],
+    () => (fullPower
+      ? [...new Set([
+          ...allUsers.flatMap((u) => u.micro_markets || []),
+          ...(seed?.properties || []).map((p) => p.micro_market),
+        ].filter(Boolean))].sort()
+      : [...myMms].sort()),
+    [allUsers, seed, fullPower, myMms],
   );
 
-  const addCity = (c) => {
+  // Match the actor's own spelling exactly — the backend compares sets literally, so
+  // "gurgaon" typed here must become "Gurgaon" or the request 403s with a message that
+  // looks self-contradictory ("not in your cities: gurgaon" when Gurgaon IS theirs).
+  const canon = (list, v) => list.find((x) => x.toLowerCase() === (v || '').trim().toLowerCase()) || (v || '').trim();
+  const addCity = (raw) => {
+    const c = fullPower ? raw : canon(myCities, raw);
     const v = (c || '').trim();
+    if (v && !fullPower && !myCities.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      setErr(`You can only add members in your own cities (${myCities.join(', ') || 'none set'}).`);
+      setCityDraft('');
+      return;
+    }
     if (v && !cities.some((x) => x.toLowerCase() === v.toLowerCase())) setCities([...cities, v]);
     setCityDraft('');
   };
@@ -67,8 +93,14 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addCity(cityDraft); }
     else if (e.key === 'Backspace' && !cityDraft && cities.length) removeCity(cities[cities.length - 1]);
   };
-  const addMm = (c) => {
+  const addMm = (raw) => {
+    const c = fullPower ? raw : canon(myMms, raw);
     const v = (c || '').trim();
+    if (v && !fullPower && !myMms.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      setErr(`Micro-markets are limited to your own (${myMms.join(', ') || 'none'}).`);
+      setMmDraft('');
+      return;
+    }
     if (v && !mms.some((x) => x.toLowerCase() === v.toLowerCase())) setMms([...mms, v]);
     setMmDraft('');
   };
@@ -77,8 +109,14 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addMm(mmDraft); }
     else if (e.key === 'Backspace' && !mmDraft && mms.length) removeMm(mms[mms.length - 1]);
   };
-  const addExtraCity = (c) => {
+  const addExtraCity = (raw) => {
+    const c = fullPower ? raw : canon(myCities, raw);
     const v = (c || '').trim();
+    if (v && !fullPower && !myCities.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      setErr(`Extra-city access is limited to your own cities (${myCities.join(', ') || 'none set'}).`);
+      setExtraCityDraft('');
+      return;
+    }
     if (v && !extraCities.some((x) => x.toLowerCase() === v.toLowerCase())) setExtraCities([...extraCities, v]);
     setExtraCityDraft('');
   };
@@ -94,7 +132,7 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
     const em = email.trim().toLowerCase();
     if (!nm) return setErr('Name is required.');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr('Enter a valid email address.');
-    if (!role.trim()) return setErr('Role is required.');
+    if (fullPower && !role.trim()) return setErr('Role is required.');
     const digits = (phone || '').replace(/\D/g, '');
     if (digits && digits.length !== 10) return setErr('Phone must be exactly 10 digits (or left blank).');
 
@@ -104,7 +142,8 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
         await updateUser(user.slug, { name: nm, email: em, team, role: role.trim(), phone: digits, cities, micro_markets: mms, extra_cities: extraCities, extra_cities_enabled: extraOn, active });
         toast('Member updated', 'good');
       } else {
-        const r = await createUser({ name: nm, email: em, team, role: role.trim(), phone: digits, cities, micro_markets: mms, extra_cities: extraCities, extra_cities_enabled: extraOn, slug: slug.trim() || undefined });
+        const roleOut = fullPower ? role.trim() : (TL_ROLE_BY_TEAM[team] || 'ground');
+        const r = await createUser({ name: nm, email: em, team, role: roleOut, phone: digits, cities, micro_markets: mms, extra_cities: extraCities, extra_cities_enabled: extraOn, slug: slug.trim() || undefined });
         toast(`${r.name || nm} added to the team`, 'good');
       }
       await onSaved?.();
@@ -144,13 +183,20 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
             <div>
               <label>Team</label>
               <select value={team} onChange={(e) => setTeam(e.target.value)}>
-                {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+                {teamOptions.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
               <label>Role</label>
-              <input value={role} onChange={(e) => setRole(e.target.value)} list="rx-role-list" placeholder="e.g. kam, tl_closer, caller" />
-              <datalist id="rx-role-list">{roleSuggest.map((r) => <option key={r} value={r} />)}</datalist>
+              {fullPower ? (
+                <>
+                  <input value={role} onChange={(e) => setRole(e.target.value)} list="rx-role-list" placeholder="e.g. kam, tl_closer, caller" />
+                  <datalist id="rx-role-list">{roleSuggest.map((r) => <option key={r} value={r} />)}</datalist>
+                </>
+              ) : (
+                <input value={TL_ROLE_BY_TEAM[team] || 'ground'} readOnly disabled
+                       title="Set automatically from the team — role grants access, so only an admin can change it" />
+              )}
             </div>
             <div>
               <label>Phone <span style={{ textTransform: 'none', fontWeight: 400 }}>(optional)</span></label>
@@ -220,7 +266,7 @@ export default function UserModal({ mode, user, seed, onClose, onSaved }) {
                              placeholder={extraCities.length ? 'Add another…' : 'Add a city'} />
                     </div>
                     <div className="rx-citysuggest">
-                      {['Gurgaon', 'Noida', 'Ghaziabad'].filter((c) => !extraCities.includes(c)).map((c) => (
+                      {(fullPower ? ['Gurgaon', 'Noida', 'Ghaziabad'] : myCities).filter((c) => !extraCities.includes(c)).map((c) => (
                         <button type="button" key={c} className="btn xs ghost" onClick={() => addExtraCity(c)}>+ {c}</button>
                       ))}
                     </div>
