@@ -394,7 +394,7 @@ export default function TeamView({ seed, onOpenBroker, reloadSeed }) {
       <div className="list-head">
         <span>{`${users.length} team members`}</span>
         <div className="pager">
-          {isAdm && <button className="btn sm primary" onClick={() => setModal({ mode: 'create' })}>＋ Add member</button>}
+          {(isAdm || isTL) && <button className="btn sm primary" onClick={() => setModal({ mode: 'create' })}>＋ Add member</button>}
         </div>
       </div>
 
@@ -432,6 +432,7 @@ export default function TeamView({ seed, onOpenBroker, reloadSeed }) {
           mode={modal.mode}
           user={modal.user}
           seed={seed}
+          me={me}
           onClose={() => setModal(null)}
           onSaved={reloadSeed}
         />
