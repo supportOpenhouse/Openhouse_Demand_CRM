@@ -27,7 +27,7 @@ export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = 
   const properties = seed.properties || [];
 
   const scoped = useMemo(() => {
-    const v = scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}, seed.past_kam || {});
+    const v = scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}, seed.past_kam || {}, seed.dup_rm_names || []);
     return me.team === 'KAM' ? v.filter((x) => cpOwner[x.cp_code] === me.id) : v;
   }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
   const brokersByCode = useMemo(() => {

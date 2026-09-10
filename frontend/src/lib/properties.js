@@ -1,6 +1,8 @@
 // Property scoping (ported from propertiesForUser) + 99acres society matching.
 
-export function propertiesForUser(properties, me, pmByProperty = {}) {
+import { pmTextIsMe } from './visits.js';
+
+export function propertiesForUser(properties, me, pmByProperty = {}, dupRmNames = []) {
   if (!me || !me.id) return properties;
   // MM-manager: scope to their micro-market(s) (+ own PM properties). Takes precedence
   // over team/city. GATED to TL/Admin only — a manager-level grant, so micro_markets on
@@ -16,8 +18,11 @@ export function propertiesForUser(properties, me, pmByProperty = {}) {
   // inventory sheet's sales_manager text — the sheet stores some PMs by first name only
   // (e.g. "Ayush" vs user "Ayush Ojha"), which silently hid all their properties. Keep
   // the name-match as a fallback so already-working PMs don't regress.
+  // Duplicate-name guard: for RM name texts shared by 2+ active users, the name
+  // match switches to the property's contact phone (KEEP IN SYNC with backend
+  // seed_snapshot.py _pm_text_is_me). Unique names keep the exact legacy match.
   if (me.team === 'Ground') return properties.filter((p) =>
-    pmByProperty[p.property_name] === me.slug || p.sales_manager === me.name);
+    pmByProperty[p.property_name] === me.slug || pmTextIsMe(p, me, dupRmNames, { allowFirst: false }));
   return properties; // KAMs see all
 }
 

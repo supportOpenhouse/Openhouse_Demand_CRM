@@ -82,7 +82,7 @@ export default function HomeView({ seed, onOpenBroker }) {
   }, [seed]);
 
   const scoped = useMemo(
-    () => scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}, seed.past_kam || {}),
+    () => scopeVisits(seed.visits || [], me, cpOwner, properties, seed.pm_by_property || {}, seed.past_kam || {}, seed.dup_rm_names || []),
     [seed], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
