@@ -14,7 +14,7 @@
 // The roster of assignable people is fetched ONCE (/api/sales-managers/assignable);
 // the at-a-glance current owner is the CRM's own `sales_manager` text, and a save
 // writes straight to Core and then shows what Core accepted.
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { loadAssignableSalesManagers, setPropertySalesManager } from '../api.js';
 import { toast } from '../lib/toast.js';
 
@@ -188,59 +188,77 @@ export default function SalesManagersView({ seed }) {
       ) : total === 0 ? (
         <div className="empty"><div className="emoji">{unmappedOnly ? '✅' : '🧑‍💼'}</div>
           <div className="t">{unmappedOnly ? 'Every unit here has a sales manager' : 'No properties match these filters'}</div></div>
-      ) : groups.map((g) => (
-        <div key={g.mm} style={{ marginBottom: 14 }}>
-          <div onClick={() => toggleGroup(g.mm)}
-               style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer',
-                        padding: '6px 2px', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ fontSize: 11, color: 'var(--mut)' }}>{collapsed.has(g.mm) ? '▸' : '▾'}</span>
-            <b style={{ fontSize: 13.5 }}>{g.mm}</b>
-            <span style={{ fontSize: 12, color: 'var(--mut)' }}>
-              {g.managers.length
-                ? <>managed by <b>{g.managers.map((u) => u.name).join(', ')}</b></>
-                : <i>no micro-market manager assigned</i>}
-            </span>
-            <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--mut)' }}>{g.list.length}</span>
-          </div>
-
-          {!collapsed.has(g.mm) && (
-            <div className="tbl-wrap">
-              <table className="t sm-table">
-                <thead>
-                  <tr>
-                    {[['society', 'Society / Unit'], ['locality', 'Locality'], ['city', 'City'],
-                      ['status', 'Status'], ['manager', 'CRM property manager']].map(([k, label]) => (
-                      <th key={k} className="sort" onClick={() => toggleSort(k)}
-                          style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
-                          title={`Sort by ${label.toLowerCase()}`}>
-                        {label}
-                        <span className="sI" style={{ opacity: sort.key === k ? 1 : .25 }}>
-                          {' '}{sort.key === k ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
+      ) : (
+        // ONE table for every micro-market. Each group used to render its OWN <table>, so
+        // each sized its columns independently and the same column landed at a different x
+        // in every group. A single table = a single column model = columns line up
+        // everywhere. Group headers are full-width rows inside the same tbody.
+        <div className="tbl-wrap">
+          <table className="t sm-table" style={{ tableLayout: 'fixed', width: '100%', minWidth: 980 }}>
+            <colgroup>
+              <col style={{ width: '24%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '22%' }} />
+            </colgroup>
+            <thead>
+              <tr>
+                {[['society', 'Society / Unit'], ['locality', 'Locality'], ['city', 'City'],
+                  ['status', 'Status'], ['manager', 'CRM property manager']].map(([k, label]) => (
+                  <th key={k} className="sort" onClick={() => toggleSort(k)}
+                      style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      title={`Sort by ${label.toLowerCase()}`}>
+                    {label}
+                    <span className="sI" style={{ opacity: sort.key === k ? 1 : .25 }}>
+                      {' '}{sort.key === k ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
+                    </span>
+                  </th>
+                ))}
+                <th>App sales manager</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => (
+                <Fragment key={g.mm}>
+                  <tr className="sm-group" onClick={() => toggleGroup(g.mm)} style={{ cursor: 'pointer' }}>
+                    <td colSpan={6} style={{ background: 'var(--bg2,#FAFAFB)', padding: '7px 10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                        <span style={{ fontSize: 11, color: 'var(--mut)' }}>{collapsed.has(g.mm) ? '▸' : '▾'}</span>
+                        <b style={{ fontSize: 13 }}>{g.mm}</b>
+                        <span style={{ fontSize: 12, color: 'var(--mut)' }}>
+                          {g.managers.length
+                            ? <>managed by <b>{g.managers.map((u) => u.name).join(', ')}</b></>
+                            : <i>no micro-market manager assigned</i>}
                         </span>
-                      </th>
-                    ))}
-                    <th style={{ position: 'sticky', right: 0, zIndex: 2, background: 'var(--bg2,#FAFAFB)',
-                                 boxShadow: '-6px 0 6px -6px rgba(0,0,0,.18)' }}>App sales manager</th>
+                        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--mut)' }}>{g.list.length}</span>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {g.list.map((p) => {
+                  {!collapsed.has(g.mm) && g.list.map((p) => {
                     const id = String(p.home_id);
                     const st = rowState[id] || {};
                     const cur = byName[(p.sales_manager || '').trim().toLowerCase()];
+                    const clip = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
                     return (
                       <tr key={id}>
-                        <td><b>{p.society_name || '—'}</b>
-                          <div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1 }}>{p.property_name || ''}</div>
+                        <td style={{ overflow: 'hidden' }}>
+                          <b style={{ display: 'block', ...clip }} title={p.society_name || ''}>{p.society_name || '—'}</b>
+                          <div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1, ...clip }}
+                               title={p.property_name || ''}>{p.property_name || ''}</div>
                         </td>
-                        <td style={{ fontSize: 12 }}>{p.locality_or_sector || <span className="muted">—</span>}</td>
+                        <td style={{ fontSize: 12, ...clip }} title={p.locality_or_sector || ''}>
+                          {p.locality_or_sector || <span className="muted">—</span>}
+                        </td>
                         <td><span className="city-pill">{p.city_name || ''}</span></td>
                         <td><span style={{ fontSize: 11.5, color: DEAD.has(p.listing_status) ? 'var(--mut)' : undefined }}>{p.listing_status || '—'}</span></td>
-                        <td style={{ fontSize: 12 }}>{p.sales_manager || <span className="muted">—</span>}</td>
-                        <td style={{ whiteSpace: 'nowrap', position: 'sticky', right: 0, zIndex: 1,
-                                     background: 'var(--bg,#fff)',
-                                     boxShadow: '-6px 0 6px -6px rgba(0,0,0,.18)' }}>
+                        <td style={{ fontSize: 12, ...clip }} title={p.sales_manager || ''}>
+                          {p.sales_manager || <span className="muted">—</span>}
+                        </td>
+                        <td style={{ overflow: 'hidden' }}>
                           <select className="sm-select" disabled={st.saving || !assignable.length}
+                                  style={{ width: '100%', maxWidth: '100%' }}
                                   value={sel[id] ?? (cur ? String(cur.sales_manager_id) : '')}
                                   onChange={(e) => {
                                     const val = e.target.value;
@@ -253,19 +271,19 @@ export default function SalesManagersView({ seed }) {
                               <option key={a.slug} value={a.sales_manager_id}>{a.name} · {a.team}</option>
                             ))}
                           </select>
-                          {st.saving ? <span className="sm-note" style={{ marginLeft: 6 }}>Saving…</span> : null}
-                          {st.savedTo ? <span className="sm-note" style={{ marginLeft: 6, color: 'var(--good,#16A34A)' }}>✓ {st.savedTo}</span> : null}
-                          {st.err ? <span className="sm-note" style={{ marginLeft: 6, color: 'var(--bad)' }}>{st.err}</span> : null}
+                          {st.saving ? <div className="sm-note" style={{ marginTop: 2 }}>Saving…</div> : null}
+                          {st.savedTo ? <div className="sm-note" style={{ marginTop: 2, color: 'var(--good,#16A34A)', ...clip }} title={st.savedTo}>✓ {st.savedTo}</div> : null}
+                          {st.err ? <div className="sm-note" style={{ marginTop: 2, color: 'var(--bad)' }} title={st.err}>{st.err}</div> : null}
                         </td>
                       </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
         </div>
-      ))}
+      )}
     </div>
   );
 }
