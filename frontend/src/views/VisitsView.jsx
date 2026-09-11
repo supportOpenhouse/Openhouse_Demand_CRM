@@ -147,19 +147,30 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   // --- per-row helpers reused across counts/sort/render ---
   const tierFor = (v) => (brokersByCode[v.cp_code]?.tier) || 'T4';
 
-  // "🎯 To action" preset predicate — the immediate-action queue. A visit qualifies when it
-  // is: completed, booked via a CP, visited in the last 45 days (window [today-45, today],
-  // matching the app's other "last N days" presets), on an actionable buyer status
-  // (Hot/Warm/Cold or Not-Updated — see TO_ACTION_STATUSES), AND its next follow-up is
-  // Overdue, due Today, or not-yet-set (matchFuFilter itself already requires the lead be
-  // completed & not closed). "Due Tomorrow"/"This Week" are deliberately out — this is the
-  // now-queue. Plain YYYY-MM-DD string compares for the date window.
+  // "🎯 To action" preset predicate — the immediate-action queue. Every qualifying visit is
+  // booked via a CP, dated in the last 45 days (window [today-45, today], matching the app's
+  // other "last N days" presets) and on an actionable buyer status (Hot/Warm/Cold or
+  // Not-Updated — see TO_ACTION_STATUSES). On top of that ONE of two things makes it
+  // pending work:
+  //   · COMPLETED  — its next follow-up is Overdue, due Today, or not-yet-set (matchFuFilter
+  //     itself already requires the lead be completed & not closed). "Due Tomorrow"/"This
+  //     Week" are deliberately out — this is the now-queue.
+  //   · UPCOMING   — the visit itself IS the pending work: confirm it happened and log the
+  //     outcome. These carry no follow-up yet (matchFuFilter returns false for anything not
+  //     completed), so they qualify on the window alone. In practice they are visits whose
+  //     date has already passed but were never marked done, plus today's.
+  // CANCELLED visits stay out (isVisitCompleted excludes both upcoming and cancelled, and
+  // only 'upcoming' is re-admitted above). Plain YYYY-MM-DD string compares for the window.
   const cutoff45 = ymd(new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate() - 45));
   const today45Top = ymd(TODAY);
-  const isToAction = (v) => isVisitCompleted(v) && v.source === 'channel_partner'
-    && !!v.visit_date && v.visit_date >= cutoff45 && v.visit_date <= today45Top
-    && TO_ACTION_STATUSES.has(visitStatus(v))
-    && (matchFuFilter(v, 'overdue') || matchFuFilter(v, 'today') || matchFuFilter(v, 'no_fu'));
+  const isToAction = (v) => {
+    if (v.source !== 'channel_partner') return false;
+    if (!v.visit_date || v.visit_date < cutoff45 || v.visit_date > today45Top) return false;
+    if (!TO_ACTION_STATUSES.has(visitStatus(v))) return false;
+    if (visitStage(v) === 'upcoming') return true;
+    return isVisitCompleted(v)
+      && (matchFuFilter(v, 'overdue') || matchFuFilter(v, 'today') || matchFuFilter(v, 'no_fu'));
+  };
 
   // Per-property revisit chains (display-only). Computed over the FULL scoped set so chains
   // are complete; the Visits list then shows ONE row per chain — its LATEST visit — tagged
