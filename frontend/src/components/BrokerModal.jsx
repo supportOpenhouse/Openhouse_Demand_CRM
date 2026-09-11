@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { TODAY, ymd, fmtDate, fmtDay, fmtMonth, fmtDateTime, initials } from '../lib/format.js';
 import {
   STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextActivityFor, buildRevisitIndex,
+  canCompleteVisit,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -16,6 +17,7 @@ import useIsMobile from '../lib/useIsMobile.js';
 import { recsForCp } from '../lib/recordings.js';
 import RecordingDetail from './RecordingDetail.jsx';
 import RevisitTag from './RevisitTag.jsx';
+import VisitCompleteModal from './VisitCompleteModal.jsx';
 
 const STAGE_ORDER = ['all', 'upcoming', 'avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more', 'cancelled'];
 const STATUS_PILLS = ['hot', 'warm', 'cold', 'dead', 'future_prospect'];
@@ -73,6 +75,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
   // satellite modals
   const [waCp, setWaCp] = useState(null);
   const [nudgeVid, setNudgeVid] = useState(null);
+  const [completeVisit, setCompleteVisit] = useState(null);   // visit being closed out on Core
 
   const ownerId = cpOwner[cpCode] || '';
   const ownerName = ownerId ? (ubs[ownerId]?.name || '—') : '—';
@@ -391,6 +394,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
                         nudgesByVisit={nudgesByVisit} teamTasks={teamTasks}
                         ownerId={ownerId} me={me} busy={busy}
                         nudgeSent={false}
+                        onOpenComplete={setCompleteVisit}
                       />
                     )) : (visitCount === 0
                       ? <div className="empty"><div className="emoji">📭</div><div className="t">No visits</div><div className="s">This CP has no visits yet.</div></div>
@@ -430,6 +434,15 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
           onSend={(msg) => sendNudge(nudgeVid, msg)} onClose={() => setNudgeVid(null)}
         />
       )}
+
+      {/* SATELLITE: Mark visit complete / cancel on Core */}
+      {completeVisit && (
+        <VisitCompleteModal
+          visit={completeVisit}
+          onClose={() => setCompleteVisit(null)}
+          onDone={() => { setCompleteVisit(null); reloadSeed?.(); }}
+        />
+      )}
     </div>
   );
 }
@@ -437,7 +450,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
 /* ===============================================================
    VISIT ROW
    =============================================================== */
-function VisitRow({ v, visits, revIndex, followupLog, ubs, open, isPriority, onToggle, draft, setDraft, onSave, onNudge, nudgesByVisit, teamTasks, ownerId, me, busy }) {
+function VisitRow({ v, visits, revIndex, followupLog, ubs, open, isPriority, onToggle, draft, setDraft, onSave, onNudge, nudgesByVisit, teamTasks, ownerId, me, busy, onOpenComplete }) {
   const status = visitStatus(v);
   const stage = visitStage(v);
   const recent = (v.all_feedback || '').split('\n').filter((l) => l.trim()).slice(-3).reverse();
@@ -557,6 +570,24 @@ function VisitRow({ v, visits, revIndex, followupLog, ubs, open, isPriority, onT
             <label>Notes <span style={{ color: 'var(--bad)', fontWeight: 700 }}>*</span> <span style={{ fontWeight: 500, color: 'var(--mut)', textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>required</span></label>
             <textarea placeholder="Required — what was discussed, buyer's signal, next action…" value={draft.note || ''} onChange={(e) => setDraft({ note: e.target.value })} />
           </div>
+          {/* Close the visit out in the OpenHouse app. Separated from the follow-up
+              save buttons by its own band, because it is a DIFFERENT kind of action:
+              the buttons below write a CRM follow-up, this one writes to Core and
+              cannot be undone from the CRM. Shown while the visit is still open —
+              including past-dated ones, which are exactly the visits needing closure. */}
+          {canCompleteVisit(v) ? (
+            <div className="vc-band">
+              <div className="vc-band-txt">
+                <b>Mark this visit as complete</b>
+                <span>Updates the visit in the OpenHouse app — this can’t be undone from the CRM.</span>
+              </div>
+              <button type="button" className="vc-btn primary" disabled={busy}
+                      onClick={(e) => { e.stopPropagation(); onOpenComplete(v); }}>
+                Mark complete / cancel
+              </button>
+            </div>
+          ) : null}
+
           <div className="fu-actions">
             <div className="fu-grp" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <label style={{ margin: 0 }}>Next FU</label>

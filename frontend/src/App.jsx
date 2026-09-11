@@ -20,6 +20,7 @@ import RegisterCpView from './views/RegisterCpView.jsx';
 import RevisitsView from './views/RevisitsView.jsx';
 import AiSuggestionsView from './views/AiSuggestionsView.jsx';
 import TeamPerformanceView from './views/TeamPerformanceView.jsx';
+import SalesManagersView from './views/SalesManagersView.jsx';
 import MeetingRecordingsView from './views/MeetingRecordingsView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
@@ -53,6 +54,7 @@ const NAV = [
   { k: 'hiring',        icon: '🧮', label: 'Hiring', adminOnly: true },
   { k: 'reports',       icon: '📧', label: 'Report Share', adminOnly: true },
   { k: 'teamperf',      icon: '📈', label: 'Team Performance', adminOnly: true },
+  { k: 'salesmanagers', icon: '🧑‍💼', label: 'Sales Managers', adminOnly: true },
   { k: 'register-cp',   icon: '➕', label: 'Add CP' },
 ];
 
@@ -280,6 +282,10 @@ export default function App() {
                 isAdmin ? <ReportShareView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'teamperf' ? (
                 isAdmin ? <TeamPerformanceView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
+              ) : view === 'salesmanagers' ? (
+                // Uses the unscoped `seed` (like the other admin tabs) so the full
+                // inventory is listed, not just the impersonated user's slice.
+                isAdmin ? <SalesManagersView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'register-cp' ? (
                 <RegisterCpView />
               ) : view === 'team' ? (

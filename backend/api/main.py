@@ -24,7 +24,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import ai_suggestions, auth, config, cp_meetings, meetings_sync, reports, seed_snapshot, sheet_sync
+from . import (ai_suggestions, auth, config, core_visits, cp_meetings, meetings_sync,
+               reports, seed_snapshot, sheet_sync)
 from .db import init_pool, close_pool, acquire
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -866,6 +867,176 @@ async def book_visits(body: BookVisitsBody, user: dict = Depends(auth.current_us
     booked = sum(1 for r in out if r.get("ok"))
     log.info("[book] DONE admin=%s booked=%d failed=%d", user.get("slug"), booked, len(out) - booked)
     return {"booked": booked, "failed": len(out) - booked, "results": out}
+
+
+# ============================================================================
+# Write · complete / cancel a visit on Core (CRM → Core; docs/crm_staging_api)
+# ============================================================================
+# Two-phase, Core-first: PUT Core, and only on a 200 mirror the outcome onto our
+# own `visits` row + write a followup. Core is the system of record for a visit's
+# status, so if it rejects the update we must NOT record a local completion —
+# that would leave the CRM claiming a visit is done that the app still shows as
+# upcoming. The reverse (Core ok, local mirror fails) is self-healing: the 15-min
+# sheet sync re-reads status/feedback from the visitors sheet.
+#
+# Permission: the SAME see ⟹ edit rule as a followup (_can_edit_visit), so anyone
+# who can already log a follow-up on a lead can close it out. No new access.
+
+class VisitCompleteBody(BaseModel):
+    visit_code: str
+    status: str                                    # "completed" | "cancelled"
+    sales_feedback: Optional[str] = None
+    lead_status: Optional[str] = None              # assisted path only
+    sm_demand_feedback: Optional[dict] = None      # assisted path only → 6 fields
+
+
+@app.post("/api/visits/complete")
+async def complete_visit(body: VisitCompleteBody, user: dict = Depends(auth.current_user)):
+    """Mark a visit completed (OTP or assisted) or cancelled on Core, then mirror it
+    locally. `visit_code` is our sheet/Core visit id — Core's {visit_id} path param."""
+    if not core_visits.is_configured():
+        raise HTTPException(503, "Core visit API is not configured (CRM_BOOKING_API_BASE_URL / CRM_API_KEY).")
+    if body.status not in core_visits.VALID_UPDATE_STATUSES:
+        raise HTTPException(400, f"status must be one of {sorted(core_visits.VALID_UPDATE_STATUSES)}")
+
+    code = (body.visit_code or "").strip()
+    if not code:
+        raise HTTPException(400, "visit_code is required")
+
+    async with acquire() as conn:
+        visit = await conn.fetchrow(
+            "SELECT id, visit_code, selected_date, selected_time, status "
+            "FROM visits WHERE visit_code = $1", code)
+        if not visit:
+            raise HTTPException(404, f"Visit {code} not found")
+        if not await _can_edit_visit(conn, user, visit["id"]):
+            raise HTTPException(403, "You don't have permission to edit this visit")
+
+        # Core requires the visit's CURRENT date + slot on every update. They live on
+        # our row (sheet-synced), so a missing one means the row is too stale to update
+        # safely — better a clear 409 than a Core 400 the user can't act on.
+        sel_date = visit["selected_date"].isoformat() if visit["selected_date"] else ""
+        sel_time = (visit["selected_time"] or "").strip()
+        if not sel_date or not sel_time:
+            raise HTTPException(
+                409, "This visit has no stored date/time slot, which Core requires. "
+                     "Wait for the next sheet sync or fix the visit in the app.")
+
+    try:
+        updated = await core_visits.update_visit(
+            code,
+            selected_date=sel_date,
+            selected_time=sel_time,
+            status=body.status,
+            lead_status=body.lead_status,
+            sales_feedback=body.sales_feedback,
+            sm_demand_feedback=body.sm_demand_feedback,
+        )
+    except core_visits.CoreVisitError as e:
+        log.warning("[core-visit] visit=%s by=%s failed: %s", code, user.get("slug"), e)
+        # 404/422/400 are the user's problem to act on; anything else is upstream.
+        status = e.status if e.status in (400, 404, 409, 422) else 502
+        raise HTTPException(status, str(e)) from e
+
+    # Core accepted → mirror locally so the dashboard reflects it before the next sync.
+    #
+    # ORDER MATTERS: the followups AFTER-INSERT trigger (project_followup_onto_visit)
+    # rewrites visits.lead_status/current_* from the followup row. So insert the audit
+    # followup FIRST and set status/sales_feedback AFTER, or the trigger clobbers them.
+    async with acquire() as conn:
+        prev = await conn.fetchrow(
+            "SELECT current_stage, current_status FROM visits WHERE id = $1", visit["id"])
+
+        # Audit trail: a follow-up row so the action shows in the lead's history with
+        # an author. `source='crm_core'` distinguishes it from an app-entered note.
+        note = (body.sales_feedback or "").strip() or (
+            "Marked completed from CRM" if body.status == "completed" else "Cancelled from CRM")
+        # buyer_status has a CHECK — only ever pass a member of VALID_BUYER_STATUSES.
+        # Core's 'select_status' is the app's "not set", which maps to our 'unc'.
+        ls = body.lead_status
+        buyer_status = (ls if ls in VALID_BUYER_STATUSES
+                        else "unc" if ls == "select_status"
+                        else (prev["current_status"] if prev else None) or "unc")
+        try:
+            await conn.execute(
+                """
+                INSERT INTO followups (visit_id, by_user_id, buyer_status, stage, note,
+                                       previous_stage, previous_status, source)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'crm_core')
+                """,
+                visit["id"], user["id"], buyer_status,
+                (prev["current_stage"] if prev else None) or "upcoming",
+                note[:2000], prev["current_stage"] if prev else None,
+                prev["current_status"] if prev else None)
+        except Exception as e:  # noqa: BLE001 — the Core update already succeeded; never
+            # fail the request over the audit row (partitioned table, stage CHECKs).
+            log.warning("[core-visit] audit followup failed for visit=%s: %s", code, e)
+
+        # Now stamp the fields the trigger does NOT own (status, sales_feedback).
+        await conn.execute(
+            "UPDATE visits SET status = $1, "
+            "  sales_feedback = COALESCE(NULLIF($2, ''), sales_feedback), "
+            "  updated_at = now() "
+            "WHERE id = $3",
+            body.status, (body.sales_feedback or ""), visit["id"])
+
+    log.info("[core-visit] visit=%s by=%s -> %s (platform=%s)",
+             code, user.get("slug"), updated.get("status"), updated.get("platform"))
+    return {"ok": True, "visit": updated}
+
+
+# ============================================================================
+# Read/Write · a property's Core Sales Manager (CRM → Core; docs/crm_staging_api)
+# ============================================================================
+# Reassigning who owns a home in Core is a management action, so it is gated to
+# Admin/TL — the same bar as kh-override and the property-review fields. It changes
+# Core's `homes.sales_manager`, NOT the CRM's own property_assignments (which stay
+# the CRM's source of truth for scoping); the two are deliberately independent.
+
+@app.get("/api/properties/{home_id}/sales-manager")
+async def get_property_sales_manager(home_id: str, user: dict = Depends(auth.current_user)):
+    """Current Core SalesManager for a home, plus the CRM roster members that can be
+    assigned (users with a mapped core_sales_manager_id). Admin/TL only."""
+    _require_admin_or_tl(user)
+    if not core_visits.is_configured():
+        raise HTTPException(503, "Core visit API is not configured.")
+
+    async with acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT slug, name, team, core_sales_manager_id FROM users "
+            "WHERE active AND core_sales_manager_id IS NOT NULL ORDER BY name")
+    assignable = [{"slug": r["slug"], "name": r["name"], "team": r["team"],
+                   "sales_manager_id": r["core_sales_manager_id"]} for r in rows]
+
+    try:
+        cur = await core_visits.get_home_sales_manager(home_id)
+    except core_visits.CoreVisitError as e:
+        status = e.status if e.status in (400, 404) else 502
+        raise HTTPException(status, str(e)) from e
+    return {**cur, "assignable": assignable}
+
+
+class HomeSmBody(BaseModel):
+    # Explicitly nullable: `null` is Core's documented UNASSIGN signal, so the key
+    # being absent and being null are different requests.
+    sales_manager_id: Optional[int] = None
+
+
+@app.post("/api/properties/{home_id}/sales-manager")
+async def set_property_sales_manager(home_id: str, body: HomeSmBody,
+                                     user: dict = Depends(auth.current_user)):
+    """Assign / reassign / unassign (sales_manager_id: null) a home's Core SalesManager."""
+    _require_admin_or_tl(user)
+    if not core_visits.is_configured():
+        raise HTTPException(503, "Core visit API is not configured.")
+    try:
+        out = await core_visits.set_home_sales_manager(home_id, body.sales_manager_id)
+    except core_visits.CoreVisitError as e:
+        status = e.status if e.status in (400, 404, 422) else 502
+        raise HTTPException(status, str(e)) from e
+    log.info("[core-visit] home=%s sm %s -> %s by=%s", home_id,
+             out.get("previous_sales_manager_id"), body.sales_manager_id, user.get("slug"))
+    return {"ok": True, **out}
 
 
 # ============================================================================

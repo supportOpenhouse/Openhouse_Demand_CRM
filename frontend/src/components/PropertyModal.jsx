@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TODAY, ymd, fmtDate, fmtDay, fmtDateTime, initials } from '../lib/format.js';
-import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor, NO_KAM_GROUND_CITIES, buildRevisitIndex, rmTextIsMe, pmTextIsMe } from '../lib/visits.js';
+import { STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextFuFor, nextActivityFor, NO_KAM_GROUND_CITIES, buildRevisitIndex, rmTextIsMe, pmTextIsMe, canCompleteVisit } from '../lib/visits.js';
 import RevisitTag from './RevisitTag.jsx';
 import { usersBySlug } from '../lib/brokers.js';
 import { top99ForSociety } from '../lib/properties.js';
@@ -9,6 +9,7 @@ import { loadTopBrokers, setTopBrokerPhone, saveFollowup, addNudge } from '../ap
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import { SkeletonTable } from './Skeleton.jsx';
+import VisitCompleteModal from './VisitCompleteModal.jsx';
 
 const STAGE_ORDER = ['upcoming', 'avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'after_negotiation_fu', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more', 'cancelled'];
 const FU_STATUS = ['hot', 'warm', 'cold', 'dead', 'future_prospect'];
@@ -40,6 +41,8 @@ function tbMatchClass(t) {
 export default function PropertyModal({ property: p, seed, onClose, onOpenBroker }) {
   const isMobile = useIsMobile();
   const me = seed.current_user || {};
+  // Visit complete/cancel on Core (docs/crm_staging_api).
+  const [completeVisit, setCompleteVisit] = useState(null);   // the visit being closed out
   const ubs = useMemo(() => usersBySlug(seed), [seed]);
   const cpOwner = seed.cp_owner || {};
   const nudgesByVisit = seed.nudges_by_visit || {};
@@ -297,6 +300,7 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
               onCloseComposer={() => setNudgeComposer(null)}
               onSaved={() => { setExpanded((prev) => { const n = new Set(prev); n.delete(String(v.id)); return n; }); }}
               onOpenBrokerArrow={() => openBrokerAndClose(v.cp_code)}
+              onOpenComplete={setCompleteVisit}
             />
           )) : (
             <div className="empty"><div className="emoji">📭</div><div className="t">No visits in this stage</div></div>
@@ -367,7 +371,15 @@ export default function PropertyModal({ property: p, seed, onClose, onOpenBroker
           )}
         </div>
       </div>
-    </div>
+
+      {/* Core-integration modals. Rendered inside PropertyModal so they stack above it. */}
+      {completeVisit ? (
+        <VisitCompleteModal
+          visit={completeVisit}
+          onClose={() => setCompleteVisit(null)}
+          onDone={() => { setCompleteVisit(null); toast('Reload to see the updated status'); }}
+        />
+      ) : null}    </div>
   );
 }
 
@@ -379,6 +391,7 @@ function PropVisitRow({
   pastKam = {},
   dupRmNames = [],
   onToggle, onPatch, onOpenComposer, onNudged, onCloseComposer, onSaved, onOpenBrokerArrow,
+  onOpenComplete,
 }) {
   const status = visitStatus(v);
   const stage = visitStage(v);
@@ -468,6 +481,22 @@ function PropVisitRow({
             ) : null}
 
             <FollowupForm v={v} draft={draft} onPatch={onPatch} onSaved={onSaved} />
+
+            {/* Close the visit out in the OpenHouse app. Same band + wording as the
+                CP modal (BrokerModal) so the action reads identically wherever a
+                follow-up is logged. `canEdit` already gates this branch, matching
+                the backend's see ⟹ edit rule. */}
+            {canCompleteVisit(v) ? (
+              <div className="vc-band">
+                <div className="vc-band-txt">
+                  <b>Mark this visit as complete</b>
+                  <span>Updates the visit in the OpenHouse app — this can’t be undone from the CRM.</span>
+                </div>
+                <button type="button" className="vc-btn primary" onClick={() => onOpenComplete(v)}>
+                  Mark complete / cancel
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="vrow-body" style={{ display: 'block' }}>

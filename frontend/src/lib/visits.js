@@ -308,6 +308,22 @@ function revisitBuyerKey(v) {
   const lk = (v.lead_key || '').trim().toLowerCase();
   return lk ? 'lk:' + lk : '';                     // fallback only when phone is blank/too short
 }
+// Can this visit be closed out on Core (docs/crm_staging_api)?
+//
+// Only an OPEN visit — a completed/cancelled one has nothing to update and Core
+// would just re-stamp the same status. Past-dated visits ARE included on purpose:
+// a visit still sitting at "upcoming" two weeks after its date is exactly the one
+// that needs closing. Requires a numeric visit id, which is Core's {visit_id}.
+//
+// NOTE: visibility only. The backend re-checks permission (_can_edit_visit) and
+// the UI already renders this inside an edit-gated branch.
+export function canCompleteVisit(v) {
+  if (!v) return false;
+  const st = String(v.status || '').trim().toLowerCase();
+  if (st !== 'upcoming') return false;
+  return /^\d+$/.test(String(v.id || v.visit_code || '').trim());
+}
+
 export function buildRevisitIndex(visits = []) {
   const groups = new Map();
   for (const v of visits) {

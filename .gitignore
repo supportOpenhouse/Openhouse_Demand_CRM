@@ -14,6 +14,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.iml
+graphify-out/
 
 # ─── python ────────────────────────────────────────────────────────────
 __pycache__/

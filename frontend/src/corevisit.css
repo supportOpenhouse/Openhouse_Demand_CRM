@@ -1,0 +1,217 @@
+/* Core-integration modals: visit complete/cancel + property sales-manager.
+   All selectors are vc-* prefixed and live in this file only — app.css and
+   theme.css are untouched, so nothing existing can shift. Follows the same
+   self-contained pattern as recordings.css. */
+
+.vc-backdrop {
+  position: fixed; inset: 0; z-index: 320;
+  background: rgba(22, 28, 36, .55);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  animation: vc-fade .12s ease-out;
+}
+@keyframes vc-fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes vc-pop { from { opacity: 0; transform: translateY(6px) scale(.99) } to { opacity: 1; transform: none } }
+
+.vc-modal {
+  background: var(--panel, #fff);
+  color: var(--txt, #161c24);
+  border-radius: 13px;
+  width: min(560px, 96vw);
+  max-height: 92vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .25);
+  animation: vc-pop .15s ease-out;
+}
+
+.vc-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 15px 18px; border-bottom: 1px solid var(--line, #e6e9ee);
+}
+.vc-title { font-size: 16px; font-weight: 650; letter-spacing: -.2px; }
+.vc-sub { font-size: 12.5px; color: var(--mut, #6b7683); margin-top: 3px; line-height: 1.45; }
+.vc-x {
+  margin-left: auto; border: 0; background: transparent; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--mut, #6b7683); padding: 0 4px;
+}
+.vc-x:hover:not(:disabled) { color: var(--txt, #161c24); }
+.vc-x:disabled { opacity: .4; cursor: default; }
+
+.vc-body { overflow: auto; padding: 16px 18px; }
+
+/* completed / cancelled segmented control */
+.vc-seg { display: flex; gap: 8px; margin-bottom: 14px; }
+.vc-segbtn {
+  flex: 1; padding: 9px 12px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--line, #e6e9ee); background: var(--panel, #fff);
+  color: var(--mut, #6b7683); font-size: 13.5px; font-weight: 550;
+}
+.vc-segbtn.on { border-color: var(--acc, #2f6df6); color: var(--acc, #2f6df6); background: rgba(47, 109, 246, .07); }
+.vc-segbtn.danger.on { border-color: var(--bad, #d9534f); color: var(--bad, #d9534f); background: rgba(217, 83, 79, .07); }
+
+.vc-label {
+  display: block; font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .4px; color: var(--mut, #6b7683); margin: 12px 0 5px;
+}
+.vc-textarea, .vc-select {
+  width: 100%; box-sizing: border-box;
+  border: 1px solid var(--line, #e6e9ee); border-radius: 9px;
+  padding: 9px 11px; font: inherit; font-size: 16px; /* 16px = no iOS zoom */
+  background: var(--panel, #fff); color: var(--txt, #161c24);
+}
+.vc-textarea { resize: vertical; min-height: 66px; }
+.vc-textarea:focus, .vc-select:focus { outline: 2px solid rgba(47, 109, 246, .35); outline-offset: 1px; border-color: var(--acc, #2f6df6); }
+
+.vc-check { display: flex; align-items: center; gap: 9px; margin: 14px 0 2px; font-size: 13.5px; cursor: pointer; }
+.vc-check input { width: 16px; height: 16px; cursor: pointer; }
+
+.vc-assisted {
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed var(--line, #e6e9ee);
+}
+
+.vc-note { font-size: 13px; color: var(--mut, #6b7683); line-height: 1.5; }
+.vc-note.sm { font-size: 12px; margin-top: 6px; }
+
+.vc-warn {
+  margin-top: 12px; padding: 10px 12px; border-radius: 9px;
+  background: rgba(240, 173, 78, .12); border: 1px solid rgba(240, 173, 78, .4);
+  font-size: 12.5px; line-height: 1.5;
+}
+.vc-err {
+  margin-top: 12px; padding: 10px 12px; border-radius: 9px;
+  background: rgba(217, 83, 79, .1); border: 1px solid rgba(217, 83, 79, .4);
+  color: var(--bad, #d9534f); font-size: 12.5px; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* confirm step */
+.vc-confirm-t { font-size: 14px; font-weight: 650; margin-bottom: 10px; }
+.vc-recap { list-style: none; margin: 0; padding: 0; }
+.vc-recap li {
+  display: flex; gap: 12px; justify-content: space-between; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--line, #e6e9ee); font-size: 13px;
+}
+.vc-recap li:last-child { border-bottom: 0; }
+.vc-recap span { color: var(--mut, #6b7683); flex: 0 0 auto; }
+.vc-recap b { text-align: right; overflow-wrap: anywhere; font-weight: 600; }
+
+.vc-current {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  padding: 10px 12px; border-radius: 9px; background: rgba(0, 0, 0, .035);
+  font-size: 13px;
+}
+.vc-current span { color: var(--mut, #6b7683); }
+.vc-current b { text-align: right; overflow-wrap: anywhere; }
+
+.vc-foot {
+  display: flex; justify-content: flex-end; gap: 9px;
+  padding: 12px 18px; border-top: 1px solid var(--line, #e6e9ee);
+  background: var(--panel, #fff);
+}
+.vc-btn {
+  padding: 9px 15px; border-radius: 9px; cursor: pointer; font-size: 13.5px; font-weight: 550;
+  border: 1px solid var(--line, #e6e9ee); background: var(--panel, #fff); color: var(--txt, #161c24);
+}
+.vc-btn:hover:not(:disabled) { background: rgba(0, 0, 0, .03); }
+.vc-btn.primary { background: var(--acc, #2f6df6); border-color: var(--acc, #2f6df6); color: #fff; }
+.vc-btn.primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--acc, #2f6df6); }
+.vc-btn.danger { background: var(--bad, #d9534f); border-color: var(--bad, #d9534f); color: #fff; }
+.vc-btn.danger:hover:not(:disabled) { filter: brightness(1.06); background: var(--bad, #d9534f); }
+.vc-btn:disabled { opacity: .5; cursor: default; }
+
+.vc-footnote {
+  padding: 0 18px 13px; font-size: 11.5px; line-height: 1.5;
+  color: var(--mut, #6b7683);
+}
+
+/* "Mark this visit as complete" band inside the follow-up form (BrokerModal +
+   PropertyModal). Deliberately set apart from the Save & continue / Save & close
+   buttons: those write a CRM follow-up, this writes to the OpenHouse app and
+   can't be undone from the CRM. Amber, not red — it's a normal action, just a
+   consequential one. */
+.vc-band {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 12px 0 10px; padding: 11px 13px; border-radius: 9px;
+  background: rgba(240, 173, 78, .10);
+  border: 1px solid rgba(240, 173, 78, .45);
+}
+.vc-band-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; }
+.vc-band-txt b { font-size: 13.5px; font-weight: 700; letter-spacing: -.1px; }
+.vc-band-txt span { font-size: 11.5px; color: var(--mut, #6b7683); line-height: 1.45; }
+.vc-band .vc-btn { flex: 0 0 auto; }
+
+@media (max-width: 900px) {
+  .vc-band { gap: 10px; }
+  .vc-band .vc-btn { width: 100%; }
+}
+
+/* ── Sales Managers tab (sm-* prefixed, self-contained) ─────────────────── */
+.sm-view { padding: 4px 2px 40px; }
+.sm-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 10px; }
+.sm-h2 { margin: 0; font-size: 18px; letter-spacing: -.3px; }
+.sm-sub { font-size: 12.5px; color: var(--mut, #6b7683); margin-top: 3px; }
+
+.sm-banner {
+  padding: 10px 13px; border-radius: 9px; margin-bottom: 14px;
+  background: rgba(47, 109, 246, .07); border: 1px solid rgba(47, 109, 246, .3);
+  font-size: 12.5px; line-height: 1.5;
+}
+
+.sm-filters { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.sm-search, .sm-select {
+  border: 1px solid var(--line, #e6e9ee); border-radius: 8px; padding: 7px 10px;
+  font: inherit; font-size: 16px; background: var(--panel, #fff); color: var(--txt, #161c24);
+}
+.sm-search { min-width: 260px; flex: 1 1 260px; }
+.sm-search:focus, .sm-select:focus { outline: 2px solid rgba(47,109,246,.3); outline-offset: 1px; border-color: var(--acc, #2f6df6); }
+.sm-count { font-size: 12px; color: var(--mut, #6b7683); margin-left: auto; }
+
+.sm-table-wrap { overflow-x: auto; border: 1px solid var(--line, #e6e9ee); border-radius: 10px; }
+.sm-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; }
+.sm-table thead th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--mut, #6b7683); font-weight: 650; padding: 9px 11px;
+  border-bottom: 1px solid var(--line, #e6e9ee); background: rgba(0,0,0,.02);
+  position: sticky; top: 0; z-index: 1;
+}
+.sm-row { cursor: pointer; border-bottom: 1px solid var(--line, #e6e9ee); }
+.sm-row:hover { background: rgba(47, 109, 246, .04); }
+.sm-row.open { background: rgba(47, 109, 246, .07); }
+.sm-row td { padding: 9px 11px; vertical-align: middle; }
+.sm-caret { color: var(--mut, #6b7683); font-size: 11px; }
+.sm-unit { font-weight: 600; }
+.sm-home { font-variant-numeric: tabular-nums; color: var(--mut, #6b7683); }
+
+.sm-pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  background: rgba(0,0,0,.05); color: var(--mut, #6b7683);
+}
+.sm-pill.live { background: rgba(34, 160, 100, .13); color: #1d7a4c; }
+.sm-pill.dead { background: rgba(0,0,0,.06); color: var(--mut, #6b7683); }
+
+.sm-expand td { padding: 12px 14px; background: rgba(0,0,0,.02); border-bottom: 1px solid var(--line, #e6e9ee); }
+.sm-edit { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+.sm-cur { display: flex; flex-direction: column; gap: 2px; }
+.sm-cur span { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--mut, #6b7683); font-weight: 600; }
+.sm-cur b { font-size: 13.5px; }
+.sm-assign { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.sm-assign label { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--mut, #6b7683); font-weight: 600; }
+.sm-note { font-size: 12px; color: var(--mut, #6b7683); }
+.sm-err {
+  font-size: 12.5px; color: var(--bad, #d9534f); padding: 8px 11px; border-radius: 8px;
+  background: rgba(217,83,79,.1); border: 1px solid rgba(217,83,79,.35); overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .sm-count { margin-left: 0; }
+  .sm-search { min-width: 0; }
+  .sm-edit { gap: 12px; align-items: stretch; flex-direction: column; }
+}
+
+/* mobile: full-screen sheet, matching the app's ≤900px modal behaviour */
+@media (max-width: 900px) {
+  .vc-backdrop { padding: 0; align-items: stretch; }
+  .vc-modal { width: 100vw; max-width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+  .vc-foot { position: sticky; bottom: 0; }
+}

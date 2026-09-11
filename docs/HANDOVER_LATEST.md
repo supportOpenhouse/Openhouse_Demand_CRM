@@ -329,6 +329,77 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-09-10 (Claude session — Core CRM integration: mark visit complete/cancel + reassign property Sales Manager):**
+  - Wires the **two new Core server-to-server APIs** (spec: `docs/crm_staging_api`, from the Core team):
+    `PUT /schedule-visits/{id}/` (complete/cancel) and `GET|POST /crm/home-sales-manager/`. Both reuse the
+    **existing** `X-CRM-Key` + `CRM_BOOKING_API_BASE_URL` — Core confirmed no separate key, so **no new env var**.
+  - **NEW `backend/api/core_visits.py`** — the client. Validates Core's vocabulary before calling out
+    (`VALID_LEAD_STATUSES`, `VALID_UPDATE_STATUSES`, the 6 `SM_FEEDBACK_FIELDS`), normalises Core's **camelCase**
+    responses to snake_case, and maps upstream errors to `CoreVisitError(status)`.
+  - **3 new routes** in `main.py`: `POST /api/visits/complete`,
+    `GET|POST /api/properties/{home_id}/sales-manager`.
+    - **Permissions**: visit complete/cancel reuses **`_can_edit_visit`** (the existing see ⟹ edit rule — no new
+      access granted); SM reassignment is **Admin/TL** (`_require_admin_or_tl`), same bar as `kh-override`.
+    - **Core-first, two-phase**: Core is called FIRST and the local row is mirrored **only on its 200**, so a
+      Core rejection leaves nothing changed anywhere. The reverse (Core ok, mirror fails) self-heals at the next
+      15-min sheet sync.
+    - ⚠️ **Ordering landmine (found + fixed in this session)**: the `followups` AFTER-INSERT trigger
+      (`project_followup_onto_visit`) rewrites `visits.lead_status`/`current_*`. The audit followup is therefore
+      inserted **BEFORE** the `status`/`sales_feedback` UPDATE — reverse them and the trigger silently clobbers
+      the completion. Audit rows use `source='crm_core'`.
+  - **Frontend — the two actions live in DIFFERENT places, deliberately:**
+    - **Mark visit complete** → inside the **follow-up form**, in BOTH `BrokerModal` (the CP modal — where RMs
+      actually log follow-ups) and `PropertyModal`. Rendered as a bolded amber band **"Mark this visit as
+      complete"**, set apart from *Save & continue / Save & close*: those write a CRM follow-up, this writes to
+      Core and can't be undone. Opens `VisitCompleteModal.jsx` — OTP path by default (status + feedback), with an
+      **"Add full feedback form"** toggle revealing `lead_status` + the 6 structured dropdowns (assisted path),
+      then a review/confirm step. Shown by the shared **`canCompleteVisit(v)`** helper in `lib/visits.js`:
+      `status === 'upcoming'` + a numeric visit id — **past-dated upcoming visits included**, since those are
+      exactly the ones needing closure.
+    - **Sales-manager linkage** → its own **admin-only nav tab, "Sales Managers"** (`views/SalesManagersView.jsx`),
+      NOT buried in the property modal. Searchable/filterable unit table (city, live-vs-all); expanding a row
+      fetches Core's authoritative SM and offers reassign/unassign from the roster
+      (`users.core_sales_manager_id`, 51 people). A banner states the change is **app-only** — CRM visibility is
+      driven by the CRM's own property assignments and is unaffected.
+    - Styles: **new self-contained `corevisit.css`** (`vc-*` + `sm-*` prefixed, imported in `main.jsx`) —
+      `app.css` and `theme.css` untouched.
+  - **`home_id` is the join** for the SM API (Core `Home.id`); the CRM already stores it on `properties`
+    (342/343 units). `visit_code` is the Core visit id (17,111/17,115 numeric) — no new mapping needed.
+  - **Verified end-to-end on STAGING** (staging Core has its own small dataset — prod home_ids 339/564 legitimately
+    404 there; the low-numbered rows like visit 156 / home 30 are shared early test records):
+    (a) SM assign → read-back → unassign → restored, with `previous_sales_manager_id` correct;
+    (b) **assisted** complete of visit 156 → Core `status=completed, platform=crm, leadStatus=hot`, new
+    `demandSmFeedback` record created; (c) **OTP** complete of visit 159 → `assisted=False`, `lead_status` untouched;
+    (d) errors pass through: 401 no key / 404 unknown home+visit / 422 `sales_manager_not_found` / 400 bad
+    status+lead_status; (e) permission matrix: Ground **403** on both SM routes AND on completing a visit they
+    don't own (**denied before Core is called** — no wasted write), TL 200, unauthenticated 401;
+    (f) local mirror + `source='crm_core'` audit row attributed correctly. **All CRM test rows restored to their
+    exact pre-test state**; staging visits 156/159 remain completed (test data).
+  - **Regression**: `/health`, `/api/me`, `/api/top-brokers`, `/api/snapshot-remarks`, `/api/seed`
+    (27.2 MB, 20 keys, 12,000 visits) all 200, zero errors in the log. `npm run build` clean.
+  - **⭐ Core is now LIVE ON PROD** (verified 2026-09-11 against
+    `backend-prod-561394753846.asia-south2.run.app/api/v1/oh`): both endpoints exist and are auth-gated
+    (a fake path returns 404 HTML, these return `401 {"error":"Unauthorized"}`; bad key also 401). **The
+    `X-CRM-Key` already in `.env` authenticates PROD too** — same key both environments, no new secret.
+    **The home→SM mapping reconciles exactly**: real CRM home_ids (339/334/564/215/476/260 — which 404 on
+    staging) all resolve on prod, and Core's SM matches the CRM's `sales_manager` text AND the roster's
+    `core_sales_manager_id` on every one. (215 is "Akshay Pratap" in Core vs "Akshaya Singh" in the sheet —
+    same `sm_id=116`, harmless name drift.) Prod returns real mobiles vs staging's `80000000xx` dummies.
+    `GET /api/properties/{564,339,476}/sales-manager` verified end-to-end through the CRM against prod Core;
+    Ground still 403s. **No writes were made to prod Core** — the visit-complete write path is proven on
+    staging only (visits 156/159), and prod was probed read-only (`PUT` with no `status` → 400 validation).
+  - **Deploy state: NOT DEPLOYED.** `backend/.env` still points at **staging**. To go live:
+    set `CRM_BOOKING_API_BASE_URL` to the **prod** base in Render's `oh-crm-secrets` (⚠️ the key needs NO
+    change — the staging URL is the only thing separating you from prod writes) → `git push` (Render
+    auto-deploys) → deploy the frontend with a Vercel **owner token** (§8).
+  - ⚠️ **The work was lost once already**: a GitHub Desktop merge stashed it and the deploy shipped without it
+    (#69/#70 only). Restored from `stash@{0}` on 2026-09-11. If routes 404 on prod after a deploy, check
+    `git stash list` first.
+  - No migration. No new env var. Files: `backend/api/core_visits.py` (new), `backend/api/main.py`,
+    `frontend/src/api.js`, `frontend/src/components/VisitCompleteModal.jsx` (new),
+    `frontend/src/views/SalesManagersView.jsx` (new), `frontend/src/components/{BrokerModal,PropertyModal}.jsx`,
+    `frontend/src/lib/visits.js` (`canCompleteVisit`), `frontend/src/App.jsx` (nav + route),
+    `frontend/src/corevisit.css` (new), `frontend/src/main.jsx`.
 - **2026-08-21 (Claude session — Property Performance: "Locality" + "Area (sqft)" columns):**
   - Two additive columns: **Locality** (`locality_or_sector`, e.g. "Sector 16C (Greater Noida)") and
     **Area (sqft)** (`super_sqft`). Placed as `… Unit No | Locality | Config | Area (sqft) | Flat Status …`

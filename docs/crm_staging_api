@@ -1,0 +1,360 @@
+# CRM ↔ OpenHouse Core — Staging API Guide
+
+This document describes how the **CRM system** should integrate with the **two new server-to-server APIs** deployed on **staging**.
+
+---
+
+## Environment
+
+| Item | Value |
+|------|--------|
+| **Base URL** | `https://staging-561394753846.asia-south2.run.app/api/v1/oh/` |
+| **Auth header** | `X-CRM-Key: <CRM_API_KEY>` |
+| **Content-Type** | `application/json` |
+
+The staging `CRM_API_KEY` has been shared separately via **personal DM** — do not commit it to code or docs.
+
+Both APIs use the **same `X-CRM-Key`** already configured for CRM server-to-server calls on staging. **No separate API key is required.**
+
+---
+
+## Authentication
+
+Every request must include:
+
+```http
+X-CRM-Key: <CRM_API_KEY>
+```
+
+| HTTP status | Meaning |
+|-------------|---------|
+| `401 Unauthorized` | Missing or invalid key |
+| `503 Service Unavailable` | `CRM_API_KEY` not configured on the server |
+
+---
+
+## New APIs at a glance
+
+| # | Method | Endpoint | Purpose |
+|---|--------|----------|---------|
+| 1 | `PUT` | `/schedule-visits/{visit_id}/` | Complete or cancel a visit from CRM |
+| 2 | `GET` | `/crm/home-sales-manager/?home_id=` | Get sales manager assigned to a home |
+| 2 | `POST` | `/crm/home-sales-manager/` | Assign, update, or unassign home sales manager |
+
+For visit completion, CRM must already have the OpenHouse **`visit_id`** (from your system’s stored mapping).
+
+---
+
+## 1. Visit completion & cancellation
+
+This release adds **CRM authentication** on the visit update endpoint (`X-CRM-Key`). The OpenHouse mobile app uses the same URL with a session token; CRM uses `X-CRM-Key` instead — both paths are independent.
+
+### Endpoint
+
+```http
+PUT /schedule-visits/{visit_id}/
+```
+
+**Example:**  
+`https://staging-561394753846.asia-south2.run.app/api/v1/oh/schedule-visits/123/`
+
+### Required in every request
+
+Always send the visit’s current **`selected_date`** and **`selected_time`** (same values as stored on the visit). This matches how the app calls the API.
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `selected_date` | string | `YYYY-MM-DD` |
+| `selected_time` | string | e.g. `"1 - 3 PM"`, `"10:00 AM"` |
+| `status` | string | `"completed"` or `"cancelled"` |
+
+### Completion paths
+
+The backend detects the path from the payload (same logic as the OpenHouse app).
+
+#### A. OTP visit completed
+
+Use when the visit was completed via OTP — **sales feedback only**, no structured SM form.
+
+```json
+{
+  "selected_date": "2025-07-23",
+  "selected_time": "1 - 3 PM",
+  "status": "completed",
+  "sales_feedback": "Visit completed via OTP. Buyer will follow up next week."
+}
+```
+
+#### B. Assisted visit completed
+
+Use when the sales manager filled the full feedback form — includes **`lead_status`** and **`sm_demand_feedback`**.
+
+```json
+{
+  "selected_date": "2025-07-23",
+  "selected_time": "1 - 3 PM",
+  "status": "completed",
+  "lead_status": "hot",
+  "sales_feedback": "Strong interest; asked about token and timeline.",
+  "sm_demand_feedback": {
+    "time_spent_on_site": "20 - 30 min",
+    "society_amenity_tour": "Full amenity tour",
+    "price_discussion": "Yes",
+    "client_queries": "Asked multiple questions",
+    "closing_signal": "Asked about booking / token / timeline",
+    "buyer_primary_concern": "Price too high"
+  }
+}
+```
+
+**`lead_status` allowed values:**  
+`hot`, `warm`, `cold`, `future_prospect`, `dead`, `select_status`
+
+**Suggested values for `sm_demand_feedback` fields** (aligned with the app):
+
+| Field | Example values |
+|-------|----------------|
+| `time_spent_on_site` | `Less than 5 min`, `5 - 10 min`, `10 - 15 min`, `15 - 20 min`, `20 - 30 min`, `30 - 50 min`, `50+ min` |
+| `society_amenity_tour` | `Skipped`, `Quick walk-through`, `Full amenity tour`, `Detailed tour & society enquiry` |
+| `price_discussion` | `No`, `Yes` |
+| `client_queries` | `No — didn't ask`, `Casually asked 1 aspect`, `Asked multiple questions`, `Deep probing & compared` |
+| `closing_signal` | `Non-committal — "will think about it"`, `Asked for brochure / floor plan`, `Wants revisit or comparison visit`, `Asked about booking / token / timeline` |
+| `buyer_primary_concern` | Optional — e.g. `Price too high`, `Location not preferred`, `No concern expressed` |
+
+#### C. Cancel visit
+
+```json
+{
+  "selected_date": "2025-07-23",
+  "selected_time": "1 - 3 PM",
+  "status": "cancelled"
+}
+```
+
+### Behaviour after CRM complete/cancel
+
+| Field | Value when CRM calls |
+|-------|----------------------|
+| `platform` | `"crm"` |
+| `status` | `"completed"` or `"cancelled"` |
+
+When the mobile app completes/cancels the same visit, `platform` is set to `"app"`. This indicates **where the action was performed**, not where the visit was originally scheduled.
+
+### Success response
+
+- **HTTP `200 OK`**
+- Body contains the updated visit object (fields may be **camelCase** in JSON, e.g. `selectedDate`, `salesFeedback`, `leadStatus`, `platform`).
+
+Important response fields:
+
+| Field | Description |
+|-------|-------------|
+| `id` | Visit ID |
+| `status` | `completed` / `cancelled` / `upcoming` |
+| `platform` | `crm` after CRM complete/cancel |
+| `lead_status` | Lead intent (assisted path) |
+| `sales_feedback` | Free-text SM notes |
+| `demand_sm_feedback` | Structured feedback object (assisted path) |
+
+### Errors
+
+| HTTP status | When |
+|-------------|------|
+| `401` | Missing/invalid `X-CRM-Key` |
+| `404` | Visit ID not found |
+| `400` | Invalid payload / validation error |
+
+### cURL examples
+
+**OTP complete:**
+
+```bash
+curl -X PUT \
+  'https://staging-561394753846.asia-south2.run.app/api/v1/oh/schedule-visits/123/' \
+  -H 'X-CRM-Key: <CRM_API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "selected_date": "2025-07-23",
+    "selected_time": "1 - 3 PM",
+    "status": "completed",
+    "sales_feedback": "Test OTP complete from CRM"
+  }'
+```
+
+**Assisted complete:**
+
+```bash
+curl -X PUT \
+  'https://staging-561394753846.asia-south2.run.app/api/v1/oh/schedule-visits/123/' \
+  -H 'X-CRM-Key: <CRM_API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "selected_date": "2025-07-23",
+    "selected_time": "1 - 3 PM",
+    "status": "completed",
+    "lead_status": "hot",
+    "sales_feedback": "Assisted visit complete from CRM",
+    "sm_demand_feedback": {
+      "time_spent_on_site": "20 - 30 min",
+      "society_amenity_tour": "Full amenity tour",
+      "price_discussion": "Yes",
+      "client_queries": "Asked multiple questions",
+      "closing_signal": "Asked about booking / token / timeline",
+      "buyer_primary_concern": "Price too high"
+    }
+  }'
+```
+
+---
+
+## 2. Home sales manager (get & assign)
+
+Read or update the **`sales_manager`** on a property (`homes` table). Use this when CRM needs to get or set the default sales manager mapped to a home in OpenHouse.
+
+### Endpoint
+
+```http
+GET  /crm/home-sales-manager/?home_id={home_id}
+POST /crm/home-sales-manager/
+```
+
+**Examples:**  
+- `https://staging-561394753846.asia-south2.run.app/api/v1/oh/crm/home-sales-manager/?home_id=10`  
+- `https://staging-561394753846.asia-south2.run.app/api/v1/oh/crm/home-sales-manager/`
+
+---
+
+### GET — fetch current sales manager
+
+**Query parameters**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `home_id` | Yes | OpenHouse `Home` ID |
+
+**Success — HTTP `200`**
+
+```json
+{
+  "home_id": 10,
+  "sales_manager": {
+    "id": 5,
+    "name": "Jane Doe",
+    "mobile": "9876543210",
+    "city_id": 1,
+    "is_active": true
+  }
+}
+```
+
+If no SM is assigned, `sales_manager` is `null`.
+
+**Errors**
+
+| HTTP status | Body |
+|-------------|------|
+| `400` | `{ "error": "home_id is required." }` |
+| `404` | `{ "error": "Home not found." }` |
+
+---
+
+### POST — assign, update, or unassign
+
+**JSON body (required fields in body only — not query string)**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `home_id` | Yes | OpenHouse `Home` ID |
+| `sales_manager_id` | Yes (key must be present) | Active SM ID, or `null` to unassign |
+
+**Assign / update — HTTP `200`**
+
+```json
+{
+  "home_id": 10,
+  "previous_sales_manager_id": null,
+  "sales_manager": {
+    "id": 5,
+    "name": "Jane Doe",
+    "mobile": "9876543210",
+    "city_id": 1,
+    "is_active": true
+  }
+}
+```
+
+On update, `previous_sales_manager_id` contains the old SM ID.
+
+**Unassign — send `sales_manager_id: null`**
+
+```json
+{
+  "home_id": 10,
+  "sales_manager_id": null
+}
+```
+
+**Errors**
+
+| HTTP status | Body |
+|-------------|------|
+| `400` | Missing `home_id` or `sales_manager_id` key |
+| `404` | Home not found |
+| `422` | `{ "error": "sales_manager_not_found" }` or `{ "error": "sales_manager_inactive" }` |
+
+### cURL examples
+
+**GET:**
+
+```bash
+curl -G \
+  'https://staging-561394753846.asia-south2.run.app/api/v1/oh/crm/home-sales-manager/' \
+  -H 'X-CRM-Key: <CRM_API_KEY>' \
+  --data-urlencode 'home_id=10'
+```
+
+**POST assign:**
+
+```bash
+curl -X POST \
+  'https://staging-561394753846.asia-south2.run.app/api/v1/oh/crm/home-sales-manager/' \
+  -H 'X-CRM-Key: <CRM_API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{"home_id": 10, "sales_manager_id": 5}'
+```
+
+**POST unassign:**
+
+```bash
+curl -X POST \
+  'https://staging-561394753846.asia-south2.run.app/api/v1/oh/crm/home-sales-manager/' \
+  -H 'X-CRM-Key: <CRM_API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{"home_id": 10, "sales_manager_id": null}'
+```
+
+---
+
+## Implementation checklist for CRM team
+
+- [ ] Store `CRM_API_KEY` securely (env / secrets manager) — value received via **personal DM**
+- [ ] Implement **Home SM** GET/POST if CRM owns home–SM mapping
+- [ ] Persist OpenHouse **visit `id`** in CRM for completion/cancel calls
+- [ ] On complete: choose **OTP** vs **Assisted** payload based on your UI flow
+- [ ] Always send `selected_date` + `selected_time` on visit update
+- [ ] Verify `platform: "crm"` in the response after complete/cancel
+- [ ] Handle `401` / `404` / `422` as documented above
+
+---
+
+## Notes
+
+- **No app release required** for these CRM APIs — they are server-to-server only.
+- The mobile app continues to use session auth on the same visit update URL; CRM and app paths are independent.
+- Request JSON may use **snake_case**; responses may use **camelCase** depending on the API renderer.
+
+---
+
+## CRM API key
+
+The staging **`CRM_API_KEY`** has been sent in a **personal DM**. Use that value in the `X-CRM-Key` header for all requests above.

@@ -99,6 +99,31 @@ export async function bookVisits(body) {
   return res.json();
 }
 
+// --- Visit complete / cancel on Core (docs/crm_staging_api) ---
+// body = { visit_code, status:'completed'|'cancelled', sales_feedback?, lead_status?,
+//          sm_demand_feedback?{6 fields} }. Core is called first; only on its 200 is
+// the CRM row mirrored, so a failure here means nothing changed anywhere.
+export async function completeVisit(body) {
+  const res = await apiFetch('/api/visits/complete', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();   // { ok, visit:{ id, status, platform, lead_status, ... } }
+}
+
+// --- A property's Core Sales Manager (Admin/TL only on the backend) ---
+export async function loadPropertySalesManager(homeId) {
+  const res = await apiFetch(`/api/properties/${encodeURIComponent(homeId)}/sales-manager`);
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();   // { home_id, sales_manager|null, assignable:[{slug,name,team,sales_manager_id}] }
+}
+// sales_manager_id: null unassigns (Core's documented signal).
+export async function setPropertySalesManager(homeId, salesManagerId) {
+  const res = await apiFetch(`/api/properties/${encodeURIComponent(homeId)}/sales-manager`, {
+    method: 'POST', body: JSON.stringify({ sales_manager_id: salesManagerId ?? null }),
+  });
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();   // { ok, home_id, previous_sales_manager_id, sales_manager|null }
+}
+
 export async function setBrokerTier(cp, tier) {
   const res = await apiFetch(`/api/brokers/${encodeURIComponent(cp)}/tier`, { method: 'POST', body: JSON.stringify({ tier }) });
   if (!res.ok) throw new Error(await res.text());
