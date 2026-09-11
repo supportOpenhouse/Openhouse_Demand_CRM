@@ -21,6 +21,15 @@ import { toast } from '../lib/toast.js';
 const DEAD = new Set(['Sold', 'Archived']);
 const NO_MM = '— No micro-market set —';
 
+// Sortable columns → the value each one sorts on. Keep in step with the <th>s below.
+const SORT_VAL = {
+  society: (p) => `${p.society_name || ''} ${p.property_name || ''}`,
+  locality: (p) => p.locality_or_sector || '',
+  city: (p) => p.city_name || '',
+  status: (p) => p.listing_status || '',
+  manager: (p) => p.sales_manager || '',
+};
+
 export default function SalesManagersView({ seed }) {
   const properties = seed.properties || [];
   const users = seed.users || [];
@@ -33,6 +42,12 @@ export default function SalesManagersView({ seed }) {
   const [rowState, setRowState] = useState({});     // home_id → { saving, savedTo, err }
   const [sel, setSel] = useState({});               // home_id → explicitly chosen sales_manager_id
   const [collapsed, setCollapsed] = useState(() => new Set());
+  const [unmappedOnly, setUnmappedOnly] = useState(false);
+  // sort applies WITHIN each micro-market group, so the MM grouping is preserved
+  const [sort, setSort] = useState({ key: 'society', dir: 'asc' });
+  const toggleSort = (key) => setSort((s) => (
+    s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }
+  ));
 
   // one request for the whole grid
   useEffect(() => {
@@ -42,6 +57,15 @@ export default function SalesManagersView({ seed }) {
       .catch((e) => { if (alive) setLoadErr(String(e?.message || e).slice(0, 160)); });
     return () => { alive = false; };
   }, []);
+
+  // "Not mapped to anyone" = the unit has no sales manager at all (15 live units today).
+  // Deliberately based on the property's own value, not on whether that name resolves to a
+  // CRM roster member — a unit owned by someone off the roster is assigned, just not mapped.
+  const isUnmapped = (p) => !String(p.sales_manager || '').trim();
+
+  const unmappedCount = useMemo(() => properties.filter((p) => (
+    String(p.home_id || '').trim() && !DEAD.has(p.listing_status) && isUnmapped(p)
+  )).length, [properties]);
 
   const cities = useMemo(
     () => [...new Set(properties.map((p) => p.city_name).filter(Boolean))].sort(),
@@ -73,9 +97,11 @@ export default function SalesManagersView({ seed }) {
       .filter((p) => String(p.home_id || '').trim())          // addressable in Core
       .filter((p) => (status === 'all' ? true : !DEAD.has(p.listing_status)))
       .filter((p) => (city === 'all' ? true : p.city_name === city))
+      .filter((p) => (unmappedOnly ? isUnmapped(p) : true))
       .filter((p) => {
         if (!needle) return true;
-        return [p.property_name, p.society_name, p.sales_manager, p.home_id, p.micro_market]
+        return [p.property_name, p.society_name, p.sales_manager, p.home_id, p.micro_market,
+                p.locality_or_sector]
           .filter(Boolean).some((s) => String(s).toLowerCase().includes(needle));
       });
     const g = {};
@@ -87,11 +113,20 @@ export default function SalesManagersView({ seed }) {
       .map(([mm, list]) => ({
         mm,
         managers: mmManagers[mm] || [],
-        list: list.sort((a, b) => (a.society_name || '').localeCompare(b.society_name || '')
-          || (a.property_name || '').localeCompare(b.property_name || '')),
+        list: list.sort((a, b) => {
+          const d = sort.dir === 'asc' ? 1 : -1;
+          const va = String(SORT_VAL[sort.key]?.(a) ?? '');
+          const vb = String(SORT_VAL[sort.key]?.(b) ?? '');
+          // blanks always sort last, whichever direction — an empty cell is never "first"
+          if (!va && vb) return 1;
+          if (va && !vb) return -1;
+          return (va.localeCompare(vb) * d)
+            || (a.society_name || '').localeCompare(b.society_name || '')
+            || (a.property_name || '').localeCompare(b.property_name || '');
+        }),
       }))
       .sort((a, b) => (a.mm === NO_MM ? 1 : b.mm === NO_MM ? -1 : a.mm.localeCompare(b.mm)));
-  }, [properties, q, city, status, mmManagers]);
+  }, [properties, q, city, status, mmManagers, unmappedOnly, sort]);
 
   const total = groups.reduce((n, g) => n + g.list.length, 0);
 
@@ -136,6 +171,13 @@ export default function SalesManagersView({ seed }) {
           <option value="live">Live stock</option>
           <option value="all">Include Sold / Archived</option>
         </select>
+        <button type="button" className="btn sm" onClick={() => setUnmappedOnly((v) => !v)}
+                title="Show only units with no sales manager, so they can be assigned from here"
+                style={unmappedOnly
+                  ? { borderColor: 'var(--bad)', color: 'var(--bad)', fontWeight: 700 }
+                  : undefined}>
+          {unmappedOnly ? '✓ ' : ''}Unmapped only{unmappedCount ? ` · ${unmappedCount}` : ''}
+        </button>
         <span style={{ color: 'var(--mut)', fontSize: 12.5 }}>
           <b>{total}</b> propert{total === 1 ? 'y' : 'ies'} · {groups.length} micro-market{groups.length === 1 ? '' : 's'}
         </span>
@@ -144,7 +186,8 @@ export default function SalesManagersView({ seed }) {
       {loadErr ? (
         <div className="empty"><div className="emoji">⚠️</div><div className="t">Couldn’t load the manager list</div><div className="s">{loadErr}</div></div>
       ) : total === 0 ? (
-        <div className="empty"><div className="emoji">🧑‍💼</div><div className="t">No properties match these filters</div></div>
+        <div className="empty"><div className="emoji">{unmappedOnly ? '✅' : '🧑‍💼'}</div>
+          <div className="t">{unmappedOnly ? 'Every unit here has a sales manager' : 'No properties match these filters'}</div></div>
       ) : groups.map((g) => (
         <div key={g.mm} style={{ marginBottom: 14 }}>
           <div onClick={() => toggleGroup(g.mm)}
@@ -165,8 +208,19 @@ export default function SalesManagersView({ seed }) {
               <table className="t sm-table">
                 <thead>
                   <tr>
-                    <th>Society / Unit</th><th>City</th><th>Status</th>
-                    <th>CRM property manager</th><th>App sales manager</th>
+                    {[['society', 'Society / Unit'], ['locality', 'Locality'], ['city', 'City'],
+                      ['status', 'Status'], ['manager', 'CRM property manager']].map(([k, label]) => (
+                      <th key={k} className="sort" onClick={() => toggleSort(k)}
+                          style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          title={`Sort by ${label.toLowerCase()}`}>
+                        {label}
+                        <span className="sI" style={{ opacity: sort.key === k ? 1 : .25 }}>
+                          {' '}{sort.key === k ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
+                        </span>
+                      </th>
+                    ))}
+                    <th style={{ position: 'sticky', right: 0, zIndex: 2, background: 'var(--bg2,#FAFAFB)',
+                                 boxShadow: '-6px 0 6px -6px rgba(0,0,0,.18)' }}>App sales manager</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -179,10 +233,13 @@ export default function SalesManagersView({ seed }) {
                         <td><b>{p.society_name || '—'}</b>
                           <div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1 }}>{p.property_name || ''}</div>
                         </td>
+                        <td style={{ fontSize: 12 }}>{p.locality_or_sector || <span className="muted">—</span>}</td>
                         <td><span className="city-pill">{p.city_name || ''}</span></td>
                         <td><span style={{ fontSize: 11.5, color: DEAD.has(p.listing_status) ? 'var(--mut)' : undefined }}>{p.listing_status || '—'}</span></td>
                         <td style={{ fontSize: 12 }}>{p.sales_manager || <span className="muted">—</span>}</td>
-                        <td style={{ whiteSpace: 'nowrap' }}>
+                        <td style={{ whiteSpace: 'nowrap', position: 'sticky', right: 0, zIndex: 1,
+                                     background: 'var(--bg,#fff)',
+                                     boxShadow: '-6px 0 6px -6px rgba(0,0,0,.18)' }}>
                           <select className="sm-select" disabled={st.saving || !assignable.length}
                                   value={sel[id] ?? (cur ? String(cur.sales_manager_id) : '')}
                                   onChange={(e) => {
