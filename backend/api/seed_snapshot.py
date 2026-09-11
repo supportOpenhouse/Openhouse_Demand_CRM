@@ -44,6 +44,12 @@ NO_KAM_GROUND_CITIES = {"Ghaziabad"}
 # KEEP IN SYNC with the frontend DEAD_LISTING_STATUSES (lib/visits.js).
 DEAD_LISTING_STATUSES = {"Sold", "Archived"}
 
+# The pipeline tab's funnel (Revisits & Negotiations in one view). Used to bound the
+# per-visit remark history we ship in the seed. KEEP IN SYNC with the frontend's
+# FUNNEL in views/PipelineView.jsx.
+PIPELINE_STAGES = {"revisit_scheduled", "after_revisit_fu", "negotiation", "after_negotiation_fu",
+                   "booking"}
+
 
 def _last10(s: str | None) -> str:
     """Digits-only tail of a phone — the same normalisation sheet_sync's PM
@@ -54,10 +60,27 @@ def _last10(s: str | None) -> str:
 
 def scope_for_user(snap: dict, user: dict) -> dict:
     """Public entry: scope the snapshot for `user`, then trim the meeting-recording
-    markers to that same scope (additive; a no-op when the feature is dormant)."""
+    markers and the pipeline remark maps to that same scope (additive; each is a
+    no-op when its feature is dormant)."""
     _scope_for_user_core(snap, user)
     _scope_recordings(snap, user)
+    _scope_pipeline_extras(snap, user)
     return snap
+
+
+def _scope_pipeline_extras(snap: dict, user: dict) -> None:
+    """Trim the per-visit remark maps to exactly the visits already in `snap`, so a
+    user can never read PM or manager commentary on a lead outside their scope.
+    Rides the existing visit scope — no new scoping logic. Admin keeps everything;
+    Report ends up empty because its visits list was blanked. `transactional_cps` is
+    a CP-level attribute and every CP is visible to everyone, so it is not trimmed."""
+    if user.get("team") == "Admin":
+        return
+    visible = {str(v["id"]) for v in snap.get("visits", [])}
+    if snap.get("followup_history"):
+        snap["followup_history"] = {k: a for k, a in snap["followup_history"].items() if k in visible}
+    if snap.get("manager_remarks"):
+        snap["manager_remarks"] = {k: a for k, a in snap["manager_remarks"].items() if k in visible}
 
 
 def _scope_recordings(snap: dict, user: dict) -> None:
@@ -891,6 +914,88 @@ async def build(conn: asyncpg.Connection) -> dict:
     except Exception:  # noqa: BLE001 — never let the recordings layer break the seed
         mr_by_cp, mr_by_visit = {}, {}
 
+    # ── Pipeline tab (Revisits & Negotiations) extras ────────────────────────────
+    # All three blocks are ADDITIVE and independently guarded: any failure leaves an
+    # empty map and every existing view behaves exactly as before.
+
+    # 1. PM remark HISTORY per visit — so the pipeline list can show the running
+    # commentary without opening the lead. Restricted to the pipeline stages (a few
+    # hundred visits) so the seed payload does not grow for everyone else.
+    fu_history: dict = {}
+    try:
+        for r in await conn.fetch(
+            """
+            WITH repeat_chain AS (
+              -- the 🔁 Revisited signal: a buyer who came back to the SAME unit with the
+              -- same CP. Those rows enter the tab at ANY stage via buildRevisitIndex, so
+              -- bounding history by stage alone left them showing a false "No remarks yet".
+              -- Same key the frontend uses: home_id + cp_code + buyer phone.
+              SELECT v.id
+                FROM visits v
+                JOIN (SELECT home_id, cp_code, buyer_contact
+                        FROM visits
+                       WHERE COALESCE(home_id, '') <> '' AND COALESCE(cp_code, '') <> ''
+                         AND length(COALESCE(buyer_contact, '')) >= 5
+                       GROUP BY 1, 2, 3 HAVING count(*) > 1) g
+                  ON g.home_id = v.home_id AND g.cp_code = v.cp_code
+                 AND g.buyer_contact = v.buyer_contact
+            )
+            SELECT v.visit_code, f.note, f.created_at, f.stage, f.buyer_status,
+                   COALESCE(u.name, '') AS by_name
+              FROM followups f
+              JOIN visits v ON v.id = f.visit_id
+         LEFT JOIN users u ON u.id = f.by_user_id
+             WHERE COALESCE(f.note, '') <> ''
+               AND (v.current_stage = ANY($1::text[])
+                    OR v.id IN (SELECT id FROM repeat_chain))
+             ORDER BY f.created_at
+            """,
+            sorted(PIPELINE_STAGES),
+        ):
+            fu_history.setdefault(str(r["visit_code"]), []).append({
+                "note": r["note"], "by": r["by_name"],
+                "at": r["created_at"].isoformat() if r["created_at"] else "",
+                "stage": r["stage"] or "", "status": r["buyer_status"] or "",
+            })
+    except Exception as e:  # noqa: BLE001
+        log.warning("followup-history fetch failed (non-fatal): %s", e)
+        fu_history = {}
+
+    # 2. Manager remarks (migration 022) — running history, TL/Admin authored.
+    mgr_remarks: dict = {}
+    try:
+        for r in await conn.fetch(
+            "SELECT m.visit_code, m.called, m.note, m.created_at, COALESCE(u.name,'') AS by_name "
+            "FROM visit_manager_remarks m LEFT JOIN users u ON u.id = m.by_user_id "
+            "ORDER BY m.created_at"
+        ):
+            mgr_remarks.setdefault(str(r["visit_code"]), []).append({
+                "called": bool(r["called"]), "note": r["note"] or "", "by": r["by_name"],
+                "at": r["created_at"].isoformat() if r["created_at"] else "",
+            })
+    except Exception as e:  # noqa: BLE001 — table may not exist yet on an older DB
+        log.warning("manager-remarks fetch failed (non-fatal): %s", e)
+        mgr_remarks = {}
+
+    # 3. TRANSACTIONAL CPs — a CP that has actually closed. Union of two sources so
+    # history is covered as well as the newest bookings:
+    #   a) the CRM's own pipeline: any visit that reached Booking or ATS, and
+    #   b) the demand-dashboard booking_details.selling_cp_code / phone — the
+    #      authoritative booking record (that column only began being captured in
+    #      Sep-2026, hence the union rather than relying on it alone).
+    # Fetched in main.py and cached; here we only read our own side.
+    txn_cps: list = []
+    try:
+        txn_cps = sorted({
+            r["cp_code"] for r in await conn.fetch(
+                "SELECT DISTINCT cp_code FROM visits "
+                "WHERE current_stage IN ('booking','ats') AND COALESCE(cp_code,'') <> ''"
+            ) if r["cp_code"]
+        })
+    except Exception as e:  # noqa: BLE001
+        log.warning("transactional-CP fetch failed (non-fatal): %s", e)
+        txn_cps = []
+
     return {
         "users": users,
         "engagements": engagements,
@@ -913,5 +1018,8 @@ async def build(conn: asyncpg.Connection) -> dict:
         "team_tasks": team_tasks,
         "meeting_recordings_by_cp": mr_by_cp,
         "meeting_recordings_by_visit": mr_by_visit,
+        "followup_history": fu_history,
+        "manager_remarks": mgr_remarks,
+        "transactional_cps": txn_cps,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }

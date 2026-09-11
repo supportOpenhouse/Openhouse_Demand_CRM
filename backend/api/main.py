@@ -145,6 +145,44 @@ async def me(user: dict = Depends(auth.current_user_or_none)):
 # Read · the snapshot the frontend loads
 # ============================================================================
 
+# Transactional CPs sourced from the demand-dashboard DB (booking_details), cached.
+# That table is the authoritative booking record and carries the selling CP; the column
+# only began being captured in Sep-2026, so the seed unions this with the CRM's own
+# Booking/ATS pipeline to cover history too. Entirely additive and guarded: if the
+# external DB is unreachable the set simply stays as the CRM-derived one.
+_txn_cache: dict = {"codes": None, "phones": None, "at": 0.0}
+_TXN_TTL = 900.0   # 15 min
+
+
+async def _demand_txn_cps() -> tuple[set, set]:
+    now = time.monotonic()
+    if _txn_cache["codes"] is not None and (now - _txn_cache["at"]) < _TXN_TTL:
+        return _txn_cache["codes"], _txn_cache["phones"]
+    codes, phones = set(), set()
+    if config.PROPERTIES_DATABASE_URL:
+        try:
+            conn = await asyncpg.connect(config.PROPERTIES_DATABASE_URL, timeout=8)
+            try:
+                for r in await conn.fetch(
+                    "SELECT selling_cp_code, selling_cp_phone FROM booking_details "
+                    "WHERE COALESCE(selling_cp_code,'') <> '' OR COALESCE(selling_cp_phone,'') <> ''",
+                    timeout=8,
+                ):
+                    c = (r["selling_cp_code"] or "").strip()
+                    if c and c.upper() != "TEST":
+                        codes.add(c)
+                    d = "".join(ch for ch in (r["selling_cp_phone"] or "") if ch.isdigit())
+                    if len(d) >= 10:
+                        phones.add(d[-10:])
+            finally:
+                await conn.close()
+        except Exception as e:  # noqa: BLE001 — never let the external DB break the seed
+            log.warning("demand-dashboard booking CPs fetch failed (non-fatal): %s", e)
+            return set(), set()
+    _txn_cache.update({"codes": codes, "phones": phones, "at": now})
+    return codes, phones
+
+
 @app.get("/api/seed")
 async def get_seed(user: dict = Depends(auth.current_user)):
     """Same JSON shape as the legacy seed.json — drop-in replacement for loadSeed().
@@ -152,6 +190,19 @@ async def get_seed(user: dict = Depends(auth.current_user)):
     users that aren't in its hardcoded USERS array (admins added via DB)."""
     async with acquire() as conn:
         snapshot = await seed_snapshot.build(conn)
+        # union the demand-dashboard booking CPs into the CRM-derived transactional set
+        try:
+            _codes, _phones = await _demand_txn_cps()
+            if _codes or _phones:
+                have = set(snapshot.get("transactional_cps") or [])
+                if _phones:
+                    for _b in snapshot.get("brokers", []):
+                        _d = "".join(ch for ch in (_b.get("phone") or "") if ch.isdigit())
+                        if len(_d) >= 10 and _d[-10:] in _phones:
+                            have.add(_b["cp_code"])
+                snapshot["transactional_cps"] = sorted(have | _codes)
+        except Exception as e:  # noqa: BLE001
+            log.warning("transactional-CP merge failed (non-fatal): %s", e)
         # booking-relevant bits for the logged-in user (not part of the auth row)
         _bk = await conn.fetchrow("SELECT phone, core_sales_manager_id FROM users WHERE id = $1", user["id"])
     # Trim to the viewer's scope (Admin gets everything). Mirrors the frontend's
@@ -642,6 +693,42 @@ VALID_STAGES = {
     "after_negotiation_fu", "booking", "ats", "future_prospect", "not_interested",
     "need_more", "cancelled",
 }
+
+
+class ManagerRemarkBody(BaseModel):
+    visit_code: str = Field(..., min_length=1)
+    called: bool
+    note: str = ""
+
+
+@app.post("/api/visits/manager-remark")
+async def add_manager_remark(body: ManagerRemarkBody, user: dict = Depends(auth.current_user)):
+    """Record a MANAGER remark on a visit: did the manager call, plus a note.
+
+    TL/Admin only — the whole point of the field is that a manager wrote it, so it is
+    deliberately NOT open to the PM who owns the lead (they already have follow-up
+    notes). Append-only: every remark is kept, nothing is ever overwritten, so the
+    trail survives. A manager must also be able to SEE the visit — the same
+    _can_edit_visit gate every other visit write uses — so this grants no new
+    visibility, only a new kind of note on what they can already open."""
+    _require_admin_or_tl(user)
+    note = (body.note or "").strip()
+    if not body.called and not note:
+        raise HTTPException(400, "Add a note when the manager did not call")
+    async with acquire() as conn:
+        visit = await conn.fetchrow(
+            "SELECT id FROM visits WHERE visit_code = $1", body.visit_code
+        )
+        if not visit:
+            raise HTTPException(404, f"Visit {body.visit_code} not found")
+        if not await _can_edit_visit(conn, user, visit["id"]):
+            raise HTTPException(403, "You don't have permission to act on this visit")
+        row = await conn.fetchrow(
+            "INSERT INTO visit_manager_remarks (visit_code, by_user_id, called, note) "
+            "VALUES ($1, $2, $3, $4) RETURNING id, created_at",
+            body.visit_code, user["id"], bool(body.called), note,
+        )
+    return {"ok": True, "id": str(row["id"]), "at": row["created_at"].isoformat()}
 
 
 @app.post("/api/followups")

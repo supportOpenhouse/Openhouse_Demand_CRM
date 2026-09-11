@@ -1,10 +1,14 @@
-// Revisits — a focused TABULAR queue for leads in a revisit state (Revisit Scheduled /
-// After Revisit FU), mirroring Negotiations. Day-of ✅/❌ "did the revisit happen?" then
-// the next step (advance to negotiation / booking / close) or reschedule. The Yes/No is
-// migration-free — it just routes the next step (which persists via the chosen stage);
-// nothing is stored. Table + editor + save (saveFollowup with `revisit_date` on
-// reschedule, NO negotiation_happened) live in the shared PipelineQueue. This wrapper owns
-// scoping + the SAME Visits filters + a revisit-date range + the stage tabs.
+// Pipeline — Revisits AND Negotiations in ONE tab (replaces the two separate ones).
+// Holds the whole mid/late funnel: Revisit Scheduled, After Revisit FU, Negotiation and
+// After Negotiation FU, plus buyers who actually came back to the same unit (🔁 Revisited).
+// PipelineQueue picks the per-ROW confirm behaviour from that row's stage, so a revisit row
+// still asks "did the revisit happen?" and a negotiation row still asks "is the meeting
+// confirmed?" — byte-identical to the old tabs. In this tab it ALSO renders, without any
+// click: the PM remark history, the manager remark box (TL/Admin), and a Transactional /
+// Non-Transactional badge on each CP. This wrapper owns scoping + the SAME Visits filters +
+// a combined revisit/negotiation date range + the stage tabs.
+// KEEP the funnel IN SYNC with backend seed_snapshot.PIPELINE_STAGES (it bounds the remark
+// history shipped in the seed).
 import { useMemo, useDeferredValue } from 'react';
 import { daysBetween } from '../lib/format.js';
 import { visitStage, scopeVisits, nextFuFor, nextActivityFor, buildRevisitIndex } from '../lib/visits.js';
@@ -13,15 +17,23 @@ import ChipBar from '../components/ChipBar.jsx';
 import PipelineQueue from '../components/PipelineQueue.jsx';
 import { useStickyState } from '../lib/sessionFilters.js';
 
-const FUNNEL = ['revisit_scheduled', 'after_revisit_fu'];
+const FUNNEL = ['revisit_scheduled', 'after_revisit_fu', 'negotiation', 'after_negotiation_fu', 'booking'];
 const STAGE_TABS = [
   { k: 'all', label: 'All', cls: '' },
   { k: 'revisited', label: '🔁 Revisited', cls: 'sg-rev' },
   { k: 'revisit_scheduled', label: 'Revisit Scheduled', cls: 'sg-rev' },
   { k: 'after_revisit_fu', label: 'After Revisit FU', cls: 'sg-avfu' },
+  { k: 'negotiation', label: 'Negotiation', cls: 'sg-nego' },
+  { k: 'after_negotiation_fu', label: 'After Negotiation FU', cls: 'sg-avfu' },
+  { k: 'booking', label: 'Booking', cls: 'sg-book' },
 ];
+// one row's activity date = whichever of the two applies to its stage
+const actDate = (v) => {
+  const d = v._revisit_date || v._negotiation_date || '';
+  return d ? String(d).slice(0, 10) : '';
+};
 
-export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = '', filters = {}, onResetGlobalFilters }) {
+export default function PipelineView({ seed, onOpenBroker, reloadSeed, search = '', filters = {}, onResetSearch, onResetGlobalFilters }) {
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
   const properties = seed.properties || [];
@@ -45,11 +57,13 @@ export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = 
     return m;
   }, [properties]);
 
-  const [stageTab, setStageTab] = useStickyState('revisits:stageTab', []);
-  const [revFrom, setRevFrom] = useStickyState('revisits:revFrom', '');
-  const [revTo, setRevTo] = useStickyState('revisits:revTo', '');
+  const [stageTab, setStageTab] = useStickyState('pipeline:stageTab', []);
+  const [revFrom, setRevFrom] = useStickyState('pipeline:from', '');
+  const [revTo, setRevTo] = useStickyState('pipeline:to', '');
   const dq = useDeferredValue(search);
-  const resetFilters = () => { setStageTab([]); setRevFrom(''); setRevTo(''); onResetGlobalFilters?.(); };
+  // clears the stage tabs, the date range, the shared Filters AND the top-bar search —
+  // the old Negotiations tab cleared the search too, so keep that behaviour.
+  const resetFilters = () => { setStageTab([]); setRevFrom(''); setRevTo(''); onResetSearch?.(); onResetGlobalFilters?.(); };
 
   // Revisit index over the FULL scoped set (chains complete within scope). An "actual
   // revisit" = the LATEST visit of a chain that has an earlier COMPLETED visit to the same
@@ -125,15 +139,15 @@ export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = 
       }
       if (!ok) return false;
     }
-    // revisit-date range (YYYY-MM-DD compare on _revisit_date)
-    const rd = v._revisit_date ? String(v._revisit_date).slice(0, 10) : '';
+    // activity-date range — revisit date OR negotiation date, whichever this row has
+    const rd = actDate(v);
     if (revFrom && !(rd && rd >= revFrom)) return false;
     if (revTo && !(rd && rd <= revTo)) return false;
     return true;
   }), [funnel, filters, dq, propBySociety, brokersByCode, revFrom, revTo]);
 
   const stageCounts = useMemo(() => {
-    const c = { all: base.length, revisited: 0, revisit_scheduled: 0, after_revisit_fu: 0 };
+    const c = { all: base.length, revisited: 0, revisit_scheduled: 0, after_revisit_fu: 0, negotiation: 0, after_negotiation_fu: 0, booking: 0 };
     base.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; if (isActualRev(v)) c.revisited += 1; });
     return c;
   }, [base, revIndex]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -148,7 +162,7 @@ export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = 
   return (
     <div className="rx-fade">
       <div className="neg-filters" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <span style={{ fontWeight: 600, fontSize: 13 }}>Revisit date</span>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>Revisit / negotiation date</span>
         <input type="date" value={revFrom} onChange={(e) => setRevFrom(e.target.value)}
                style={{ padding: '6px 9px', border: '1px solid var(--line)', borderRadius: 7, fontSize: 13 }} />
         <span style={{ color: 'var(--mut)' }}>→</span>
@@ -166,10 +180,10 @@ export default function RevisitsView({ seed, onOpenBroker, reloadSeed, search = 
       <ChipBar label="Stage" options={STAGE_TABS} counts={stageCounts} value={stageTab} onChange={setStageTab} multi />
 
       <div className="neg-count" style={{ margin: '8px 2px', color: 'var(--mut)', fontSize: 13 }}>
-        <b>{rows.length}</b> revisit lead{rows.length === 1 ? '' : 's'} — scheduled revisits + buyers who came back to the same unit (🔁 Revisited)
+        <b>{rows.length}</b> pipeline lead{rows.length === 1 ? '' : 's'} — revisits + negotiations, with PM &amp; manager remarks inline
       </div>
 
-      <PipelineQueue seed={seed} rows={rows} mode="revisit" onOpenBroker={onOpenBroker} onSaved={reloadSeed} revIndex={revIndex} />
+      <PipelineQueue seed={seed} rows={rows} mode="pipeline" onOpenBroker={onOpenBroker} onSaved={reloadSeed} revIndex={revIndex} />
     </div>
   );
 }
