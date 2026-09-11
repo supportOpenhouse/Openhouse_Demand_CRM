@@ -19,7 +19,7 @@ import {
   TEAM_PILL, fmtPrice, priceForVisit, nextFuClass, lastFollowupTakenForVisit, buildFuByVisit,
 } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
-import { saveFollowup as apiSaveFollowup } from '../api.js';
+import { saveFollowup as apiSaveFollowup, addManagerRemark } from '../api.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import RevisitTag from './RevisitTag.jsx';
 
@@ -68,8 +68,24 @@ const CFG = {
 };
 const pillLabel = (k, cfg) => (k === cfg.scheduledStage ? 'Reschedule' : (STAGE_BY_KEY[k]?.label || k));
 
+// The merged pipeline tab holds BOTH funnels, so the confirm/advance behaviour is chosen
+// per ROW from its stage rather than once from the tab. mode 'revisit'/'negotiation' keep
+// their single-config behaviour byte-identically.
+const NEGO_STAGES = ['negotiation', 'after_negotiation_fu', 'booking'];
+
 export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved, revIndex }) {
-  const cfg = CFG[mode];
+  const merged = mode === 'pipeline';
+  const cfgFor = (v) => (merged ? (NEGO_STAGES.includes(visitStage(v)) ? CFG.negotiation : CFG.revisit) : CFG[mode]);
+  const cfg = merged ? CFG.revisit : CFG[mode];          // defaults: column labels + empty state
+  const dateOf = (v) => v[cfgFor(v).dateField] || '';
+  // seed maps for the always-visible remark history (no click needed)
+  const fuHistory = seed.followup_history || {};
+  const mgrRemarks = seed.manager_remarks || {};
+  const txnCps = useMemo(() => new Set(seed.transactional_cps || []), [seed]);
+  const meUser = seed.current_user || {};
+  const canManagerRemark = meUser.team === 'TL' || meUser.team === 'Admin' || meUser.role === 'admin';
+  const [mgrDraft, setMgrDraft] = useState({});
+  const setMgr = (id, patch) => setMgrDraft((m) => ({ ...m, [id]: { ...(m[id] || {}), ...patch } }));
   const isMobile = useIsMobile();
   const properties = seed.properties || [];
   const cpOwner = seed.cp_owner || {};
@@ -85,11 +101,11 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
   const [busy, setBusy] = useState(false);
 
   const sorted = useMemo(() => rows.slice().sort((a, b) => {
-    const da = datePart(a[cfg.dateField]) || '9999-99-99';
-    const db = datePart(b[cfg.dateField]) || '9999-99-99';
+    const da = datePart(dateOf(a)) || '9999-99-99';
+    const db = datePart(dateOf(b)) || '9999-99-99';
     const cmp = da < db ? -1 : da > db ? 1 : 0;
     return sortDir === 'asc' ? cmp : -cmp;
-  }), [rows, cfg.dateField, sortDir]);
+  }), [rows, mode, sortDir]);
 
   const setDraft = (vid, patch) => setDrafts((p) => ({ ...p, [vid]: { ...(p[vid] || {}), ...patch } }));
   const ownerFor = (v) => ubs[cpOwner[v.cp_code]] || null;
@@ -99,7 +115,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
   const seedDraft = (v) => {
     if (drafts[v.id]) return;
     const sg = visitStage(v);
-    if (sg === cfg.scheduledStage) setDraft(v.id, { happened: null, stage: '' });
+    if (sg === cfgFor(v).scheduledStage) setDraft(v.id, { happened: null, stage: '' });
     else if (sg === 'booking') setDraft(v.id, { stage: 'booking', booking_received_date: v.booking_received_date || '' });
     else setDraft(v.id, { stage: '' });
   };
@@ -119,7 +135,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
       await apiSaveFollowup(payload);
       setDrafts((p) => { const n = { ...p }; delete n[v.id]; return n; });
       setExpanded((p) => { const n = new Set(p); n.delete(String(v.id)); return n; });
-      toast(cfg.savedToast, 'good');
+      toast(cfgFor(v).savedToast, 'good');
       await onSaved?.();
     } catch (e) { toast('Save failed: ' + String(e.message || e).slice(0, 140), 'bad'); }
     finally { setBusy(false); }
@@ -128,24 +144,25 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
   async function save(v) {
     const d = drafts[v.id] || {};
     const sg = visitStage(v);
-    const onScheduled = sg === cfg.scheduledStage;
+    const c = cfgFor(v);
+    const onScheduled = sg === c.scheduledStage;
     if (onScheduled && d.happened == null) {
-      toast(`Confirm whether the ${cfg.noun} is happening`, 'bad'); return;
+      toast(`Confirm whether the ${c.noun} is happening`, 'bad'); return;
     }
     // Pre-meeting CONFIRM (negotiation): Yes → meeting confirmed, lead STAYS in its stage,
     // reusing its existing meeting date; note optional; no advancement (outcome recorded later).
-    if (onScheduled && cfg.preMeeting && d.happened === true) {
-      const existing = v[cfg.dateField] || '';
+    if (onScheduled && c.preMeeting && d.happened === true) {
+      const existing = v[c.dateField] || '';
       const payload = {
         visit_code: String(v.id),
-        buyer_status: statusForStage(cfg.scheduledStage, v.lead_status),
-        stage: cfg.scheduledStage,
-        note: (d.note && d.note.trim()) || cfg.confirmNote,
+        buyer_status: statusForStage(c.scheduledStage, v.lead_status),
+        stage: c.scheduledStage,
+        note: (d.note && d.note.trim()) || c.confirmNote,
         next_followup_date: null,
-        revisit_date: cfg.scheduledStage === 'revisit_scheduled' ? existing : null,
-        negotiation_date: cfg.scheduledStage === 'negotiation' ? existing : null,
+        revisit_date: c.scheduledStage === 'revisit_scheduled' ? existing : null,
+        negotiation_date: c.scheduledStage === 'negotiation' ? existing : null,
       };
-      if (cfg.sendsHappened) payload.negotiation_happened = true;
+      if (c.sendsHappened) payload.negotiation_happened = true;
       return submit(v, payload);
     }
     const stage = d.stage || (sg === 'booking' ? 'booking' : '');
@@ -178,7 +195,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
       booking_received_date,
     };
     // Negotiations persist the confirm flag (revisits are migration-free — outcome via stage).
-    if (cfg.sendsHappened) payload.negotiation_happened = onScheduled ? d.happened : (v.negotiation_happened ?? true);
+    if (c.sendsHappened) payload.negotiation_happened = onScheduled ? d.happened : (v.negotiation_happened ?? true);
     return submit(v, payload);
   }
 
@@ -186,28 +203,29 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
   const Editor = ({ v }) => {
     const sg = visitStage(v);
     const d = drafts[v.id] || {};
-    const onScheduled = sg === cfg.scheduledStage;
-    const isPreConfirm = onScheduled && cfg.preMeeting && d.happened === true;   // "Yes — confirmed"
+    const c = cfgFor(v);
+    const onScheduled = sg === c.scheduledStage;
+    const isPreConfirm = onScheduled && c.preMeeting && d.happened === true;   // "Yes — confirmed"
     const showSteps = onScheduled ? (d.happened != null && !isPreConfirm) : true;
     const noteOptional = isPreConfirm;
-    const opts = cfg.nextSteps(sg, d.happened);
+    const opts = c.nextSteps(sg, d.happened);
     return (
       <div className="fu-form" style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
         {onScheduled && (
           <div className="fu-grp">
-            <label>{cfg.confirmQuestion} <span style={{ color: 'var(--bad)' }}>*</span></label>
+            <label>{c.confirmQuestion} <span style={{ color: 'var(--bad)' }}>*</span></label>
             <div className="fu-pills">
               <button type="button" className={'fu-pill ' + (d.happened === true ? 'on' : '')}
-                      onClick={() => setDraft(v.id, { happened: true, stage: '', negotiation_date: '', revisit_date: '' })}>{cfg.yesLabel}</button>
+                      onClick={() => setDraft(v.id, { happened: true, stage: '', negotiation_date: '', revisit_date: '' })}>{c.yesLabel}</button>
               <button type="button" className={'fu-pill ' + (d.happened === false ? 'on' : '')}
-                      onClick={() => setDraft(v.id, { happened: false, stage: '', booking_received_date: '' })}>{cfg.noLabel}</button>
+                      onClick={() => setDraft(v.id, { happened: false, stage: '', booking_received_date: '' })}>{c.noLabel}</button>
             </div>
           </div>
         )}
         {isPreConfirm && (
           <div className="fu-grp" style={{ background: 'var(--goodBg, #ECFDF5)', border: '1px solid #6EE7B7', borderRadius: 8, padding: '10px 12px' }}>
             <div style={{ fontSize: 12.5, color: 'var(--good, #16A34A)', fontWeight: 600 }}>
-              ✓ Confirmed — stays in {STAGE_BY_KEY[cfg.scheduledStage]?.label || cfg.scheduledStage}. Record the outcome later, after the {cfg.noun}.
+              ✓ Confirmed — stays in {STAGE_BY_KEY[c.scheduledStage]?.label || c.scheduledStage}. Record the outcome later, after the {c.noun}.
             </div>
           </div>
         )}
@@ -260,29 +278,31 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
   // ---- the day-of confirm cell (scheduled-meeting row only) ----
   const ConfirmCell = ({ v }) => {
     const sg = visitStage(v);
-    if (sg !== cfg.scheduledStage) {
-      if (cfg.sendsHappened && v.negotiation_happened === true) return <span className="muted" style={{ fontSize: 11 }}>✅ confirmed</span>;
+    const c = cfgFor(v);
+    if (sg !== c.scheduledStage) {
+      if (c.sendsHappened && v.negotiation_happened === true) return <span className="muted" style={{ fontSize: 11 }}>✅ confirmed</span>;
       return <span className="muted">—</span>;
     }
-    const dk = datePart(v[cfg.dateField]);
+    const dk = datePart(v[c.dateField]);
     const today = ymd(TODAY);
     const due = dk && dk <= today;                 // due today or overdue → emphasize
-    const confirmed = cfg.preMeeting && v.negotiation_happened === true;   // already confirmed
+    const confirmed = c.preMeeting && v.negotiation_happened === true;   // already confirmed
     return (
       <div className="fu-pills" style={{ gap: 4, alignItems: 'center' }}>
         {confirmed && <span title="Confirmed" style={{ fontSize: 11, color: 'var(--good,#16A34A)', fontWeight: 700 }}>✓</span>}
-        <button type="button" title={cfg.preMeeting ? 'Confirmed — will happen' : `${cfg.noun} happened`} className="fu-pill" style={due ? { borderColor: 'var(--good,#16A34A)', fontWeight: 700 } : undefined}
+        <button type="button" title={c.preMeeting ? 'Confirmed — will happen' : `${c.noun} happened`} className="fu-pill" style={due ? { borderColor: 'var(--good,#16A34A)', fontWeight: 700 } : undefined}
                 onClick={(e) => { e.stopPropagation(); quickConfirm(v, true); }}>✅</button>
-        <button type="button" title={cfg.preMeeting ? "Won't happen / not confirmed" : `${cfg.noun} didn't happen`} className="fu-pill" style={due ? { borderColor: 'var(--bad)', fontWeight: 700 } : undefined}
+        <button type="button" title={c.preMeeting ? "Won't happen / not confirmed" : `${c.noun} didn't happen`} className="fu-pill" style={due ? { borderColor: 'var(--bad)', fontWeight: 700 } : undefined}
                 onClick={(e) => { e.stopPropagation(); quickConfirm(v, false); }}>❌</button>
       </div>
     );
   };
 
   const DateCell = ({ v }) => {
-    const raw = v[cfg.dateField];
+    const c = cfgFor(v);
+    const raw = v[c.dateField];
     const sg = visitStage(v);
-    const overdue = sg === cfg.scheduledStage && datePart(raw) && datePart(raw) < ymd(TODAY);
+    const overdue = sg === c.scheduledStage && datePart(raw) && datePart(raw) < ymd(TODAY);
     const dueToday = datePart(raw) === ymd(TODAY);
     return (
       <span style={{ fontWeight: 700, color: overdue ? 'var(--bad)' : dueToday ? 'var(--accDark)' : 'var(--ink)' }}>
@@ -291,10 +311,95 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
     );
   };
 
-  const COLS = ['Visit', cfg.dateCol, 'City', 'RM', 'Society / Unit', 'Buyer', 'CP · Tier', 'CP Owner', 'Status', 'Stage', 'Next FU', 'Last FU', 'Price', 'Confirm', ''];
+  // CP transaction status. A CP is TRANSACTIONAL when it has actually closed — the union
+  // of the CRM's own Booking/ATS pipeline and the demand-dashboard booking_details selling
+  // CP (see seed_snapshot + main._demand_txn_cps). Shown only on the merged pipeline tab.
+  const CpTxnBadge = ({ cp }) => {
+    if (!cp) return null;
+    const txn = txnCps.has(cp);
+    return (
+      <span title={txn ? 'Transactional — this CP has closed a booking' : 'Non-transactional — no booking closed yet'}
+            style={{ marginLeft: 5, fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 6,
+                     border: '1px solid ' + (txn ? 'var(--good,#16A34A)' : 'var(--line)'),
+                     color: txn ? 'var(--good,#16A34A)' : 'var(--mut)',
+                     background: txn ? 'rgba(22,163,74,.08)' : 'transparent', whiteSpace: 'nowrap' }}>
+        {txn ? '₹ TXN' : 'NON-TXN'}
+      </span>
+    );
+  };
+
+  // The PM remark history + the manager remark box, rendered as a sub-row so the team can
+  // read the running commentary WITHOUT opening the lead.
+  const RemarksRow = ({ v, cols }) => {
+    const hist = fuHistory[String(v.id)] || [];
+    const mgr = mgrRemarks[String(v.id)] || [];
+    const d = mgrDraft[v.id] || {};
+    const saveMgr = async () => {
+      if (d.called == null) { toast('Did the manager call? Pick Yes or No', 'bad'); return; }
+      if (!d.called && !(d.note || '').trim()) { toast('Add a note when the manager did not call', 'bad'); return; }
+      setMgr(v.id, { saving: true });
+      try {
+        await addManagerRemark({ visit_code: v.id, called: !!d.called, note: (d.note || '').trim() });
+        toast('Manager remark saved', 'good');
+        setMgr(v.id, { called: null, note: '', saving: false });
+        await onSaved?.();
+      } catch (e) {
+        toast(String(e?.message || e).slice(0, 140), 'bad');
+        setMgr(v.id, { saving: false });
+      }
+    };
+    return (
+      <tr className="pq-remarks">
+        <td colSpan={cols} style={{ background: 'var(--bg2,#FAFAFB)', borderTop: 'none', padding: '6px 10px 9px' }}>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start',
+                        position: 'sticky', left: 0, maxWidth: 'calc(100vw - 150px)' }}>
+            <div style={{ flex: '1 1 420px', minWidth: 280 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--mut)', letterSpacing: .3 }}>PM REMARKS ({hist.length})</div>
+              {hist.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--mut)' }}>No remarks yet</div>
+              ) : hist.slice(-4).map((h, i) => (
+                <div key={i} style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35 }}>
+                  <span style={{ color: 'var(--mut)' }}>{fmtDate(h.at)} · <b>{h.by || '—'}</b> — </span>{h.note}
+                </div>
+              ))}
+              {hist.length > 4 && <div style={{ fontSize: 11, color: 'var(--mut)', marginTop: 2 }}>+{hist.length - 4} earlier</div>}
+            </div>
+            <div style={{ flex: '1 1 340px', minWidth: 260 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--mut)', letterSpacing: .3 }}>MANAGER REMARKS ({mgr.length})</div>
+              {mgr.map((m, i) => (
+                <div key={i} style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35 }}>
+                  <span style={{ color: 'var(--mut)' }}>{fmtDate(m.at)} · <b>{m.by || '—'}</b> · </span>
+                  <b style={{ color: m.called ? 'var(--good,#16A34A)' : 'var(--bad)' }}>{m.called ? 'Called' : 'Not called'}</b>
+                  {m.note ? <span> — {m.note}</span> : null}
+                </div>
+              ))}
+              {canManagerRemark && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+                  <button type="button" className="fu-pill" aria-pressed={d.called === true}
+                          style={d.called === true ? { borderColor: 'var(--good,#16A34A)', fontWeight: 700 } : undefined}
+                          onClick={() => setMgr(v.id, { called: true })}>✅ Called</button>
+                  <button type="button" className="fu-pill" aria-pressed={d.called === false}
+                          style={d.called === false ? { borderColor: 'var(--bad)', fontWeight: 700 } : undefined}
+                          onClick={() => setMgr(v.id, { called: false })}>❌ Not called</button>
+                  <input value={d.note || ''} onChange={(e) => setMgr(v.id, { note: e.target.value })}
+                         placeholder="Manager remark…" style={{ flex: '1 1 150px', minWidth: 120, padding: '4px 7px',
+                         border: '1px solid var(--line)', borderRadius: 6, fontSize: 12 }} />
+                  <button type="button" className="btn sm primary" disabled={!!d.saving} onClick={saveMgr}>
+                    {d.saving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  const COLS = ['Visit', merged ? 'Revisit / Nego date' : cfg.dateCol, 'City', 'RM', 'Society / Unit', 'Buyer', 'CP · Tier', 'CP Owner', 'Status', 'Stage', 'Next FU', 'Last FU', 'Price', 'Confirm', ''];
 
   if (rows.length === 0) {
-    return <div className="empty"><div className="emoji">{cfg.icon}</div><div className="t">No {cfg.noun === 'meeting' ? 'negotiations' : 'revisits'} match these filters</div></div>;
+    return <div className="empty"><div className="emoji">{cfg.icon}</div><div className="t">No {merged ? 'pipeline leads' : (cfg.noun === 'meeting' ? 'negotiations' : 'revisits')} match these filters</div></div>;
   }
 
   // ---------- desktop table ----------
@@ -335,6 +440,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
                               style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--acc,#2563EB)', textAlign: 'left' }}>
                         {cpName(v) || '—'}
                       </button> <span className={'tier-badge ' + tier}>{tier}</span>
+                      {merged && <CpTxnBadge cp={v.cp_code} />}
                       <div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1 }}>{v.company_name || ''}</div>
                     </td>
                     <td>{owner ? (<><div style={{ fontSize: 11.5 }}><b>{(owner.name || '').split(' ')[0]}</b></div><span className={'role-pill ' + (TEAM_PILL[owner.team] || '')}>{owner.team}</span></>) : <span className="muted">—</span>}</td>
@@ -346,6 +452,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
                     <td onClick={(e) => e.stopPropagation()}><ConfirmCell v={v} /></td>
                     <td><button type="button" className="btn sm" onClick={(e) => { e.stopPropagation(); toggleEditor(v); }}>{open ? 'Close' : 'Update'}</button></td>
                   </tr>
+                  {merged && <RemarksRow v={v} cols={COLS.length} />}
                   {open && (
                     <tr key={v.id + '-ed'}><td colSpan={COLS.length}><Editor v={v} /></td></tr>
                   )}
@@ -364,14 +471,15 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
       {sorted.map((v) => {
         const sg = visitStage(v); const sgDef = STAGE_BY_KEY[sg];
         const open = expanded.has(String(v.id));
-        const overdue = sg === cfg.scheduledStage && datePart(v[cfg.dateField]) && datePart(v[cfg.dateField]) < ymd(TODAY);
+        const c = cfgFor(v);
+        const overdue = sg === c.scheduledStage && datePart(v[c.dateField]) && datePart(v[c.dateField]) < ymd(TODAY);
         return (
           <div key={v.id} className="m-card">
             <div className="mc-top">
               <div className="mc-title">{v.society_name || '—'}<span className="sub">{[v.unit_address_line1, v.unit_address_line2].filter(Boolean).join('-')} · {v.city || ''}</span></div>
               <div className="mc-right" style={{ color: overdue ? 'var(--bad)' : 'var(--accDark)' }}>
-                <div style={{ fontSize: 11 }}>{cfg.dateCol}</div>
-                <div><b>{v[cfg.dateField] ? fmtDateTime(v[cfg.dateField]) : '—'}</b></div>
+                <div style={{ fontSize: 11 }}>{c.dateCol}</div>
+                <div><b>{v[c.dateField] ? fmtDateTime(v[c.dateField]) : '—'}</b></div>
               </div>
             </div>
             <div className="mc-meta">
@@ -385,7 +493,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
               <span style={{ color: 'var(--mut)' }}>RM: {v.sales_manager || '—'}</span>
             </div>
             <div className="mc-foot">
-              {sg === cfg.scheduledStage ? <span><ConfirmCell v={v} /></span> : <span />}
+              {sg === c.scheduledStage ? <span><ConfirmCell v={v} /></span> : <span />}
               <button type="button" className="btn sm" onClick={() => toggleEditor(v)}>{open ? 'Close' : 'Update'}</button>
             </div>
             {open && <Editor v={v} />}

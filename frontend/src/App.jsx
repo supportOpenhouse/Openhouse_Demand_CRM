@@ -5,7 +5,6 @@ import AppSkeleton from './components/AppSkeleton.jsx';
 import Logo from './components/Logo.jsx';
 import HomeView from './views/HomeView.jsx';
 import VisitsView from './views/VisitsView.jsx';
-import NegotiationsView from './views/NegotiationsView.jsx';
 import CpView from './views/CpView.jsx';
 import PropertiesView from './views/PropertiesView.jsx';
 import NotificationsView from './views/NotificationsView.jsx';
@@ -17,7 +16,7 @@ import BookVisitsView from './views/BookVisitsView.jsx';
 import HiringView from './views/HiringView.jsx';
 import ReportShareView from './views/ReportShareView.jsx';
 import RegisterCpView from './views/RegisterCpView.jsx';
-import RevisitsView from './views/RevisitsView.jsx';
+import PipelineView from './views/PipelineView.jsx';
 import AiSuggestionsView from './views/AiSuggestionsView.jsx';
 import TeamPerformanceView from './views/TeamPerformanceView.jsx';
 import MeetingRecordingsView from './views/MeetingRecordingsView.jsx';
@@ -28,7 +27,7 @@ import BottomTabBar from './components/BottomTabBar.jsx';
 import { TEAM_PILL } from './lib/legacy.js';
 import { readSticky, writeSticky } from './lib/sessionFilters.js';
 
-const SEARCH_VIEWS = new Set(['visits', 'negotiations', 'revisits', 'cps', 'properties']);
+const SEARCH_VIEWS = new Set(['visits', 'pipeline', 'cps', 'properties']);
 
 // Book Visits (beta) is restricted to these super-admins BY SLUG until the app
 // booking API is connected. Deliberately NOT gated by team/role — several other users
@@ -39,8 +38,7 @@ const NAV = [
   { k: 'home',          icon: '🏠', label: 'Home' },
   { k: 'ai',            icon: '✨', label: 'AI Suggestions' },
   { k: 'visits',        icon: '📋', label: 'Visits' },
-  { k: 'negotiations',  icon: '💬', label: 'Negotiations' },
-  { k: 'revisits',      icon: '↻', label: 'Revisits' },
+  { k: 'pipeline',      icon: '↻', label: 'Revisits & Negotiations' },
   { k: 'cps',           icon: '🤝', label: 'Channel Partners' },
   { k: 'recordings',    icon: '🎙', label: 'Meeting Recordings', recTab: true },
   { k: 'properties',    icon: '🏠', label: 'Properties' },
@@ -184,7 +182,7 @@ export default function App() {
                        placeholder="Search visit, society, CP, buyer, phone…" />
               </div>
             )}
-            {(view === 'visits' || view === 'negotiations') && (
+            {(view === 'visits' || view === 'pipeline') && (
               <button className="rx-filters-btn" type="button" onClick={() => setFiltersOpen(true)}>
                 Filters{activeFilterCount(filters) > 0 && <span className="rx-filters-badge">{activeFilterCount(filters)}</span>}
               </button>
@@ -256,10 +254,8 @@ export default function App() {
                 <AiSuggestionsView seed={vseed} onOpenBroker={setOpenCp} onNavigate={navigateWithSearch} />
               ) : view === 'visits' ? (
                 <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} visitsUi={visitsUi} onVisitsUiChange={setVisitsUi} onResetSearch={resetSearch} onResetGlobalFilters={resetGlobalFilters} />
-              ) : view === 'negotiations' ? (
-                <NegotiationsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} onResetSearch={resetSearch} onResetGlobalFilters={resetGlobalFilters} />
-              ) : view === 'revisits' ? (
-                <RevisitsView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} onResetGlobalFilters={resetGlobalFilters} />
+              ) : view === 'pipeline' ? (
+                <PipelineView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} onResetGlobalFilters={resetGlobalFilters} />
               ) : view === 'cps' ? (
                 <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} onResetSearch={resetSearch} />
               ) : view === 'properties' ? (

@@ -91,6 +91,14 @@ export async function saveFollowup(body) {
   return res.json();
 }
 
+// Manager remark on a visit ("did the manager call" + note). TL/Admin only — the API
+// enforces it; the UI simply doesn't render the control for anyone else.
+export async function addManagerRemark(body) {
+  const res = await apiFetch('/api/visits/manager-remark', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // Book 1–10 visits on the Core app (admin-only). body = { visits: [...] }.
 // Returns { booked, failed, results:[{home_id, ok, visit?, error?, remaining_days?}] }.
 export async function bookVisits(body) {
