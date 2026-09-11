@@ -255,7 +255,7 @@ export default function App() {
               ) : view === 'visits' ? (
                 <VisitsView seed={vseed} onOpenBroker={setOpenCp} search={search} filters={filters} visitsUi={visitsUi} onVisitsUiChange={setVisitsUi} onResetSearch={resetSearch} onResetGlobalFilters={resetGlobalFilters} />
               ) : view === 'pipeline' ? (
-                <PipelineView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} onResetGlobalFilters={resetGlobalFilters} />
+                <PipelineView seed={vseed} onOpenBroker={setOpenCp} reloadSeed={reloadSeed} search={search} filters={filters} onResetSearch={resetSearch} onResetGlobalFilters={resetGlobalFilters} />
               ) : view === 'cps' ? (
                 <CpView seed={vseed} onOpenBroker={setOpenCp} search={search} onResetSearch={resetSearch} />
               ) : view === 'properties' ? (

@@ -925,13 +925,29 @@ async def build(conn: asyncpg.Connection) -> dict:
     try:
         for r in await conn.fetch(
             """
+            WITH repeat_chain AS (
+              -- the 🔁 Revisited signal: a buyer who came back to the SAME unit with the
+              -- same CP. Those rows enter the tab at ANY stage via buildRevisitIndex, so
+              -- bounding history by stage alone left them showing a false "No remarks yet".
+              -- Same key the frontend uses: home_id + cp_code + buyer phone.
+              SELECT v.id
+                FROM visits v
+                JOIN (SELECT home_id, cp_code, buyer_contact
+                        FROM visits
+                       WHERE COALESCE(home_id, '') <> '' AND COALESCE(cp_code, '') <> ''
+                         AND length(COALESCE(buyer_contact, '')) >= 5
+                       GROUP BY 1, 2, 3 HAVING count(*) > 1) g
+                  ON g.home_id = v.home_id AND g.cp_code = v.cp_code
+                 AND g.buyer_contact = v.buyer_contact
+            )
             SELECT v.visit_code, f.note, f.created_at, f.stage, f.buyer_status,
                    COALESCE(u.name, '') AS by_name
               FROM followups f
               JOIN visits v ON v.id = f.visit_id
          LEFT JOIN users u ON u.id = f.by_user_id
-             WHERE v.current_stage = ANY($1::text[])
-               AND COALESCE(f.note, '') <> ''
+             WHERE COALESCE(f.note, '') <> ''
+               AND (v.current_stage = ANY($1::text[])
+                    OR v.id IN (SELECT id FROM repeat_chain))
              ORDER BY f.created_at
             """,
             sorted(PIPELINE_STAGES),

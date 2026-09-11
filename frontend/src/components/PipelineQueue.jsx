@@ -200,6 +200,11 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
   }
 
   // ---- shared inline editor (used by the desktop expanded row + mobile card) ----
+  // NOTE: these five are rendered as plain CALLS, not JSX elements — see the render
+  // sites below. They are defined in this closure, so as elements their type would be a
+  // new function each render and React would remount them, killing focus in the Notes
+  // textarea and the manager-remark input on every keystroke. None uses a hook, so
+  // calling them inlines their output safely.
   const Editor = ({ v }) => {
     const sg = visitStage(v);
     const d = drafts[v.id] || {};
@@ -235,7 +240,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
             <div className="fu-pills">
               {opts.map((s) => (
                 <button key={s} type="button" className={'fu-pill ' + (d.stage === s ? 'on' : '')}
-                        onClick={() => setDraft(v.id, { stage: s })}>{pillLabel(s, cfg)}</button>
+                        onClick={() => setDraft(v.id, { stage: s })}>{pillLabel(s, c)}</button>
               ))}
             </div>
           </div>
@@ -359,7 +364,8 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
               {hist.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--mut)' }}>No remarks yet</div>
               ) : hist.slice(-4).map((h, i) => (
-                <div key={i} style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35 }}>
+                <div key={i} style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35,
+                                      overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>
                   <span style={{ color: 'var(--mut)' }}>{fmtDate(h.at)} · <b>{h.by || '—'}</b> — </span>{h.note}
                 </div>
               ))}
@@ -368,7 +374,8 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
             <div style={{ flex: '1 1 340px', minWidth: 260 }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--mut)', letterSpacing: .3 }}>MANAGER REMARKS ({mgr.length})</div>
               {mgr.map((m, i) => (
-                <div key={i} style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35 }}>
+                <div key={i} style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35,
+                                      overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>
                   <span style={{ color: 'var(--mut)' }}>{fmtDate(m.at)} · <b>{m.by || '—'}</b> · </span>
                   <b style={{ color: m.called ? 'var(--good,#16A34A)' : 'var(--bad)' }}>{m.called ? 'Called' : 'Not called'}</b>
                   {m.note ? <span> — {m.note}</span> : null}
@@ -431,7 +438,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
                 <Fragment key={v.id}>
                   <tr onClick={() => toggleEditor(v)} style={{ cursor: 'pointer' }} className={open ? 'selected' : ''}>
                     <td><span className="id-pill">VST{String(v.id).padStart(4, '0')}</span></td>
-                    <td><DateCell v={v} /></td>
+                    <td>{DateCell({ v })}</td>
                     <td><span className="city-pill">{v.city || ''}</span></td>
                     <td>{v.sales_manager || '—'}</td>
                     <td><b>{v.society_name || '—'}</b><div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1 }}>{sub}</div></td>
@@ -441,7 +448,7 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
                               style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--acc,#2563EB)', textAlign: 'left' }}>
                         {cpName(v) || '—'}
                       </button> <span className={'tier-badge ' + tier}>{tier}</span>
-                      {merged && <CpTxnBadge cp={v.cp_code} />}
+                      {merged && CpTxnBadge({ cp: v.cp_code })}
                       <div style={{ fontSize: 10.5, color: 'var(--mut)', marginTop: 1 }}>{v.company_name || ''}</div>
                     </td>
                     <td>{owner ? (<><div style={{ fontSize: 11.5 }}><b>{(owner.name || '').split(' ')[0]}</b></div><span className={'role-pill ' + (TEAM_PILL[owner.team] || '')}>{owner.team}</span></>) : <span className="muted">—</span>}</td>
@@ -450,12 +457,12 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
                     <td><span className={'fu-chip ' + nfc.cls}><span className="d" />{nfc.label}</span></td>
                     <td className={'last-fu-cell ' + (lfd ? '' : 'none')}>{lfd ? (<><div className="lf-date">{fmtDate(lfd)}</div><div className="lf-ago">{fmtDay(lfd)}</div></>) : 'Not taken'}</td>
                     <td style={{ fontWeight: 600, color: 'var(--accDark)' }}>{price ? fmtPrice(price) : '—'}</td>
-                    <td onClick={(e) => e.stopPropagation()}><ConfirmCell v={v} /></td>
+                    <td onClick={(e) => e.stopPropagation()}>{ConfirmCell({ v })}</td>
                     <td><button type="button" className="btn sm" onClick={(e) => { e.stopPropagation(); toggleEditor(v); }}>{open ? 'Close' : 'Update'}</button></td>
                   </tr>
-                  {merged && <RemarksRow v={v} cols={COLS.length} />}
+                  {merged && RemarksRow({ v, cols: COLS.length })}
                   {open && (
-                    <tr key={v.id + '-ed'}><td colSpan={COLS.length}><Editor v={v} /></td></tr>
+                    <tr key={v.id + '-ed'}><td colSpan={COLS.length}>{Editor({ v })}</td></tr>
                   )}
                 </Fragment>
               );
@@ -494,10 +501,10 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
               <span style={{ color: 'var(--mut)' }}>RM: {v.sales_manager || '—'}</span>
             </div>
             <div className="mc-foot">
-              {sg === c.scheduledStage ? <span><ConfirmCell v={v} /></span> : <span />}
+              {sg === c.scheduledStage ? <span>{ConfirmCell({ v })}</span> : <span />}
               <button type="button" className="btn sm" onClick={() => toggleEditor(v)}>{open ? 'Close' : 'Update'}</button>
             </div>
-            {open && <Editor v={v} />}
+            {open && Editor({ v })}
           </div>
         );
       })}

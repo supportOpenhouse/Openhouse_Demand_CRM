@@ -33,7 +33,7 @@ const actDate = (v) => {
   return d ? String(d).slice(0, 10) : '';
 };
 
-export default function PipelineView({ seed, onOpenBroker, reloadSeed, search = '', filters = {}, onResetGlobalFilters }) {
+export default function PipelineView({ seed, onOpenBroker, reloadSeed, search = '', filters = {}, onResetSearch, onResetGlobalFilters }) {
   const me = seed.current_user || {};
   const cpOwner = seed.cp_owner || {};
   const properties = seed.properties || [];
@@ -61,7 +61,9 @@ export default function PipelineView({ seed, onOpenBroker, reloadSeed, search = 
   const [revFrom, setRevFrom] = useStickyState('pipeline:from', '');
   const [revTo, setRevTo] = useStickyState('pipeline:to', '');
   const dq = useDeferredValue(search);
-  const resetFilters = () => { setStageTab([]); setRevFrom(''); setRevTo(''); onResetGlobalFilters?.(); };
+  // clears the stage tabs, the date range, the shared Filters AND the top-bar search —
+  // the old Negotiations tab cleared the search too, so keep that behaviour.
+  const resetFilters = () => { setStageTab([]); setRevFrom(''); setRevTo(''); onResetSearch?.(); onResetGlobalFilters?.(); };
 
   // Revisit index over the FULL scoped set (chains complete within scope). An "actual
   // revisit" = the LATEST visit of a chain that has an earlier COMPLETED visit to the same
