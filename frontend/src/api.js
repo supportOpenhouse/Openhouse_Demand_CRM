@@ -118,6 +118,13 @@ export async function completeVisit(body) {
 }
 
 // --- A property's Core Sales Manager (Admin/TL only on the backend) ---
+// The assignable roster ONCE, for the Sales Managers grid's inline dropdowns (no Core call).
+export async function loadAssignableSalesManagers() {
+  const res = await apiFetch('/api/sales-managers/assignable');
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();   // { assignable:[{slug,name,team,sales_manager_id}] }
+}
+
 export async function loadPropertySalesManager(homeId) {
   const res = await apiFetch(`/api/properties/${encodeURIComponent(homeId)}/sales-manager`);
   if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }

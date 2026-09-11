@@ -20,7 +20,6 @@ import { useStickyState } from '../lib/sessionFilters.js';
 const FUNNEL = ['revisit_scheduled', 'after_revisit_fu', 'negotiation', 'after_negotiation_fu', 'booking'];
 const STAGE_TABS = [
   { k: 'all', label: 'All', cls: '' },
-  { k: 'revisited', label: '🔁 Revisited', cls: 'sg-rev' },
   { k: 'revisit_scheduled', label: 'Revisit Scheduled', cls: 'sg-rev' },
   { k: 'after_revisit_fu', label: 'After Revisit FU', cls: 'sg-avfu' },
   { k: 'negotiation', label: 'Negotiation', cls: 'sg-nego' },
@@ -147,15 +146,13 @@ export default function PipelineView({ seed, onOpenBroker, reloadSeed, search = 
   }), [funnel, filters, dq, propBySociety, brokersByCode, revFrom, revTo]);
 
   const stageCounts = useMemo(() => {
-    const c = { all: base.length, revisited: 0, revisit_scheduled: 0, after_revisit_fu: 0, negotiation: 0, after_negotiation_fu: 0, booking: 0 };
-    base.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; if (isActualRev(v)) c.revisited += 1; });
+    const c = { all: base.length, revisit_scheduled: 0, after_revisit_fu: 0, negotiation: 0, after_negotiation_fu: 0, booking: 0 };
+    base.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; });
     return c;
   }, [base, revIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(
-    () => (stageTab.length
-      ? base.filter((v) => stageTab.includes(visitStage(v)) || (stageTab.includes('revisited') && isActualRev(v)))
-      : base),
+    () => (stageTab.length ? base.filter((v) => stageTab.includes(visitStage(v))) : base),
     [base, stageTab, revIndex], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
