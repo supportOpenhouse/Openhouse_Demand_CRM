@@ -17,7 +17,7 @@ import ChipBar from '../components/ChipBar.jsx';
 import PipelineQueue from '../components/PipelineQueue.jsx';
 import { useStickyState } from '../lib/sessionFilters.js';
 
-const FUNNEL = ['revisit_scheduled', 'after_revisit_fu', 'negotiation', 'after_negotiation_fu'];
+const FUNNEL = ['revisit_scheduled', 'after_revisit_fu', 'negotiation', 'after_negotiation_fu', 'booking'];
 const STAGE_TABS = [
   { k: 'all', label: 'All', cls: '' },
   { k: 'revisited', label: '🔁 Revisited', cls: 'sg-rev' },
@@ -25,6 +25,7 @@ const STAGE_TABS = [
   { k: 'after_revisit_fu', label: 'After Revisit FU', cls: 'sg-avfu' },
   { k: 'negotiation', label: 'Negotiation', cls: 'sg-nego' },
   { k: 'after_negotiation_fu', label: 'After Negotiation FU', cls: 'sg-avfu' },
+  { k: 'booking', label: 'Booking', cls: 'sg-book' },
 ];
 // one row's activity date = whichever of the two applies to its stage
 const actDate = (v) => {
@@ -144,7 +145,7 @@ export default function PipelineView({ seed, onOpenBroker, reloadSeed, search = 
   }), [funnel, filters, dq, propBySociety, brokersByCode, revFrom, revTo]);
 
   const stageCounts = useMemo(() => {
-    const c = { all: base.length, revisited: 0, revisit_scheduled: 0, after_revisit_fu: 0, negotiation: 0, after_negotiation_fu: 0 };
+    const c = { all: base.length, revisited: 0, revisit_scheduled: 0, after_revisit_fu: 0, negotiation: 0, after_negotiation_fu: 0, booking: 0 };
     base.forEach((v) => { const s = visitStage(v); c[s] = (c[s] || 0) + 1; if (isActualRev(v)) c.revisited += 1; });
     return c;
   }, [base, revIndex]); // eslint-disable-line react-hooks/exhaustive-deps

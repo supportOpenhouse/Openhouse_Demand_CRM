@@ -47,7 +47,8 @@ DEAD_LISTING_STATUSES = {"Sold", "Archived"}
 # The pipeline tab's funnel (Revisits & Negotiations in one view). Used to bound the
 # per-visit remark history we ship in the seed. KEEP IN SYNC with the frontend's
 # FUNNEL in views/PipelineView.jsx.
-PIPELINE_STAGES = {"revisit_scheduled", "after_revisit_fu", "negotiation", "after_negotiation_fu"}
+PIPELINE_STAGES = {"revisit_scheduled", "after_revisit_fu", "negotiation", "after_negotiation_fu",
+                   "booking"}
 
 
 def _last10(s: str | None) -> str:

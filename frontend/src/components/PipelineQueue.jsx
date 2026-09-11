@@ -314,16 +314,17 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
   // CP transaction status. A CP is TRANSACTIONAL when it has actually closed — the union
   // of the CRM's own Booking/ATS pipeline and the demand-dashboard booking_details selling
   // CP (see seed_snapshot + main._demand_txn_cps). Shown only on the merged pipeline tab.
+  // POSITIVE-ONLY badge: only a CP that has actually closed is marked. Most CPs have
+  // not (18 of 140 pipeline leads today), so labelling the rest "NON-TXN" was pure
+  // noise on the card — an unbadged CP simply means no booking closed yet.
   const CpTxnBadge = ({ cp }) => {
-    if (!cp) return null;
-    const txn = txnCps.has(cp);
+    if (!cp || !txnCps.has(cp)) return null;
     return (
-      <span title={txn ? 'Transactional — this CP has closed a booking' : 'Non-transactional — no booking closed yet'}
+      <span title="Transactional — this CP has closed a booking"
             style={{ marginLeft: 5, fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 6,
-                     border: '1px solid ' + (txn ? 'var(--good,#16A34A)' : 'var(--line)'),
-                     color: txn ? 'var(--good,#16A34A)' : 'var(--mut)',
-                     background: txn ? 'rgba(22,163,74,.08)' : 'transparent', whiteSpace: 'nowrap' }}>
-        {txn ? '₹ TXN' : 'NON-TXN'}
+                     border: '1px solid var(--good,#16A34A)', color: 'var(--good,#16A34A)',
+                     background: 'rgba(22,163,74,.08)', whiteSpace: 'nowrap' }}>
+        ₹ TXN
       </span>
     );
   };
