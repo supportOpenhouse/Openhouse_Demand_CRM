@@ -200,8 +200,8 @@ export default function SalesManagersView({ seed }) {
               <col style={{ width: '17%' }} />
               <col style={{ width: '9%' }} />
               <col style={{ width: '11%' }} />
-              <col style={{ width: '19%' }} />
-              <col style={{ width: '22%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '21%' }} />
             </colgroup>
             <thead>
               <tr>
