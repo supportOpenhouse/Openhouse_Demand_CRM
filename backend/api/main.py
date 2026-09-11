@@ -1080,6 +1080,23 @@ async def complete_visit(body: VisitCompleteBody, user: dict = Depends(auth.curr
 # Core's `homes.sales_manager`, NOT the CRM's own property_assignments (which stay
 # the CRM's source of truth for scoping); the two are deliberately independent.
 
+@app.get("/api/sales-managers/assignable")
+async def get_assignable_sales_managers(user: dict = Depends(auth.current_user)):
+    """The CRM roster members that can own a property in Core (users with a mapped
+    core_sales_manager_id). Admin/TL only — same gate as the per-home route below.
+
+    Split out so the Sales Managers grid can render an inline dropdown on every row
+    from ONE request; the per-home route still exists and additionally returns Core's
+    authoritative current owner for a single unit."""
+    _require_admin_or_tl(user)
+    async with acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT slug, name, team, core_sales_manager_id FROM users "
+            "WHERE active AND core_sales_manager_id IS NOT NULL ORDER BY name")
+    return {"assignable": [{"slug": r["slug"], "name": r["name"], "team": r["team"],
+                            "sales_manager_id": r["core_sales_manager_id"]} for r in rows]}
+
+
 @app.get("/api/properties/{home_id}/sales-manager")
 async def get_property_sales_manager(home_id: str, user: dict = Depends(auth.current_user)):
     """Current Core SalesManager for a home, plus the CRM roster members that can be

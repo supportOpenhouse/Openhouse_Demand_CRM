@@ -85,6 +85,13 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
   const meUser = seed.current_user || {};
   const canManagerRemark = meUser.team === 'TL' || meUser.team === 'Admin' || meUser.role === 'admin';
   const [mgrDraft, setMgrDraft] = useState({});
+  // which rows have their remarks strip expanded (collapsed by default → one line per lead)
+  const [openRemarks, setOpenRemarks] = useState(() => new Set());
+  const toggleRemarks = (id) => setOpenRemarks((p) => {
+    const n = new Set(p); const k = String(id);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    return n;
+  });
   const setMgr = (id, patch) => setMgrDraft((m) => ({ ...m, [id]: { ...(m[id] || {}), ...patch } }));
   const isMobile = useIsMobile();
   const properties = seed.properties || [];
@@ -334,8 +341,29 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
     );
   };
 
-  // The PM remark history + the manager remark box, rendered as a sub-row so the team can
-  // read the running commentary WITHOUT opening the lead.
+  // Compact counter shown on the single-line row: how much commentary exists, and whether a
+  // manager has logged a call. Clicking it expands the full strip below.
+  const RemarksChip = ({ v }) => {
+    const nh = (fuHistory[String(v.id)] || []).length;
+    const mg = mgrRemarks[String(v.id)] || [];
+    const open = openRemarks.has(String(v.id));
+    const called = mg.some((m) => m.called);
+    return (
+      <button type="button" className="btn xs"
+              title={open ? 'Hide remarks' : 'Show PM remarks & manager note'}
+              onClick={(e) => { e.stopPropagation(); toggleRemarks(v.id); }}
+              style={{ whiteSpace: 'nowrap', fontWeight: 600,
+                       borderColor: open ? 'var(--acc,#2563EB)' : undefined }}>
+        <span style={{ opacity: nh ? 1 : .45 }}>💬 {nh}</span>
+        <span style={{ marginLeft: 6, opacity: mg.length ? 1 : .45,
+                       color: called ? 'var(--good,#16A34A)' : undefined }}>📞 {mg.length}</span>
+        <span style={{ marginLeft: 5, opacity: .55 }}>{open ? '▾' : '▸'}</span>
+      </button>
+    );
+  };
+
+  // The PM remark history + the manager remark box. Collapsed by default (see RemarksChip)
+  // so the list stays one line per lead.
   const RemarksRow = ({ v, cols }) => {
     const hist = fuHistory[String(v.id)] || [];
     const mgr = mgrRemarks[String(v.id)] || [];
@@ -458,9 +486,12 @@ export default function PipelineQueue({ seed, rows, mode, onOpenBroker, onSaved,
                     <td className={'last-fu-cell ' + (lfd ? '' : 'none')}>{lfd ? (<><div className="lf-date">{fmtDate(lfd)}</div><div className="lf-ago">{fmtDay(lfd)}</div></>) : 'Not taken'}</td>
                     <td style={{ fontWeight: 600, color: 'var(--accDark)' }}>{price ? fmtPrice(price) : '—'}</td>
                     <td onClick={(e) => e.stopPropagation()}>{ConfirmCell({ v })}</td>
-                    <td><button type="button" className="btn sm" onClick={(e) => { e.stopPropagation(); toggleEditor(v); }}>{open ? 'Close' : 'Update'}</button></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {merged && <RemarksChip v={v} />}{merged ? ' ' : null}
+                      <button type="button" className="btn sm" onClick={(e) => { e.stopPropagation(); toggleEditor(v); }}>{open ? 'Close' : 'Update'}</button>
+                    </td>
                   </tr>
-                  {merged && RemarksRow({ v, cols: COLS.length })}
+                  {merged && openRemarks.has(String(v.id)) && RemarksRow({ v, cols: COLS.length })}
                   {open && (
                     <tr key={v.id + '-ed'}><td colSpan={COLS.length}>{Editor({ v })}</td></tr>
                   )}
