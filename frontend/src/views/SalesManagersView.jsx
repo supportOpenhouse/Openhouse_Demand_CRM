@@ -196,11 +196,11 @@ export default function SalesManagersView({ seed }) {
         <div className="tbl-wrap">
           <table className="t sm-table" style={{ tableLayout: 'fixed', width: '100%', minWidth: 980 }}>
             <colgroup>
-              <col style={{ width: '24%' }} />
-              <col style={{ width: '18%' }} />
+              <col style={{ width: '22%' }} />
+              <col style={{ width: '17%' }} />
               <col style={{ width: '9%' }} />
               <col style={{ width: '11%' }} />
-              <col style={{ width: '16%' }} />
+              <col style={{ width: '19%' }} />
               <col style={{ width: '22%' }} />
             </colgroup>
             <thead>
@@ -208,15 +208,17 @@ export default function SalesManagersView({ seed }) {
                 {[['society', 'Society / Unit'], ['locality', 'Locality'], ['city', 'City'],
                   ['status', 'Status'], ['manager', 'CRM property manager']].map(([k, label]) => (
                   <th key={k} className="sort" onClick={() => toggleSort(k)}
-                      style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      style={{ cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden' }}
                       title={`Sort by ${label.toLowerCase()}`}>
-                    {label}
-                    <span className="sI" style={{ opacity: sort.key === k ? 1 : .25 }}>
-                      {' '}{sort.key === k ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3, overflow: 'hidden' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+                      <span className="sI" style={{ flex: 'none', opacity: sort.key === k ? 1 : .25 }}>
+                        {sort.key === k ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
+                      </span>
                     </span>
                   </th>
                 ))}
-                <th>App sales manager</th>
+                <th style={{ overflow: 'hidden', textOverflow: 'ellipsis' }} title="App sales manager">App sales manager</th>
               </tr>
             </thead>
             <tbody>
