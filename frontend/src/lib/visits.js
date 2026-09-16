@@ -324,6 +324,20 @@ export function canCompleteVisit(v) {
   return /^\d+$/.test(String(v.id || v.visit_code || '').trim());
 }
 
+// Can a REVISIT be booked off this visit (docs/CP_REVISIT_RESCHEDULE.md)?
+//
+// The mirror of canCompleteVisit: Core clones only a COMPLETED visit into a new
+// upcoming one, and rejects anything else with
+// "Revisit is only allowed when the prior visit is completed."
+// Cancelled visits are excluded — Core refuses them, and a cancelled visit is not
+// evidence the buyer saw the unit.
+export function canRevisitVisit(v) {
+  if (!v) return false;
+  const st = String(v.status || '').trim().toLowerCase();
+  if (st !== 'completed') return false;
+  return /^\d+$/.test(String(v.id || v.visit_code || '').trim());
+}
+
 export function buildRevisitIndex(visits = []) {
   const groups = new Map();
   for (const v of visits) {

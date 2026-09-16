@@ -117,6 +117,22 @@ export async function completeVisit(body) {
   return res.json();   // { ok, visit:{ id, status, platform, lead_status, ... } }
 }
 
+// --- Revisit / reschedule on Core (docs/CP_REVISIT_RESCHEDULE.md) ---
+// body = { visit_code, selected_date:'YYYY-MM-DD', selected_time:'11 - 1 PM' }.
+// revisit   — clones a COMPLETED visit into a NEW upcoming one (new visit id).
+// reschedule— moves an UPCOMING visit to a new slot (SAME visit id).
+// Core is called first; only on its 2xx does the CRM row change.
+export async function revisitVisit(body) {
+  const res = await apiFetch('/api/visits/revisit', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();   // { ok, visit:{ id, old_visit_id, status, selected_date, ... } }
+}
+export async function rescheduleVisit(body) {
+  const res = await apiFetch('/api/visits/reschedule', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();   // { ok, visit:{ id, status, selected_date, selected_time, ... } }
+}
+
 // --- A property's Core Sales Manager (Admin/TL only on the backend) ---
 // The assignable roster ONCE, for the Sales Managers grid's inline dropdowns (no Core call).
 export async function loadAssignableSalesManagers() {

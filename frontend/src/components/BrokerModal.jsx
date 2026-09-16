@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { TODAY, ymd, fmtDate, fmtDay, fmtMonth, fmtDateTime, initials } from '../lib/format.js';
 import {
   STATUSES, STAGES, STAGE_BY_KEY, visitStage, visitStatus, nextActivityFor, buildRevisitIndex,
-  canCompleteVisit,
+  canCompleteVisit, canRevisitVisit,
 } from '../lib/visits.js';
 import { usersBySlug } from '../lib/brokers.js';
 import {
@@ -18,6 +18,7 @@ import { recsForCp } from '../lib/recordings.js';
 import RecordingDetail from './RecordingDetail.jsx';
 import RevisitTag from './RevisitTag.jsx';
 import VisitCompleteModal from './VisitCompleteModal.jsx';
+import VisitRescheduleModal from './VisitRescheduleModal.jsx';
 
 const STAGE_ORDER = ['all', 'upcoming', 'avfu', 'revisit_scheduled', 'after_revisit_fu', 'negotiation', 'booking', 'ats', 'future_prospect', 'not_interested', 'need_more', 'cancelled'];
 const STATUS_PILLS = ['hot', 'warm', 'cold', 'dead', 'future_prospect'];
@@ -76,6 +77,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
   const [waCp, setWaCp] = useState(null);
   const [nudgeVid, setNudgeVid] = useState(null);
   const [completeVisit, setCompleteVisit] = useState(null);   // visit being closed out on Core
+  const [reschedVisit, setReschedVisit] = useState(null);     // visit being moved / revisited on Core
 
   const ownerId = cpOwner[cpCode] || '';
   const ownerName = ownerId ? (ubs[ownerId]?.name || '—') : '—';
@@ -395,6 +397,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
                         ownerId={ownerId} me={me} busy={busy}
                         nudgeSent={false}
                         onOpenComplete={setCompleteVisit}
+                        onOpenReschedule={setReschedVisit}
                       />
                     )) : (visitCount === 0
                       ? <div className="empty"><div className="emoji">📭</div><div className="t">No visits</div><div className="s">This CP has no visits yet.</div></div>
@@ -443,6 +446,15 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
           onDone={() => { setCompleteVisit(null); reloadSeed?.(); }}
         />
       )}
+
+      {/* SATELLITE: reschedule an upcoming visit / book a revisit off a completed one */}
+      {reschedVisit && (
+        <VisitRescheduleModal
+          visit={reschedVisit}
+          onClose={() => setReschedVisit(null)}
+          onDone={() => { setReschedVisit(null); reloadSeed?.(); }}
+        />
+      )}
     </div>
   );
 }
@@ -450,7 +462,7 @@ export default function BrokerModal({ cpCode, seed, reloadSeed, onClose }) {
 /* ===============================================================
    VISIT ROW
    =============================================================== */
-function VisitRow({ v, visits, revIndex, followupLog, ubs, open, isPriority, onToggle, draft, setDraft, onSave, onNudge, nudgesByVisit, teamTasks, ownerId, me, busy, onOpenComplete }) {
+function VisitRow({ v, visits, revIndex, followupLog, ubs, open, isPriority, onToggle, draft, setDraft, onSave, onNudge, nudgesByVisit, teamTasks, ownerId, me, busy, onOpenComplete, onOpenReschedule }) {
   const status = visitStatus(v);
   const stage = visitStage(v);
   const recent = (v.all_feedback || '').split('\n').filter((l) => l.trim()).slice(-3).reverse();
@@ -581,9 +593,29 @@ function VisitRow({ v, visits, revIndex, followupLog, ubs, open, isPriority, onT
                 <b>Mark this visit as complete</b>
                 <span>Updates the visit in the OpenHouse app — this can’t be undone from the CRM.</span>
               </div>
+              <div className="vc-band-acts">
+                <button type="button" className="vc-btn" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); onOpenReschedule(v); }}
+                        title="Move this visit to another date / slot in the app">
+                  Reschedule
+                </button>
+                <button type="button" className="vc-btn primary" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); onOpenComplete(v); }}>
+                  Mark complete / cancel
+                </button>
+              </div>
+            </div>
+          ) : canRevisitVisit(v) ? (
+            /* Visit is done. The forward action is no longer "close it out" but
+               "the buyer is coming again" — Core clones it into a new upcoming visit. */
+            <div className="vc-band">
+              <div className="vc-band-txt">
+                <b>Buyer coming again?</b>
+                <span>Books a <b>new</b> visit in the OpenHouse app, cloned from this completed one.</span>
+              </div>
               <button type="button" className="vc-btn primary" disabled={busy}
-                      onClick={(e) => { e.stopPropagation(); onOpenComplete(v); }}>
-                Mark complete / cancel
+                      onClick={(e) => { e.stopPropagation(); onOpenReschedule(v); }}>
+                Book revisit
               </button>
             </div>
           ) : null}

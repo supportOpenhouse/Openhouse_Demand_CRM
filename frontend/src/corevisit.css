@@ -140,10 +140,13 @@
 .vc-band-txt b { font-size: 13.5px; font-weight: 700; letter-spacing: -.1px; }
 .vc-band-txt span { font-size: 11.5px; color: var(--mut, #6b7683); line-height: 1.45; }
 .vc-band .vc-btn { flex: 0 0 auto; }
+/* two actions in one band (Reschedule + Mark complete) */
+.vc-band-acts { display: flex; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
 
 @media (max-width: 900px) {
   .vc-band { gap: 10px; }
-  .vc-band .vc-btn { width: 100%; }
+  .vc-band-acts { width: 100%; }
+  .vc-band .vc-btn { width: 100%; flex: 1 1 auto; }
 }
 
 /* ── Sales Managers tab (sm-* prefixed, self-contained) ─────────────────── */

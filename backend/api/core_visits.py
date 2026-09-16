@@ -19,6 +19,7 @@ and no caller has to care.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 
 import httpx
@@ -131,9 +132,13 @@ def _norm_visit(v: Any) -> dict:
         "selected_date": v.get("selected_date", v.get("selectedDate")),
         "selected_time": v.get("selected_time", v.get("selectedTime")),
         "visit_uuid": v.get("visit_uuid", v.get("visitUuid")),
-        "home": v.get("home"),
-        "buyer": v.get("buyer"),
-        "broker": v.get("broker"),
+        # The complete/cancel endpoint returns these as `home`/`buyer`/`broker`;
+        # revisit/reschedule return them as `homeId`/`buyerId`/`brokerId`. Accept
+        # either so one shape reaches the frontend whichever call produced it.
+        "home": v.get("home", v.get("homeId")),
+        "buyer": v.get("buyer", v.get("buyerId")),
+        "broker": v.get("broker", v.get("brokerId")),
+        "sales_manager_id": v.get("sales_manager_id", v.get("salesManagerId")),
     }
 
 
@@ -195,6 +200,90 @@ async def update_visit(
     log.info("[core-visit] OK visit=%s -> status=%s platform=%s",
              visit_id, out.get("status"), out.get("platform"))
     return out
+
+
+# ============================================================================
+# 1b. Revisit / reschedule  (docs/CP_REVISIT_RESCHEDULE.md)
+# ============================================================================
+# Two sides of "the buyer is coming (again)":
+#   revisit    — clone a COMPLETED visit into a NEW upcoming one (new id)
+#   reschedule — move an UPCOMING visit to a new slot (SAME id)
+# Neither takes a sales_manager_id: Core keeps the visit's own SM (or the home's
+# on a revisit), which is exactly what we want — the CRM must not silently
+# reassign a visit just by moving its date.
+
+def _check_slot(selected_date: str, selected_time: str) -> None:
+    """Both endpoints need a YYYY-MM-DD date and a slot. Validate here so a bad
+    value is a CRM 400 with a useful message, not an opaque Core 400."""
+    if not selected_date or not selected_time:
+        raise CoreVisitError("selected_date and selected_time are required", status=400)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", selected_date.strip()):
+        raise CoreVisitError("selected_date must be YYYY-MM-DD", status=400)
+
+
+async def revisit_visit(visit_id: str | int, *, selected_date: str, selected_time: str) -> dict:
+    """POST /crm/revisit-visits/ — clone a COMPLETED visit into a new upcoming one.
+
+    Returns the NEW visit (new id) plus `old_visit_id`, the completed visit it was
+    cloned from. Core rejects a non-completed source with 400, and a same
+    buyer+broker+home+slot duplicate with 400 "This visit is already created."
+    """
+    _check_slot(selected_date, selected_time)
+    payload = {"visit_id": int(visit_id) if str(visit_id).isdigit() else visit_id,
+               "selected_date": selected_date.strip(), "selected_time": selected_time.strip()}
+    log.info("[core-visit] POST revisit from=%s -> %s %s", visit_id, selected_date, selected_time)
+    async with httpx.AsyncClient(timeout=30.0, headers=_headers()) as client:
+        resp = await client.post(f"{_base()}/crm/revisit-visits/", json=payload)
+    data = _raise_for_status(resp, "revisit")
+    out = _norm_visit(data)
+    # Core replies camelCase (`oldVisitId`) even though the spec writes snake_case.
+    out["old_visit_id"] = (data.get("old_visit_id", data.get("oldVisitId"))
+                           if isinstance(data, dict) else None)
+    log.info("[core-visit] OK revisit new_id=%s old=%s", out.get("id"), out.get("old_visit_id"))
+    return out
+
+
+async def reschedule_visit(visit_id: str | int, *, selected_date: str, selected_time: str) -> dict:
+    """POST /crm/reschedule-visits/ — move an UPCOMING visit to a new slot.
+
+    The visit id does NOT change and the sales manager is untouched. Core rejects
+    a completed/cancelled visit with 400 "Only upcoming visits can be rescheduled."
+    """
+    _check_slot(selected_date, selected_time)
+    payload = {"visit_id": int(visit_id) if str(visit_id).isdigit() else visit_id,
+               "selected_date": selected_date.strip(), "selected_time": selected_time.strip()}
+    log.info("[core-visit] POST reschedule visit=%s -> %s %s", visit_id, selected_date, selected_time)
+    async with httpx.AsyncClient(timeout=30.0, headers=_headers()) as client:
+        resp = await client.post(f"{_base()}/crm/reschedule-visits/", json=payload)
+    data = _raise_for_status(resp, "reschedule")
+    out = _norm_visit(data)
+    log.info("[core-visit] OK reschedule visit=%s -> %s %s",
+             out.get("id"), out.get("selected_date"), out.get("selected_time"))
+    return out
+
+
+async def get_visits(ids) -> dict:
+    """GET /crm/visits/?ids=… — read visits back from Core by id.
+
+    Core caps this at 100 ids per call, so batch. Returns
+    {visits:[…], missing_ids:[…]} with ids normalised to strings, which is how the
+    CRM stores `visits.visit_code`.
+    """
+    wanted = [str(i).strip() for i in ids if str(i).strip()]
+    if not wanted:
+        return {"visits": [], "missing_ids": []}
+
+    out: list = []
+    missing: list = []
+    async with httpx.AsyncClient(timeout=40.0, headers=_headers()) as client:
+        for i in range(0, len(wanted), 100):          # Core's documented max per request
+            batch = wanted[i:i + 100]
+            resp = await client.get(f"{_base()}/crm/visits/", params={"ids": ",".join(batch)})
+            data = _raise_for_status(resp, "visit fetch")
+            if isinstance(data, dict):
+                out.extend(data.get("visits") or [])
+                missing.extend(str(m) for m in (data.get("missing_ids") or []))
+    return {"visits": out, "missing_ids": missing}
 
 
 # ============================================================================

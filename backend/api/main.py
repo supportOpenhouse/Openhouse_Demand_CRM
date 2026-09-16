@@ -1073,6 +1073,144 @@ async def complete_visit(body: VisitCompleteBody, user: dict = Depends(auth.curr
 
 
 # ============================================================================
+# Write · revisit / reschedule on Core (docs/CP_REVISIT_RESCHEDULE.md)
+# ============================================================================
+# Two sides of "the buyer is coming (again)":
+#   revisit    — clone a COMPLETED visit into a NEW upcoming one (NEW visit id)
+#   reschedule — move an UPCOMING visit to a new slot (SAME visit id)
+#
+# Both are Core-first, like /api/visits/complete: Core is the system of record for a
+# visit's date/status, so we only touch our own row after Core returns 2xx. Neither
+# sends a sales_manager_id — Core keeps the visit's existing SM, so moving a date can
+# never silently reassign the visit.
+#
+# Permission: the SAME see ⟹ edit rule as a follow-up (_can_edit_visit). No new access.
+#
+# A revisit creates a visit that does NOT exist in our DB yet; we do NOT fabricate a
+# local row for it. The 15-min sheet sync brings it in with all its denormalised
+# columns — inventing a half-populated row here would fight that sync.
+
+class VisitRescheduleBody(BaseModel):
+    visit_code: str
+    selected_date: str                             # YYYY-MM-DD
+    selected_time: str                             # e.g. "11 - 1 PM" (spaced, as Core stores)
+
+
+@app.post("/api/visits/revisit")
+async def revisit_visit(body: VisitRescheduleBody, user: dict = Depends(auth.current_user)):
+    """Clone a COMPLETED visit into a new upcoming one on Core."""
+    if not core_visits.is_configured():
+        raise HTTPException(503, "Core visit API is not configured (CRM_BOOKING_API_BASE_URL / CRM_API_KEY).")
+    code = (body.visit_code or "").strip()
+    if not code:
+        raise HTTPException(400, "visit_code is required")
+
+    async with acquire() as conn:
+        visit = await conn.fetchrow(
+            "SELECT id, visit_code, status FROM visits WHERE visit_code = $1", code)
+        if not visit:
+            raise HTTPException(404, f"Visit {code} not found")
+        if not await _can_edit_visit(conn, user, visit["id"]):
+            raise HTTPException(403, "You don't have permission to edit this visit")
+
+    try:
+        created = await core_visits.revisit_visit(
+            code, selected_date=body.selected_date, selected_time=body.selected_time)
+    except core_visits.CoreVisitError as e:
+        log.warning("[core-visit] revisit from=%s by=%s failed: %s", code, user.get("slug"), e)
+        raise HTTPException(e.status if e.status in (400, 404, 409, 422) else 502, str(e)) from e
+
+    # Audit on the ORIGINAL visit (the new one isn't in our DB until the next sync).
+    try:
+        async with acquire() as conn:
+            prev = await conn.fetchrow(
+                "SELECT current_stage, current_status FROM visits WHERE id = $1", visit["id"])
+            await conn.execute(
+                """
+                INSERT INTO followups (visit_id, by_user_id, buyer_status, stage, note,
+                                       previous_stage, previous_status, source)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'crm_core')
+                """,
+                visit["id"], user["id"],
+                (prev["current_status"] if prev else None) or "unc",
+                (prev["current_stage"] if prev else None) or "upcoming",
+                (f"Revisit booked for {body.selected_date} {body.selected_time} "
+                 f"(new visit {created.get('id')})")[:2000],
+                prev["current_stage"] if prev else None,
+                prev["current_status"] if prev else None)
+    except Exception as e:  # noqa: BLE001 — Core already created it; never fail on the audit row
+        log.warning("[core-visit] revisit audit failed for visit=%s: %s", code, e)
+
+    log.info("[core-visit] revisit by=%s old=%s new=%s", user.get("slug"), code, created.get("id"))
+    return {"ok": True, "visit": created}
+
+
+@app.post("/api/visits/reschedule")
+async def reschedule_visit(body: VisitRescheduleBody, user: dict = Depends(auth.current_user)):
+    """Move an UPCOMING visit to a new date/slot on Core, then mirror it locally."""
+    if not core_visits.is_configured():
+        raise HTTPException(503, "Core visit API is not configured (CRM_BOOKING_API_BASE_URL / CRM_API_KEY).")
+    code = (body.visit_code or "").strip()
+    if not code:
+        raise HTTPException(400, "visit_code is required")
+    # Parse up front: this is the value we mirror locally, and asyncpg needs a real
+    # date object (a ::date cast in SQL is applied AFTER binding, too late).
+    try:
+        new_date = _dt.date.fromisoformat((body.selected_date or "").strip())
+    except ValueError:
+        raise HTTPException(400, "selected_date must be YYYY-MM-DD") from None
+
+    async with acquire() as conn:
+        visit = await conn.fetchrow(
+            "SELECT id, visit_code, status, selected_date, selected_time "
+            "FROM visits WHERE visit_code = $1", code)
+        if not visit:
+            raise HTTPException(404, f"Visit {code} not found")
+        if not await _can_edit_visit(conn, user, visit["id"]):
+            raise HTTPException(403, "You don't have permission to edit this visit")
+
+    try:
+        updated = await core_visits.reschedule_visit(
+            code, selected_date=body.selected_date, selected_time=body.selected_time)
+    except core_visits.CoreVisitError as e:
+        log.warning("[core-visit] reschedule visit=%s by=%s failed: %s", code, user.get("slug"), e)
+        raise HTTPException(e.status if e.status in (400, 404, 409, 422) else 502, str(e)) from e
+
+    # Core accepted → mirror the new slot locally so the row moves before the next sync.
+    # visit_date is the column the UI sorts/buckets on, so it moves with selected_date.
+    async with acquire() as conn:
+        prev = await conn.fetchrow(
+            "SELECT current_stage, current_status FROM visits WHERE id = $1", visit["id"])
+        # Audit BEFORE the UPDATE: the followups trigger rewrites visits.current_*
+        # (see /api/visits/complete for the same ordering constraint).
+        try:
+            await conn.execute(
+                """
+                INSERT INTO followups (visit_id, by_user_id, buyer_status, stage, note,
+                                       previous_stage, previous_status, source)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'crm_core')
+                """,
+                visit["id"], user["id"],
+                (prev["current_status"] if prev else None) or "unc",
+                (prev["current_stage"] if prev else None) or "upcoming",
+                (f"Rescheduled from {visit['selected_date']} {visit['selected_time'] or ''} "
+                 f"to {body.selected_date} {body.selected_time}")[:2000],
+                prev["current_stage"] if prev else None,
+                prev["current_status"] if prev else None)
+        except Exception as e:  # noqa: BLE001
+            log.warning("[core-visit] reschedule audit failed for visit=%s: %s", code, e)
+
+        await conn.execute(
+            "UPDATE visits SET selected_date = $1, selected_time = $2, "
+            "  visit_date = $1, updated_at = now() WHERE id = $3",
+            new_date, body.selected_time, visit["id"])
+
+    log.info("[core-visit] reschedule by=%s visit=%s -> %s %s",
+             user.get("slug"), code, body.selected_date, body.selected_time)
+    return {"ok": True, "visit": updated}
+
+
+# ============================================================================
 # Read/Write · a property's Core Sales Manager (CRM → Core; docs/crm_staging_api)
 # ============================================================================
 # Reassigning who owns a home in Core is a management action, so it is gated to

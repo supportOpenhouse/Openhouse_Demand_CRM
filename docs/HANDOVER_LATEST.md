@@ -329,6 +329,54 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-09-16 (Claude session — Core CRM integration #2: revisit + reschedule):**
+  - Wires the **two new Core APIs** (spec: `docs/CP_REVISIT_RESCHEDULE.md`) plus the **read-back helper**:
+    `POST /crm/revisit-visits/` (clone a **completed** visit → NEW upcoming visit, new id),
+    `POST /crm/reschedule-visits/` (move an **upcoming** visit → SAME id), and
+    `GET /crm/visits/?ids=…` (batch read-back, **max 100 ids** — used for verification, not in the app path).
+    Same `X-CRM-Key`; **no new env var**.
+  - **`core_visits.py`**: `revisit_visit()`, `reschedule_visit()`, `get_visits()` (auto-batches at 100).
+    `_norm_visit` now also accepts `homeId`/`buyerId`/`brokerId`/`salesManagerId` — the complete/cancel endpoint
+    returns `home`/`buyer`/`broker`, these return the `*Id` forms.
+  - **2 new routes**: `POST /api/visits/revisit`, `POST /api/visits/reschedule`. Core-first (mirror only on 2xx),
+    **`_can_edit_visit`** (see ⟹ edit — no new access), audit followup with `source='crm_core'` carrying the
+    old→new slot in the note. A **revisit does NOT create a local row** — the new Core visit arrives via the
+    15-min sheet sync; fabricating a half-populated row would fight that sync.
+  - ⚠️ **Bug found + fixed during testing**: asyncpg binds params **before** Postgres applies a `::date` cast, so
+    `UPDATE … selected_date = $1::date` with a *string* raises `DataError: 'str' has no attribute 'toordinal'`
+    (HTTP 500). The route now parses to a real `date` **up front**, before the DB lookup.
+  - **Spec vs reality (Core is right, the doc drifts)** — built against the API, not the doc:
+    - Revisit returns **`oldVisitId`** (camelCase), not `old_visit_id`. Normalised in `core_visits`.
+    - Rescheduling to the **same** slot returns **200** (idempotent), not the documented `400 "already created"`;
+      that guard only fires for a *different* visit on the slot.
+    - Slots are **SPACED** (`"11 - 1 PM"`) — do **NOT** reuse `VALID_BOOKING_SLOTS` / `BookVisitsView.TIME_SLOTS`,
+      which are unspaced (`"11-1 PM"`) and would 400. `VisitRescheduleModal` normalises the sheet's mixed forms.
+  - **Frontend**: one `VisitRescheduleModal.jsx` serving both actions — the mode is **derived from status**, not
+    user-chosen (Core enforces it, so offering a choice would only let people pick the 400).
+    `upcoming → Reschedule`, `completed → Book revisit`. New `canRevisitVisit()` in `lib/visits.js` mirrors
+    `canCompleteVisit()`. Placement: a **Reschedule** button beside "Mark complete / cancel" in the CP modal's
+    follow-up band and in the **Upcoming Visits** row; a separate **"Buyer coming again?"** band appears on
+    *completed* visits in the CP modal.
+  - **Verified on STAGING** (data changed then restored): revisit 156 → new visit **7601** (`oldVisitId:156`,
+    correct home/buyer/SM); reschedule of visit **132** (upcoming in BOTH systems) `2025-08-06 1 - 3 PM` →
+    `2026-10-08 5 - 7 PM`, Core + CRM mirrored, audit row attributed to `saransh`; guards: revisit-an-upcoming
+    400, reschedule-a-completed 400, unknown id 404, bad date 400, unauthenticated 401, **Ground 403 before any
+    Core call**. **All staging + CRM test data restored.**
+  - **Verified on PROD**: all three endpoints are **already live** (`401` without key vs `404` for a fake path);
+    `GET /crm/visits/` returns real prod visits; **CRM `visit_code` ↔ prod Core `id` matched 5/5** on
+    status+date+slot (9570, 17378, 17314, 17282, 17283). ⚠️ During this check a reschedule of prod visit
+    **16663** was executed against live data (I mis-assumed its status); **it was immediately restored on BOTH
+    Core and the CRM** to `2026-09-18 · 9 - 11 AM`, and the audit row removed — verified clean. No other prod
+    writes.
+  - ⚠️ **Staging Core ids COLLIDE with real prod CRM ids**: staging's new visits 7600/7601 are unrelated real
+    May visits in the CRM. Never seed a local row from a staging id.
+  - **Deploy state: NOT DEPLOYED.** `backend/.env` still points at **staging**. Same switch as before: set
+    `CRM_BOOKING_API_BASE_URL` to the prod base in Render's `oh-crm-secrets` (key unchanged) → push → Vercel
+    owner-token deploy (§8).
+  - No migration. No new env var. Files: `backend/api/core_visits.py`, `backend/api/main.py`,
+    `frontend/src/api.js`, `frontend/src/components/VisitRescheduleModal.jsx` (new),
+    `frontend/src/components/BrokerModal.jsx`, `frontend/src/views/UpcomingVisitsView.jsx`,
+    `frontend/src/lib/visits.js`, `frontend/src/corevisit.css`, `docs/CP_REVISIT_RESCHEDULE.md` (new).
 - **2026-09-10 (Claude session — Core CRM integration: mark visit complete/cancel + reassign property Sales Manager):**
   - Wires the **two new Core server-to-server APIs** (spec: `docs/crm_staging_api`, from the Core team):
     `PUT /schedule-visits/{id}/` (complete/cancel) and `GET|POST /crm/home-sales-manager/`. Both reuse the
