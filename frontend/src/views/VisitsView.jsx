@@ -42,6 +42,35 @@ const PIPELINE_STAGE_OPTS = STAGES.filter((s) => !COMPLETED_EXCLUDE.has(s.k));
 // true if a visit's stage passes the selected stage filter (handles the meta value)
 const stagePass = (vstage, sel) => sel === 'all'
   || (sel === '__completed' ? !COMPLETED_EXCLUDE.has(vstage) : vstage === sel);
+// ===== How a completed visit was closed out: Assisted vs OTP =====
+// Core offers two completion paths. The ASSISTED path writes the 6-field intent form
+// (oh_demandsmfeedback); the OTP path writes none of it. The seed already unpacks that
+// form out of `visits.intent` into these six fields, so the split is derivable here —
+// no new column, no backend change.
+//
+// The third bucket is the important one. The intent form only went live on 2026-05-21:
+// every month before it is 0% assisted (6,233 completed visits), so those visits are not
+// OTP visits, they are visits from before we recorded the difference. Calling them "OTP"
+// would be a silent lie in a filter people will draw conclusions from, hence 'noform'.
+// A completed visit with no visit_date also lands in 'noform' — we can't date it, so we
+// don't claim to know.
+const ASSISTED_FORM_LIVE = '2026-05-21';
+const INTENT_KEYS = ['time_spent_on_site', 'society_amenity_tour', 'price_discussion',
+                     'client_queries', 'closing_signal', 'buyer_primary_concern'];
+const hasIntentForm = (v) => INTENT_KEYS.some((k) => String(v[k] || '').trim() !== '');
+// null for upcoming/cancelled — they were never closed out, so neither label applies.
+const visitMode = (v) => {
+  if (!isVisitCompleted(v)) return null;
+  if (hasIntentForm(v)) return 'assisted';
+  return (v.visit_date || '') >= ASSISTED_FORM_LIVE ? 'otp' : 'noform';
+};
+const VISIT_MODE_OPTS = [
+  { k: 'all', label: 'All', cls: '' },
+  { k: 'assisted', label: '📝 Assisted', cls: 'sg-avfu' },
+  { k: 'otp', label: '🔐 OTP', cls: 'sg-up' },
+  { k: 'noform', label: '– Not recorded', cls: 'sg-canc' },
+];
+
 const PRIORITY_OPTS = [
   { k: 'all', label: 'All', cls: '' },
   { k: 'nudged', label: '🔔 Nudged', cls: 'pr-nudged' },
@@ -121,6 +150,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
   const [priorities, setPriorities] = useState(() => visitsUi?.priorities ?? []);
   const [leadSet, setLeadSet] = useState(() => visitsUi?.leadSet ?? 'active');  // #6 Active | Old Leads | All — default hides old leads
   const [recsOnly, setRecsOnly] = useState(() => visitsUi?.recsOnly ?? false);  // 🎙 only visits that have a meeting recording
+  const [modes, setModes] = useState(() => visitsUi?.modes ?? []);   // Assisted / OTP / Not recorded
   // city + unit filters now live in the Filters modal (filters.cities / filters.unit)
   const [sortField, setSortField] = useState(() => visitsUi?.sortField ?? 'visit_date');
   const [sortDir, setSortDir] = useState(() => visitsUi?.sortDir ?? 'desc');  // default visit_date desc
@@ -130,12 +160,12 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
 
   // persist the chip-bar + sort selections up to App so returning to this tab restores them
   useEffect(() => {
-    onVisitsUiChange?.({ statuses, stages, lastFus, priorities, leadSet, recsOnly, sortField, sortDir });
-  }, [statuses, stages, lastFus, priorities, leadSet, recsOnly, sortField, sortDir]);  // eslint-disable-line react-hooks/exhaustive-deps
+    onVisitsUiChange?.({ statuses, stages, lastFus, priorities, leadSet, recsOnly, modes, sortField, sortDir });
+  }, [statuses, stages, lastFus, priorities, leadSet, recsOnly, modes, sortField, sortDir]);  // eslint-disable-line react-hooks/exhaustive-deps
   // Reset every filter affecting this tab: the chip-bars + lead segment + sort (which sync up
   // to visitsUi) + the shared top-bar Filters + the per-tab search.
   const resetFilters = () => {
-    setStatuses([]); setStages([]); setLastFus([]); setPriorities([]);
+    setStatuses([]); setStages([]); setLastFus([]); setPriorities([]); setModes([]);
     setLeadSet('active'); setRecsOnly(false); setSortField('visit_date'); setSortDir('desc');
     setPage(1); setSelectMode(false); setSelected(new Set());
     onResetSearch?.(); onResetGlobalFilters?.();
@@ -266,6 +296,14 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     return c;
   }, [cityBase]);
 
+  // Counted on cityBase like the other bars. Upcoming/cancelled visits return null and
+  // are counted in neither bucket, so assisted+otp+noform = completed visits only.
+  const modeCounts = useMemo(() => {
+    const c = { all: cityBase.length, assisted: 0, otp: 0, noform: 0 };
+    cityBase.forEach((v) => { const m = visitMode(v); if (m) c[m] += 1; });
+    return c;
+  }, [cityBase]);
+
   const stageCounts = useMemo(() => {
     const c = { all: cityBase.length, __completed: 0 };
     STAGES.forEach((s) => { c[s.k] = 0; });
@@ -318,9 +356,10 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
       if (stages.length && !stages.some((s) => stagePass(visitStage(v), s))) return false;
       if (lastFus.length && !lastFus.some((kk) => matchFuFilter(v, kk))) return false;
       if (priorities.length && !((priorities.includes('nudged') && isVisitNudged(v, nudgesByVisit)) || (priorities.includes('tl_ask') && isVisitTlAsk(v, teamTasks)))) return false;
+      if (modes.length && !modes.includes(visitMode(v))) return false;
       return true;
     });
-  }, [cityBase, statuses, stages, lastFus, priorities, nudgesByVisit, teamTasks, cutoff45]);
+  }, [cityBase, statuses, stages, lastFus, priorities, modes, nudgesByVisit, teamTasks, cutoff45]);
 
   // --- sort (legacy sortVisits) ---
   const sorted = useMemo(() => {
@@ -447,6 +486,13 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
         counts={stageCounts}
         value={stages}
         onChange={setStages}
+      />
+      <ChipBar multi
+        label="Close-out · how a completed visit was closed (form live from 21 May 2026)"
+        options={VISIT_MODE_OPTS}
+        counts={modeCounts}
+        value={modes}
+        onChange={setModes}
       />
       <ChipBar multi
         label="Pipeline stage · where a completed visit sits (After Visit FU → Booking)"
