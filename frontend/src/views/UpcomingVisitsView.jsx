@@ -13,6 +13,7 @@ import { useMemo, useState, useDeferredValue } from 'react';
 import { fmtDateTime, ymd, TODAY } from '../lib/format.js';
 import { scopeVisits, canCompleteVisit, visitStatus, STATUSES } from '../lib/visits.js';
 import VisitCompleteModal from '../components/VisitCompleteModal.jsx';
+import VisitRescheduleModal from '../components/VisitRescheduleModal.jsx';
 import ChipBar from '../components/ChipBar.jsx';
 import { useStickyState } from '../lib/sessionFilters.js';
 
@@ -31,6 +32,7 @@ export default function UpcomingVisitsView({ seed, onOpenBroker, reloadSeed, sea
   const properties = seed.properties || [];
   const [whenTab, setWhenTab] = useStickyState('upcoming:whenTab', []);
   const [completing, setCompleting] = useState(null);
+  const [rescheduling, setRescheduling] = useState(null);   // move an upcoming visit's slot
   const dq = useDeferredValue(search);
 
   const scoped = useMemo(
@@ -146,6 +148,10 @@ export default function UpcomingVisitsView({ seed, onOpenBroker, reloadSeed, sea
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button type="button" className="btn sm primary" onClick={() => setCompleting(v)}>
                         Complete visit
+                      </button>{' '}
+                      <button type="button" className="btn sm" onClick={() => setRescheduling(v)}
+                              title="Move this visit to another date / slot in the app">
+                        Reschedule
                       </button>
                     </td>
                   </tr>
@@ -161,6 +167,14 @@ export default function UpcomingVisitsView({ seed, onOpenBroker, reloadSeed, sea
           visit={completing}
           onClose={() => setCompleting(null)}
           onDone={() => { setCompleting(null); reloadSeed?.(); }}
+        />
+      )}
+
+      {rescheduling && (
+        <VisitRescheduleModal
+          visit={rescheduling}
+          onClose={() => setRescheduling(null)}
+          onDone={() => { setRescheduling(null); reloadSeed?.(); }}
         />
       )}
     </div>
