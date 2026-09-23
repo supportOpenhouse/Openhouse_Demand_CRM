@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useStickyState } from '../lib/sessionFilters.js';
 import { loadKeyHandovers } from '../api.js';
 import PropertyStatusTable from '../components/PropertyStatusTable.jsx';
-import { buildPropertyStatusRows, buildKhMap } from '../lib/propertyStatus.js';
+import { buildPropertyStatusRows, buildKhMap, buildTermsMap } from '../lib/propertyStatus.js';
 
 const KH_BUCKETS = [['0-30', '0–30d'], ['31-60', '31–60d'], ['61-90', '61–90d'], ['91+', '90+ d'], ['none', 'No KH']];
 const EMPTY = { cities: [], regions: [], societyQuery: '', configs: [], flatStatuses: [], responsible: '', priceMin: '', priceMax: '', khBuckets: [] };
@@ -37,7 +37,7 @@ export default function PropertyPerformanceView({ seed }) {
   // ladder. `props` is already user-scoped, so a PM sees only their societies, a TL
   // their city, an Admin everything — no new scoping logic.
   const agingRows = useMemo(
-    () => buildPropertyStatusRows(props, [], buildKhMap(kh.items || []), kh.overrides || {}, kh.review || {}),
+    () => buildPropertyStatusRows(props, [], buildKhMap(kh.items || []), kh.overrides || {}, kh.review || {}, {}, {}, buildTermsMap(kh.terms || [])),
     [props, kh],
   );
   const aging = useMemo(() => {
@@ -167,7 +167,7 @@ export default function PropertyPerformanceView({ seed }) {
         </div>
       </div>
 
-      <PropertyStatusTable seed={seed} filters={f} khItems={kh.items} khOverrides={kh.overrides} review={kh.review} khSource={kh.source} pgItems={kh.pg} pgSheetItems={kh.pg_sheet} />
+      <PropertyStatusTable seed={seed} filters={f} khItems={kh.items} khOverrides={kh.overrides} review={kh.review} khSource={kh.source} pgItems={kh.pg} pgSheetItems={kh.pg_sheet} khTerms={kh.terms} />
     </div>
   );
 }

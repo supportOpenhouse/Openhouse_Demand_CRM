@@ -7,9 +7,24 @@ import { parsePrice } from './legacy.js';
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
-// Days from key-handover to forfeiture. "Days to Forfeiture" = FORFEITURE_DAYS − days-since-KH;
-// ≤ 0 means the window has lapsed (critical). Fixed business constant (edit here to change it).
+// Days from key-handover to forfeiture. The window is PER PROPERTY — the supply DB carries
+// initial_period + grace_period per unit and they genuinely differ (90+60, 105+45, 135+45,
+// 90 with no grace, …; ~1 unit in 5 is not on 150). The backend serves them in the
+// /api/key-handovers `terms` payload; this constant is only the fallback for a unit that
+// source has no window for. "Days to Forfeiture" = window − days-since-KH; ≤ 0 = lapsed.
 export const FORFEITURE_DAYS = 150;
+
+// terms[] (from /api/key-handovers) -> { [home_id]: { kh_date, ack_backed, forfeiture_days } }
+// Keyed on core_home_id, which is an EXACT join — unlike the society+unit "mix & match"
+// the other sources need, so nothing here depends on society-name spelling.
+export function buildTermsMap(terms = []) {
+  const m = {};
+  (terms || []).forEach((t) => {
+    const h = String((t && t.home_id) || '').trim();
+    if (h) m[h] = t;
+  });
+  return m;
+}
 
 // society → canonical (alnum, upper) so "Gaur City 2 - 14th Avenue" == "Gaur City 2 14th Avenue"
 export const normSoc = (s) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -201,7 +216,7 @@ export function visitsForProperty(p, idx) {
   return (idx.bySoc[normSoc(p.society_name)] || []).filter((v) => visitUnitKey(v) === uk);
 }
 
-export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}, review = {}, pgMap = {}, pgSheetMap = {}) {
+export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}, overrides = {}, review = {}, pgMap = {}, pgSheetMap = {}, termsMap = {}) {
   const w = weekWindows();
   const idx = indexVisitsByProperty(visits);
   // Dedup: the inventory sheet sometimes lists the SAME unit twice (same home_id,
@@ -248,10 +263,22 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
     });
     const homeId = String(p.home_id || '').trim();
     const matchedKh = lookupKh(khMap, p.society_name, unit) || '';
-    // a manual override (edited in the table, persisted to the backend) always wins
+    // Key-handover date, in priority order (Centricity rules A15/A23, settled 19-Sep-2026):
+    //   1. a manual override (edited in the table, persisted) — always wins
+    //   2. the acknowledgement-mail-certified date from the supply DB (`terms`), which the
+    //      backend already resolves to the project team's typed date when no mail exists
+    //   3. the existing society+unit match (acquisitions DB + AMA-register sheet)
+    // The acknowledgement mail replaced the register as the source of truth, hence 2 > 3.
+    const term = homeId ? termsMap[homeId] : null;
     const ovr = homeId && overrides[homeId] ? overrides[homeId] : '';
-    const kh = ovr || matchedKh;
+    const kh = ovr || (term && term.kh_date) || matchedKh;
     const dsk = kh ? daysBetween(kh) : null;
+    // The forfeiture window is this unit's own; 150 only when that source has none.
+    const fWindow = term && term.forfeiture_days != null ? term.forfeiture_days : FORFEITURE_DAYS;
+    // Counting down only means something once we actually hold the keys. A future-dated
+    // handover is a PLAN (no acknowledgement mail yet), so show nothing rather than a
+    // number the team might act on.
+    const dtf = dsk == null || dsk < 0 ? null : fWindow - dsk;
     // PG amount: the acquisitions DB (pgMap) is authoritative; fall back to the
     // AMA-register sheet's Token Paid (pgSheetMap) ONLY when the DB has none — flagged
     // via pg_source so the table can label the fallback "from sheet".
@@ -268,7 +295,8 @@ export function buildPropertyStatusRows(properties = [], visits = [], khMap = {}
       ask_price: p.listing_price || '', responsible: p.sales_manager || '',
       city: p.city_name || p.city || '', home_id: homeId,
       kh_date: kh, days_since_kh: dsk, kh_overridden: !!ovr,
-      days_to_forfeiture: dsk == null ? null : FORFEITURE_DAYS - dsk,
+      days_to_forfeiture: dtf,
+      forfeiture_window: fWindow, kh_ack_backed: !!(term && term.ack_backed),
       pg_amount: pgAmount, pg_source: pgSource,
       ongoing_offer: (homeId && review[homeId] && review[homeId].ongoing_offer) || '',
       demand_team_remark: (homeId && review[homeId] && review[homeId].demand_team_remark) || '',
