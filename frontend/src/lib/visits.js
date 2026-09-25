@@ -192,7 +192,9 @@ function isAdminOrTL(me) {
 }
 // Cities with no KAM: the Ground PMs there see EVERY visit in the city (not just their
 // assigned societies). KEEP IN SYNC with backend NO_KAM_GROUND_CITIES (seed_snapshot.py).
-export const NO_KAM_GROUND_CITIES = new Set(['Ghaziabad']);
+// RETIRED 2026-09-25: empty on purpose — no city grants Ground PMs city-wide leads any more
+// (see the backend comment). Every reader of this set is a no-op while it is empty.
+export const NO_KAM_GROUND_CITIES = new Set();
 
 // A Sold/Archived unit is dead stock and no longer opens up its society's visits — that
 // is what let a previous RM keep seeing a whole society through one sold unit. Visit

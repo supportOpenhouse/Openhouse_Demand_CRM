@@ -35,7 +35,15 @@ def _intent_str(intent: dict | None, key: str) -> str:
 # to own the channel partners). Only Ground PMs whose `cities` include one of these are
 # affected — every other user, role and city stays byte-identical, and KAMs are untouched.
 # KEEP IN SYNC with the frontend NO_KAM_GROUND_CITIES (lib/visits.js, lib/brokers.js).
-NO_KAM_GROUND_CITIES = {"Ghaziabad"}
+#
+# RETIRED 2026-09-25 (Akshit): EMPTY on purpose. Ghaziabad (the only city ever listed)
+# now has a City Head and TLs to route leads, so a Ground PM there sees only their own
+# leads like every other city. Leaving "Ghaziabad" in meant every NEW or REACTIVATED
+# Ghaziabad Ground user silently got — and could edit — every lead in the city. All the
+# code that reads this set is left in place and is a no-op while it is empty; adding a
+# city back re-enables the grant (and users.metadata.city_wide_leads=false still opts
+# individuals out, see city_wide_leads_ok below).
+NO_KAM_GROUND_CITIES: set = set()
 
 
 def city_wide_leads_ok(user) -> bool:
