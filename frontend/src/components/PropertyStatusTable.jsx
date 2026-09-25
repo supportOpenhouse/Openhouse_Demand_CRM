@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
-import { buildKhMap, buildPgMap, buildPropertyStatusRows, PS_COLUMNS, sortRows, psToCsv } from '../lib/propertyStatus.js';
+import { buildKhMap, buildPgMap, buildTermsMap, buildPropertyStatusRows, PS_COLUMNS, sortRows, psToCsv } from '../lib/propertyStatus.js';
 import { setKhOverride, setPropertyReview } from '../api.js';
 import { parsePrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
@@ -92,7 +92,7 @@ function EditTextCell({ row, field, canEdit, onSave }) {
   );
 }
 
-export default function PropertyStatusTable({ seed, filters = {}, khItems = [], khOverrides = {}, khSource = 'unset', review = {}, pgItems = [], pgSheetItems = [] }) {
+export default function PropertyStatusTable({ seed, filters = {}, khItems = [], khOverrides = {}, khSource = 'unset', review = {}, pgItems = [], pgSheetItems = [], khTerms = [] }) {
   const me = seed.current_user || {};
   const canEditKh = me.team === 'Admin';   // KH editing is admin-only (the backend enforces it too)
   const canEditReview = me.team === 'Admin' || me.team === 'TL';   // Ongoing offer / Demand remark: Admin + TL
@@ -129,9 +129,10 @@ export default function PropertyStatusTable({ seed, filters = {}, khItems = [], 
   const khMap = useMemo(() => buildKhMap(khItems), [khItems]);
   const pgMap = useMemo(() => buildPgMap(pgItems), [pgItems]);
   const pgSheetMap = useMemo(() => buildPgMap(pgSheetItems), [pgSheetItems]);
+  const termsMap = useMemo(() => buildTermsMap(khTerms), [khTerms]);
   const allRows = useMemo(
-    () => buildPropertyStatusRows(seed.properties || [], seed.visits || [], khMap, overrides, reviewState, pgMap, pgSheetMap),
-    [seed, khMap, overrides, reviewState, pgMap, pgSheetMap],
+    () => buildPropertyStatusRows(seed.properties || [], seed.visits || [], khMap, overrides, reviewState, pgMap, pgSheetMap, termsMap),
+    [seed, khMap, overrides, reviewState, pgMap, pgSheetMap, termsMap],
   );
 
   // Apply the page filters. Every dimension is additive — an empty/unset filter is a

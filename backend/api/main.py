@@ -409,14 +409,14 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
 
     now = time.monotonic()
     if _kh_cache["items"] is not None and (now - _kh_cache["at"]) < _KH_TTL:
-        return {"items": _kh_cache["items"], "pg": _kh_cache.get("pg", []), "pg_sheet": _kh_cache.get("pg_sheet", []), "overrides": overrides, "review": review, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
+        return {"items": _kh_cache["items"], "pg": _kh_cache.get("pg", []), "pg_sheet": _kh_cache.get("pg_sheet", []), "terms": _kh_cache.get("terms", []), "overrides": overrides, "review": review, "source": "connected", "count": len(_kh_cache["items"]), "cached": True}
 
     def _row_to_item(r):
         return {"society": (r["society_name"] or "").strip(), "unit": (r["unit_no"] or "").strip(),
                 "kh_date": r["key_handover_date"].isoformat() if r["key_handover_date"] else ""}
 
     # 1. acquisitions DB (authoritative; wins on conflict)
-    acq_items, acq_source, pg_items = [], "unset", []
+    acq_items, acq_source, pg_items, terms = [], "unset", [], []
     if config.PROPERTIES_DATABASE_URL:
         try:
             conn = await asyncpg.connect(config.PROPERTIES_DATABASE_URL, timeout=8)
@@ -441,6 +441,58 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
                     ]
                 except Exception as e:  # noqa: BLE001 — PG is optional; KH must stay unaffected
                     log.warning("PG-amount fetch failed (non-fatal, KH unaffected): %s", e)
+
+                # Key-handover ACKNOWLEDGEMENT MAIL + per-property forfeiture window.
+                # ADDITIVE and INDEPENDENTLY guarded, exactly like the PG block above, so a
+                # missing activity_logs/period column can NEVER affect the KH fetch or merge.
+                #
+                # Akshit, 19-Sep-2026 (Centricity rules A15/A23/A24): the key-handover date is
+                # the one carried by the acknowledgement mail the supply dashboard sends when
+                # the project team submits the key-handover form — logged as
+                # activity_logs.action = 'email_key_handover'. A form correction logged AFTER
+                # the last mail supersedes that mail (A24), and properties.key_handover_date
+                # already holds the corrected value, so for "the date today" the current column
+                # IS the answer; the mail's role is to certify the handover actually happened.
+                # Without a mail the date is unverified (A23) — most such rows are a PLANNED
+                # future date, which is why the frontend refuses to count down from it.
+                #
+                # forfeiture_days is per property: initial_period + grace_period. The CRM used
+                # to assume 150 for everyone; ~1 in 5 units is on a different window.
+                try:
+                    trows = await conn.fetch(
+                        """WITH ack AS (
+                               SELECT uid, max(created_at) AS last_mail
+                               FROM activity_logs
+                               WHERE action = 'email_key_handover'
+                               GROUP BY uid
+                           )
+                           SELECT p.core_home_id::text AS home_id,
+                                  p.key_handover_date, p.khd_projteam,
+                                  p.initial_period, p.grace_period,
+                                  (a.uid IS NOT NULL) AS ack_backed
+                           FROM properties p
+                           LEFT JOIN ack a ON a.uid = p.uid
+                           WHERE p.core_home_id IS NOT NULL""", timeout=8,
+                    )
+                    for r in trows:
+                        hid = (r["home_id"] or "").strip()
+                        if not hid:
+                            continue
+                        ip, gp = r["initial_period"], r["grace_period"]
+                        fd = (ip + (gp or 0)) if ip is not None else None
+                        if fd is not None and fd <= 0:     # data-entry error (a negative grace
+                            fd = None                      # period exists) — never show a bogus window
+                        # ack mail certifies the handover; without one khd_projteam is the
+                        # documented next-best typed date (A23), still flagged unverified.
+                        khd = r["key_handover_date"] if r["ack_backed"] else r["khd_projteam"]
+                        terms.append({
+                            "home_id": hid,
+                            "kh_date": khd.isoformat() if khd else "",
+                            "ack_backed": bool(r["ack_backed"]),
+                            "forfeiture_days": fd,
+                        })
+                except Exception as e:  # noqa: BLE001 — terms are optional; KH must stay unaffected
+                    log.warning("KH-terms fetch failed (non-fatal, KH unaffected): %s", e)
             finally:
                 await conn.close()
             acq_items = [_row_to_item(r) for r in rows]
@@ -492,10 +544,12 @@ async def key_handovers(user: dict = Depends(auth.current_user)):
     _kh_cache["items"] = items
     _kh_cache["pg"] = pg_items
     _kh_cache["pg_sheet"] = pg_sheet
+    _kh_cache["terms"] = terms
     _kh_cache["at"] = now
     source = "connected" if (acq_source == "connected" or sheet_items) else acq_source
-    return {"items": items, "pg": pg_items, "pg_sheet": pg_sheet, "overrides": overrides, "review": review, "source": source, "count": len(items),
-            "acquisitions": len(acq_items), "sheet": len(sheet_items), "pg_count": len(pg_items), "pg_sheet_count": len(pg_sheet)}
+    return {"items": items, "pg": pg_items, "pg_sheet": pg_sheet, "terms": terms, "overrides": overrides, "review": review, "source": source, "count": len(items),
+            "acquisitions": len(acq_items), "sheet": len(sheet_items), "pg_count": len(pg_items), "pg_sheet_count": len(pg_sheet),
+            "terms_count": len(terms), "terms_ack": sum(1 for t in terms if t["ack_backed"])}
 
 
 class KhOverrideBody(BaseModel):
