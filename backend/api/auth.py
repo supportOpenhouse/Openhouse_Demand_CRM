@@ -12,6 +12,7 @@ from __future__ import annotations
 import secrets
 import urllib.parse
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -120,9 +121,40 @@ def _read_session(request: Request) -> Optional[dict]:
     if not token:
         return None
     try:
-        return _signer.loads(token, max_age=config.SESSION_MAX_AGE_SECONDS)
+        payload, issued = _signer.loads(
+            token, max_age=config.SESSION_MAX_AGE_SECONDS, return_timestamp=True)
     except (BadSignature, SignatureExpired):
         return None
+    payload["_iat"] = issued   # when this cookie was signed (tz-aware UTC) — see _session_revoked
+    return payload
+
+
+def _session_revoked(issued_at, metadata) -> bool:
+    """One-shot force-logout for a single user.
+
+    users.metadata.sessions_valid_after (ISO-8601, UTC) rejects every session cookie
+    signed BEFORE that instant, so the user's open tab is bounced to sign-in on its next
+    request. The cookie they get on signing back in post-dates the cutoff, so it happens
+    exactly once. Key absent, value unparseable, or no issue time → not revoked, i.e.
+    today's behaviour for everyone who hasn't been explicitly signed out."""
+    md = metadata
+    if isinstance(md, str):                     # asyncpg hands jsonb back as JSON text
+        try:
+            md = json.loads(md)
+        except (ValueError, TypeError):
+            return False
+    if not isinstance(md, dict) or issued_at is None:
+        return False
+    raw = md.get("sessions_valid_after")
+    if not raw:
+        return False
+    try:
+        cutoff = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.replace(tzinfo=timezone.utc)
+    return issued_at < cutoff
 
 
 async def current_user(request: Request) -> dict:
@@ -137,6 +169,9 @@ async def current_user(request: Request) -> dict:
         )
     if not row:
         raise HTTPException(401, "User not found or inactive")
+    if _session_revoked(sess.get("_iat"), row["metadata"]):
+        # the frontend's apiFetch turns any 401 into a redirect to Google sign-in
+        raise HTTPException(401, "Signed out by an admin — please sign in again")
     return dict(row)
 
 
