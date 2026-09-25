@@ -131,7 +131,7 @@ async def current_user(request: Request) -> dict:
         raise HTTPException(401, "Not signed in")
     async with acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, slug, email, name, phone, core_sales_manager_id, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active "
+            "SELECT id, slug, email, name, phone, core_sales_manager_id, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active, metadata "
             "FROM users WHERE id = $1 AND active = true",
             sess["uid"],
         )

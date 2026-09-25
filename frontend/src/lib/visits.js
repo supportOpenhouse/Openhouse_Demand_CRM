@@ -283,7 +283,9 @@ export function scopeVisits(visits, me, cpOwner = {}, properties = [], pmByPrope
         && (pmByProperty[p.property_name] === me.slug || pmTextIsMe(p, me, dupRmNames)))
       .map((p) => p.society_name));
     // no-KAM cities (Ghaziabad): the PM also sees EVERY visit in those cities.
-    const noKam = new Set((me.cities || []).filter((c) => NO_KAM_GROUND_CITIES.has(c)));
+    // …unless this user is opted out (users.metadata.city_wide_leads = false).
+    const noKam = me.city_wide_leads === false ? new Set()
+      : new Set((me.cities || []).filter((c) => NO_KAM_GROUND_CITIES.has(c)));
     // Match the CURRENT RM (`sales_manager`, already resolved to the unit's assigned PM
     // server-side), not the historical sheet RM — so a handover moves the leads too.
     return visits.filter((v) => socs.has(v.society_name) || cpOwner[v.cp_code] === me.id || rmTextIsMe(v, v.sales_manager, me, dupRmNames) || noKam.has(v.city));

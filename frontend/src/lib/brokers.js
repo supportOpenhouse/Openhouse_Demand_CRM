@@ -33,7 +33,8 @@ export function ownedCpCodes(brokers, me, cpOwner, properties, visits) {
     visits.forEach((v) => { if (socs.has(v.society_name) && v.cp_code) codes.add(v.cp_code); });
     brokers.forEach((b) => { if (b.added_by === me.name) codes.add(b.cp_code); });
     // no-KAM cities (Ghaziabad): the PM sees every CP (all tiers) operating there.
-    const noKam = new Set((me.cities || []).filter((c) => NO_KAM_GROUND_CITIES.has(c)));
+    const noKam = me.city_wide_leads === false ? new Set()
+      : new Set((me.cities || []).filter((c) => NO_KAM_GROUND_CITIES.has(c)));
     if (noKam.size) brokers.forEach((b) => { if (noKam.has(b.city)) codes.add(b.cp_code); });
     return codes;
   }
