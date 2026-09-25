@@ -407,7 +407,8 @@ function PropVisitRow({
   const kamExtra = me.team === 'KAM' && me.extra_cities_enabled && (me.extra_cities || []).includes(v.city);
   // No-KAM city (Ghaziabad): a Ground PM there edits every lead in the city. v.city is the
   // seed's inventory-corrected city — the same value the backend now keys on. No-op elsewhere.
-  const noKam = me.team === 'Ground' && NO_KAM_GROUND_CITIES.has(v.city) && (me.cities || []).includes(v.city);
+  const noKam = me.team === 'Ground' && me.city_wide_leads !== false
+    && NO_KAM_GROUND_CITIES.has(v.city) && (me.cities || []).includes(v.city);
   // Micro-market manager: they only ever see leads inside their micro-markets (scopeVisits),
   // and the backend grants edit on every one — so any lead shown to them is editable.
   // GATED to TL/Admin only (mirrors scopeVisits) — micro_markets on a Ground PM must not

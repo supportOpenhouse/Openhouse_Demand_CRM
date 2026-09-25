@@ -223,6 +223,7 @@ async def get_seed(user: dict = Depends(auth.current_user)):
         "micro_markets": list(user.get("micro_markets") or []),
         "extra_cities": list(user.get("extra_cities") or []),
         "extra_cities_enabled": bool(user.get("extra_cities_enabled")),
+        "city_wide_leads": seed_snapshot.city_wide_leads_ok(user),
         # true when this RM is mapped to a Core SalesManager → may book visits
         "can_book_visits": bool(_bk and _bk["core_sales_manager_id"]),
         # identity for the duplicate-RM-name guard (KEEP IN SYNC: lib/visits.js,
@@ -2649,7 +2650,7 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
         return True
     # No-KAM city (Ghaziabad): a Ground PM there sees AND edits every lead in the city,
     # mirroring NO_KAM_GROUND_CITIES in scope_for_user (PR #19). No-op for everyone else.
-    if user["team"] == "Ground" \
+    if user["team"] == "Ground" and seed_snapshot.city_wide_leads_ok(user) \
             and city in (set(user.get("cities") or []) & seed_snapshot.NO_KAM_GROUND_CITIES):
         return True
     # NOTE: the old `if mms and row["in_my_mm"]` grant is gone. MM-manager edit rights

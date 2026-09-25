@@ -37,6 +37,25 @@ def _intent_str(intent: dict | None, key: str) -> str:
 # KEEP IN SYNC with the frontend NO_KAM_GROUND_CITIES (lib/visits.js, lib/brokers.js).
 NO_KAM_GROUND_CITIES = {"Ghaziabad"}
 
+
+def city_wide_leads_ok(user) -> bool:
+    """Per-user opt-OUT of the no-KAM city-wide grant above.
+
+    Set users.metadata = {"city_wide_leads": false} on a Ground user to scope them to
+    their OWN leads (RM visits, PM societies, owned CPs) even in a no-KAM city. Anything
+    else — key absent, true, unparseable — returns True, i.e. exactly today's behaviour,
+    so no user changes unless explicitly switched. (Akshit, 25-Sep-2026: Akshit
+    Chaudhary, Ground/Ghaziabad, was seeing every Ghaziabad lead via this grant.)
+    KEEP IN SYNC with the frontend mirrors that read `city_wide_leads` (lib/visits.js,
+    lib/brokers.js, PropertyModal.jsx)."""
+    md = user.get("metadata") if hasattr(user, "get") else None
+    if isinstance(md, str):                  # asyncpg hands jsonb back as JSON text
+        try:
+            md = json.loads(md)
+        except (ValueError, TypeError):
+            md = None
+    return not (isinstance(md, dict) and md.get("city_wide_leads") is False)
+
 # A Sold/Archived unit is dead stock. It must NOT keep granting its PM society-wide
 # VISIT visibility after the sale — that is what let a previous RM keep seeing a whole
 # society through one sold unit. Used for visit scope only; the Properties tab still
@@ -312,7 +331,7 @@ def _scope_for_user_core(snap: dict, user: dict) -> dict:
                         and (p["property_name"] in my_props or _pm_text_is_me(p))}
         # Cities with no KAM (Ghaziabad): this PM sees every lead + every CP (all tiers)
         # there. Empty for PMs whose cities aren't in NO_KAM_GROUND_CITIES → no change.
-        no_kam = cities & NO_KAM_GROUND_CITIES
+        no_kam = (cities & NO_KAM_GROUND_CITIES) if city_wide_leads_ok(user) else set()
         codes = set()
         for b in brokers:
             if (cp_owner.get(b["cp_code"]) == slug or b.get("added_by") == name
@@ -873,7 +892,7 @@ async def build(conn: asyncpg.Connection) -> dict:
     # --- full roster (DB is the source of truth; frontend merges over its
     # hardcoded USERS array so team/city/role edits show up without a code change) ---
     user_rows = await conn.fetch(
-        "SELECT slug, email, name, phone, core_sales_manager_id, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active FROM users WHERE active ORDER BY name"
+        "SELECT slug, email, name, phone, core_sales_manager_id, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, active, metadata FROM users WHERE active ORDER BY name"
     )
     users = [{
         "id": r["slug"],                 # frontend convention: id == slug
@@ -890,6 +909,9 @@ async def build(conn: asyncpg.Connection) -> dict:
         "micro_markets": list(r["micro_markets"] or []),
         "extra_cities": list(r["extra_cities"] or []),
         "extra_cities_enabled": bool(r["extra_cities_enabled"]),
+        # without this an admin's "View as" would preview the city-wide set the user
+        # no longer has (same failure class as core_sales_manager_id above)
+        "city_wide_leads": city_wide_leads_ok({"metadata": r["metadata"]}),
     } for r in user_rows]
 
     # --- meeting recordings: lightweight markers only (NO summary; the summary is
