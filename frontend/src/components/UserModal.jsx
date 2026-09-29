@@ -133,8 +133,18 @@ export default function UserModal({ mode, user, seed, me, onClose, onSaved }) {
     if (!nm) return setErr('Name is required.');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr('Enter a valid email address.');
     if (fullPower && !role.trim()) return setErr('Role is required.');
+    // Phone is REQUIRED when ADDING: it is the key that maps a CRM user to their Core
+    // SalesManager record (sheet_sync.sync_sales_manager_ids matches on last-10, with
+    // an unambiguous-name fallback only for people with no phone). No phone => no
+    // core_sales_manager_id => they can't book visits or be attributed as an RM.
+    //
+    // On EDIT a blank is still tolerated: 21 of 63 active users predate this rule, and
+    // blocking the save would stop admins fixing their cities/team/micro-markets.
+    // Mirrors the backend (create_user hard-requires it; update_user only validates a
+    // value that is actually supplied).
     const digits = (phone || '').replace(/\D/g, '');
-    if (digits && digits.length !== 10) return setErr('Phone must be exactly 10 digits (or left blank).');
+    if (!editing && !digits) return setErr('Phone is required for a new member.');
+    if (digits && digits.length !== 10) return setErr('Phone must be exactly 10 digits.');
 
     setSaving(true);
     try {
@@ -199,9 +209,19 @@ export default function UserModal({ mode, user, seed, me, onClose, onSaved }) {
               )}
             </div>
             <div>
-              <label>Phone <span style={{ textTransform: 'none', fontWeight: 400 }}>(optional)</span></label>
-              <input value={phone} inputMode="numeric" maxLength={10}
-                     onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10 digits" />
+              <label>Phone{' '}
+                {editing
+                  ? <span style={{ textTransform: 'none', fontWeight: 400 }}>(maps them to the app)</span>
+                  : <span style={{ color: 'var(--bad)', fontWeight: 700 }}>*</span>}
+              </label>
+              {/* Keep the LAST 10 digits, not the first: pasting "+91 98765 43210"
+                  must become 9876543210, not 9198765432. Matches the backend's
+                  _last10_digits and sheet_sync's SM matcher. */}
+              <input value={phone} inputMode="numeric"
+                     onChange={(e) => {
+                       const d = e.target.value.replace(/\D/g, '');
+                       setPhone(d.length > 10 ? d.slice(-10) : d);
+                     }} placeholder="10 digits" />
             </div>
             {!editing && (
               <div>

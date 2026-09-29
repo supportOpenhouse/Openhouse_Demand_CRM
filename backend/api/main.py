@@ -1849,6 +1849,17 @@ def _check_email_domain(email: str) -> str:
     return email
 
 
+def _last10_digits(phone: str | None) -> str:
+    """Normalise a typed/pasted phone to its last 10 digits, or '' if it can't be one.
+
+    Mirrors sheet_sync._last10 (the SM matcher) so a number entered here resolves to
+    the same key. Accepts '+91 98765 43210', '098765 43210', '98765-43210'; rejects
+    anything under 10 digits.
+    """
+    d = "".join(ch for ch in (phone or "") if ch.isdigit())
+    return d[-10:] if len(d) >= 10 else ""
+
+
 @app.post("/api/users")
 async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_user)):
     """Add a roster member. Admin, or a Team Lead within their own patch
@@ -1858,6 +1869,15 @@ async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_us
     _require_admin_or_tl(user)
     if body.team not in VALID_TEAMS:
         raise HTTPException(400, f"Invalid team: {body.team}")
+    # Phone is REQUIRED on a new member. It is how sheet_sync.sync_sales_manager_ids
+    # maps them to their Core SalesManager (match on last-10); without it they get no
+    # core_sales_manager_id, so they can't book visits or be attributed as the RM.
+    # Enforced here as well as in UserModal — the UI is not a security boundary.
+    # Accept the ways a phone actually gets pasted (+91…, 0…, spaces) by taking the
+    # last 10 digits — the same normalisation sheet_sync's SM resolver uses to match.
+    _new_phone = _last10_digits(body.phone)
+    if not _new_phone:
+        raise HTTPException(400, "A valid 10-digit phone number is required.")
     email = _check_email_domain(body.email)
     cities = [c.strip() for c in (body.cities or []) if c.strip()]
     mms = [m.strip() for m in (body.micro_markets or []) if m.strip()]
@@ -1885,7 +1905,7 @@ async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_us
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12::jsonb)
             RETURNING slug, name
             """,
-            slug, email, body.name.strip(), (body.phone or "").strip() or None,
+            slug, email, body.name.strip(), _new_phone,
             body.team, role, cities, mms, extra, bool(body.extra_cities_enabled), _date_or_none(body.joined_at),
             # who added them — same `created_by` convention already in users.metadata
             json.dumps({"created_by": user["slug"]}),
@@ -1923,7 +1943,16 @@ async def update_user(slug: str, body: UserUpdateBody, user: dict = Depends(auth
                 raise HTTPException(400, "Role cannot be empty")
             fields["role"] = body.role.strip()
         if body.phone is not None:
-            fields["phone"] = body.phone.strip() or None
+            # A SET phone must be a valid 10 digits (it is the Core SalesManager
+            # mapping key — see create_user). A BLANK is still allowed on edit only
+            # because 21 of the 63 active users predate this rule and have none; a
+            # hard requirement here would lock admins out of editing their cities,
+            # team or micro-markets. New members must supply one (create_user).
+            _raw = "".join(ch for ch in (body.phone or "") if ch.isdigit())
+            _p = _last10_digits(body.phone)
+            if _raw and not _p:
+                raise HTTPException(400, "Phone must be a valid 10-digit number.")
+            fields["phone"] = _p or None
         if body.cities is not None:
             fields["cities"] = [c.strip() for c in body.cities if c.strip()]
         if body.micro_markets is not None:
