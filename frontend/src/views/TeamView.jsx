@@ -6,6 +6,7 @@ import { toast } from '../lib/toast.js';
 import { apiFetch } from '../api.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import UserModal from '../components/UserModal.jsx';
+import CoreSmModal from '../components/CoreSmModal.jsx';
 
 const TEAM_ORDER = ['Admin', 'TL', 'KAM', 'Ground', 'Report'];
 
@@ -81,6 +82,7 @@ function SearchSelect({ placeholder, options, value, onChange }) {
 
 export default function TeamView({ seed, onOpenBroker, reloadSeed }) {
   const me = seed.current_user || {};
+  const [coreSm, setCoreSm] = useState(false);   // create an SM in the OpenHouse app
   const isAdm = me.team === 'Admin' || me.role === 'admin';
   const isTL = me.team === 'TL';
   const canEdit = isAdm || isTL;
@@ -395,6 +397,12 @@ export default function TeamView({ seed, onOpenBroker, reloadSeed }) {
         <span>{`${users.length} team members`}</span>
         <div className="pager">
           {(isAdm || isTL) && <button className="btn sm primary" onClick={() => setModal({ mode: 'create' })}>＋ Add member</button>}
+          {/* Core/Django sales manager — NOT the CRM roster. Separate button on purpose:
+              it creates the app-side record that lets someone own homes and take visits. */}
+          {(isAdm || isTL) && <button className="btn sm" onClick={() => setCoreSm(true)}
+                                      title="Create a sales manager in the OpenHouse app (Django)">
+            ＋ New Sales Manager <span style={{ opacity: .7 }}>· app</span>
+          </button>}
         </div>
       </div>
 
@@ -437,6 +445,8 @@ export default function TeamView({ seed, onOpenBroker, reloadSeed }) {
           onSaved={reloadSeed}
         />
       )}
+
+      {coreSm && <CoreSmModal onClose={() => setCoreSm(false)} />}
     </div>
   );
 }

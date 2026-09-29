@@ -133,6 +133,31 @@ export async function rescheduleVisit(body) {
   return res.json();   // { ok, visit:{ id, status, selected_date, selected_time, ... } }
 }
 
+// --- Create a Sales Manager in the OpenHouse app (Admin/TL only on the backend) ---
+// Cities come from Core; `id` is the city_id the create call needs (live ids are
+// 2/3/4, so never hardcode them).
+export async function loadCoreCities() {
+  const res = await apiFetch('/api/core/cities');
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();   // { cities:[{id,name}] }
+}
+// body = { name, mobile, city_id }. A duplicate mobile throws with status 409 and
+// e.salesManagerId set to the EXISTING record, so the caller can say who it clashed with.
+export async function createCoreSalesManager(body) {
+  const res = await apiFetch('/api/core/sales-managers', { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) {
+    const raw = await res.text();
+    let msg = raw, smId = null;
+    try {
+      const d = JSON.parse(raw).detail;
+      if (d && typeof d === 'object') { msg = d.message || raw; smId = d.sales_manager_id ?? null; }
+      else if (typeof d === 'string') msg = d;
+    } catch { /* keep raw */ }
+    const e = new Error(msg); e.status = res.status; e.salesManagerId = smId; throw e;
+  }
+  return res.json();   // { ok, sales_manager:{ id, name, mobile, city_id, city_name, is_active } }
+}
+
 // --- A property's Core Sales Manager (Admin/TL only on the backend) ---
 // The assignable roster ONCE, for the Sales Managers grid's inline dropdowns (no Core call).
 export async function loadAssignableSalesManagers() {

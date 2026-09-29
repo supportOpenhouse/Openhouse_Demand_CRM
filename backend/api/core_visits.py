@@ -287,6 +287,73 @@ async def get_visits(ids) -> dict:
 
 
 # ============================================================================
+# 1c. Cities + create a Sales Manager in Core
+# ============================================================================
+# Creating an SM is a ONE-WAY door: Core exposes no delete/deactivate for it
+# (verified — DELETE/PATCH on /crm/sales-managers/{id}/ both 404). A typo is
+# permanent, so the caller must confirm before invoking this.
+
+async def get_cities() -> list:
+    """GET /get-cities/ → [{id, name}]. The `id` is the `city_id` the SM-create
+    endpoint expects. NEVER hardcode these: live ids are 2/3/4 (Gurgaon/Noida/
+    Ghaziabad), not the 1-based sequence the sample body suggests."""
+    async with httpx.AsyncClient(timeout=20.0, headers=_headers()) as client:
+        resp = await client.get(f"{_base()}/get-cities/")
+    data = _raise_for_status(resp, "city list")
+    raw = data.get("cities") if isinstance(data, dict) else data
+    return [{"id": c.get("id"), "name": c.get("name") or ""}
+            for c in (raw or []) if isinstance(c, dict)]
+
+
+async def create_sales_manager(*, name: str, mobile: str, city_id: int) -> dict:
+    """POST /crm/sales-managers/ → the created SM.
+
+    Core replies `{"salesManager": {...}}` in camelCase (the spec shows the fields
+    flat and snake_case), so unwrap + normalise here.
+
+    A duplicate mobile returns **409** with the EXISTING `salesManagerId` — not the
+    documented 201-only shape. That id is genuinely useful ("they already exist, and
+    here's who"), so it is surfaced on the error rather than swallowed.
+    """
+    nm = (name or "").strip()
+    mob = "".join(ch for ch in (mobile or "") if ch.isdigit())
+    if not nm:
+        raise CoreVisitError("name is required", status=400)
+    if len(mob) < 10:
+        raise CoreVisitError("mobile must be at least 10 digits", status=400)
+    if not city_id:
+        raise CoreVisitError("city_id is required", status=400)
+
+    payload = {"name": nm, "mobile": mob[-10:], "city_id": int(city_id)}
+    log.info("[core-visit] POST create-sm name=%r city_id=%s", nm, city_id)
+    async with httpx.AsyncClient(timeout=30.0, headers=_headers()) as client:
+        resp = await client.post(f"{_base()}/crm/sales-managers/", json=payload)
+
+    if resp.status_code == 409:
+        data = _parse(resp)
+        existing = (data.get("salesManagerId") or data.get("sales_manager_id")
+                    if isinstance(data, dict) else None)
+        raise CoreVisitError(
+            f"A sales manager with mobile {mob[-10:]} already exists in the app"
+            + (f" (id {existing})" if existing else ""),
+            status=409, data={"sales_manager_id": existing})
+
+    data = _raise_for_status(resp, "sales-manager create")
+    sm = data.get("salesManager", data.get("sales_manager", data)) if isinstance(data, dict) else {}
+    out = {
+        "id": sm.get("id"),
+        "name": sm.get("name") or nm,
+        "mobile": sm.get("mobile") or mob[-10:],
+        "city_id": sm.get("city_id", sm.get("cityId")),
+        "city_name": sm.get("city_name", sm.get("cityName")) or "",
+        "is_active": sm.get("is_active", sm.get("isActive")),
+    }
+    log.info("[core-visit] OK create-sm id=%s name=%r city=%s",
+             out.get("id"), out.get("name"), out.get("city_name"))
+    return out
+
+
+# ============================================================================
 # 2. Home sales manager
 # ============================================================================
 

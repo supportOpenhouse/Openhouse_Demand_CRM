@@ -329,6 +329,36 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-09-29 (Claude session — Core CRM integration #3: create a Sales Manager in the app):**
+  - Wires Core's two new APIs: `GET /get-cities/` and `POST /crm/sales-managers/`. Same `X-CRM-Key`,
+    **no new env var**. Both are **already live on PROD** (verified read-only).
+  - **UI**: a second button in **Team & Assignments** beside "＋ Add member" —
+    **"＋ New Sales Manager · app"** (`CoreSmModal.jsx`). Admin/TL, matching the neighbouring button.
+    Name + mobile + city → review step → create. Deliberately a **separate** button: it creates the
+    **app/Django** record (so the person can own homes and be attributed visits), NOT a CRM user.
+    The two rosters stay independent; the link is `users.core_sales_manager_id`, filled by the 15-min
+    `sync_sales_manager_ids` from the inventory "Sales managers" tab. The success screen shows the new id
+    so an admin can map it without waiting for the sync.
+  - **Backend**: `core_visits.get_cities()` / `create_sales_manager()`; routes `GET /api/core/cities`,
+    `POST /api/core/sales-managers`, both `_require_admin_or_tl`. Mobile is normalised to the last 10
+    digits before sending (so "+91 91000 00021" works).
+  - ⚠️ **ONE-WAY: Core has NO delete/deactivate for a sales manager** (verified — `DELETE` and `PATCH` on
+    `/crm/sales-managers/{id}/` both 404). A typo is permanent, which is why the modal has an explicit
+    confirm step warning it can't be undone. **Worth asking the Core team for a deactivate endpoint.**
+  - **Spec vs reality (built against the API, not the doc):**
+    - City ids are **2/3/4** (Gurgaon/Noida/Ghaziabad), NOT the 1-based sequence the sample body shows —
+      always fetch `/get-cities/`, never hardcode.
+    - Success is nested: `{"salesManager": {...}}` in **camelCase**, not flat snake_case. Unwrapped in
+      `core_visits`.
+    - A duplicate mobile returns **409** `{"error":"sales_manager_already_exists","salesManagerId":<id>}`,
+      not the documented 201-only shape. That id is surfaced to the user ("already exists (id 85) — use
+      that record") instead of a dead-end error.
+  - **Verified on STAGING end-to-end**: created SM **85** ("CRM Flow Test", Noida) through the CRM;
+    duplicate → 409 naming id 85; permission matrix Admin 200 / TL 200 / **Ground 403** / anon 401;
+    validation: short mobile 400, empty name 400, bad city_id 400 ("city not valid").
+    Test records **84 and 85 remain on staging** — there is no delete endpoint. Nothing created on prod.
+  - No migration. No new env var. Files: `backend/api/core_visits.py`, `backend/api/main.py`,
+    `frontend/src/api.js`, `frontend/src/components/CoreSmModal.jsx` (new), `frontend/src/views/TeamView.jsx`.
 - **2026-09-16 (Claude session — Core CRM integration #2: revisit + reschedule):**
   - Wires the **two new Core APIs** (spec: `docs/CP_REVISIT_RESCHEDULE.md`) plus the **read-back helper**:
     `POST /crm/revisit-visits/` (clone a **completed** visit → NEW upcoming visit, new id),

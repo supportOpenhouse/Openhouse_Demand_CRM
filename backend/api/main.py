@@ -1266,6 +1266,61 @@ async def reschedule_visit(body: VisitRescheduleBody, user: dict = Depends(auth.
 
 
 # ============================================================================
+# Write · create a Sales Manager in Core (CRM → Core)
+# ============================================================================
+# Creates the SM record in the OpenHouse app so a new joiner can own homes and be
+# attributed visits. Admin/TL — the same bar as the "＋ Add member" button it sits
+# beside, and as the SM-reassignment routes above.
+#
+# This does NOT create a CRM user. The two rosters stay independent: the CRM user
+# is made with "＋ Add member", and the link between them is `users.core_sales_manager_id`,
+# which the 15-min `sync_sales_manager_ids` fills from the inventory "Sales managers"
+# tab. The response carries the new id so an admin can map it immediately if needed.
+#
+# ⚠️ ONE-WAY: Core exposes no delete/deactivate for a sales manager, so the UI
+# confirms before calling this.
+
+@app.get("/api/core/cities")
+async def core_cities(user: dict = Depends(auth.current_user)):
+    """Cities from Core, for the create-SM picker. `id` is Core's city_id — the live
+    values are 2/3/4, so never hardcode them."""
+    _require_admin_or_tl(user)
+    if not core_visits.is_configured():
+        raise HTTPException(503, "Core API is not configured.")
+    try:
+        return {"cities": await core_visits.get_cities()}
+    except core_visits.CoreVisitError as e:
+        raise HTTPException(e.status if e.status in (400, 404) else 502, str(e)) from e
+
+
+class CoreSmCreateBody(BaseModel):
+    name: str
+    mobile: str
+    city_id: int
+
+
+@app.post("/api/core/sales-managers")
+async def create_core_sales_manager(body: CoreSmCreateBody,
+                                    user: dict = Depends(auth.current_user)):
+    """Create a Sales Manager in the OpenHouse app. Admin/TL only."""
+    _require_admin_or_tl(user)
+    if not core_visits.is_configured():
+        raise HTTPException(503, "Core API is not configured.")
+    try:
+        sm = await core_visits.create_sales_manager(
+            name=body.name, mobile=body.mobile, city_id=body.city_id)
+    except core_visits.CoreVisitError as e:
+        log.warning("[core-visit] create-sm by=%s failed: %s", user.get("slug"), e)
+        # 409 carries the existing sales_manager_id — pass it through so the UI can
+        # say who it clashed with instead of a bare "already exists".
+        detail = {"message": str(e), **(e.data or {})} if e.status == 409 else str(e)
+        raise HTTPException(e.status if e.status in (400, 404, 409, 422) else 502, detail) from e
+
+    log.info("[core-visit] create-sm by=%s -> id=%s", user.get("slug"), sm.get("id"))
+    return {"ok": True, "sales_manager": sm}
+
+
+# ============================================================================
 # Read/Write · a property's Core Sales Manager (CRM → Core; docs/crm_staging_api)
 # ============================================================================
 # Reassigning who owns a home in Core is a management action, so it is gated to
