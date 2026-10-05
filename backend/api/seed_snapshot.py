@@ -510,7 +510,8 @@ async def build(conn: asyncpg.Connection) -> dict:
           v.created_at, v.updated_at, v.home_id, v.is_old_lead,
           v.sales_manager_core_id
           FROM visits v
-         ORDER BY COALESCE(v.visit_date, v.selected_date) DESC NULLS LAST, v.created_at DESC
+         ORDER BY COALESCE(v.visit_date, v.selected_date) DESC NULLS LAST, v.created_at DESC,
+                  v.id DESC  -- unique tiebreak: same-day rows otherwise swap in/out of the cap every sync
          LIMIT $1
         """,
         config.SEED_VISITS_LIMIT,
