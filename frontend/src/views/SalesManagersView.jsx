@@ -4,19 +4,22 @@
 // This tab is the place to see and change that mapping in bulk, rather than hunting
 // unit by unit through the property modal.
 //
-// IMPORTANT: this reassigns the sales manager in the APP. It does NOT change the
-// CRM's own property_assignments, which is what drives CRM scoping/visibility —
-// the two are deliberately independent. The banner says so, because "I reassigned
-// them but they still can't see it in the CRM" would otherwise be a support call.
+// ONE sales manager per property: the app's. The CRM mirrors it (inventory
+// export + 15-min sheet sync, matching the person by PHONE, then name), and a change
+// made here is mirrored into the CRM immediately by the backend, so the app, the CRM
+// column and CRM visibility all agree at once.
 //
 // Layout: micro-market → the manager(s) who own that micro-market → ONE LINE per
 // property with the sales-manager dropdown right there in the row. No expanding.
-// The roster of assignable people is fetched ONCE (/api/sales-managers/assignable);
-// the at-a-glance current owner is the CRM's own `sales_manager` text, and a save
-// writes straight to Core and then shows what Core accepted.
+// The roster of assignable people is fetched ONCE (/api/sales-managers/assignable).
+// The dropdown shows the APP's current sales manager: the unit's app phone
+// (sales_manager_contact, exported from Core) matched to a roster phone — the same
+// rule the sync uses — then the name. If the app holds someone the CRM can't match,
+// it says so instead of pretending the unit is unmapped.
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { loadAssignableSalesManagers, setPropertySalesManager } from '../api.js';
 import { toast } from '../lib/toast.js';
+import SmPicker, { smLabel } from '../components/SmPicker.jsx';
 
 const DEAD = new Set(['Sold', 'Archived']);
 const NO_MM = '— No micro-market set —';
@@ -41,6 +44,7 @@ export default function SalesManagersView({ seed }) {
   const [loadErr, setLoadErr] = useState('');
   const [rowState, setRowState] = useState({});     // home_id → { saving, savedTo, err }
   const [sel, setSel] = useState({});               // home_id → explicitly chosen sales_manager_id
+  const [crmNow, setCrmNow] = useState({});         // home_id → CRM text after a save (server mirror)
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [unmappedOnly, setUnmappedOnly] = useState(false);
   // sort applies WITHIN each micro-market group, so the MM grouping is preserved
@@ -84,12 +88,21 @@ export default function SalesManagersView({ seed }) {
     return m;
   }, [users]);
 
-  // name → assignable entry, so the dropdown can preselect from the CRM's text
+  // Who the APP says owns a unit, resolved to a roster entry exactly as the sync does:
+  // phone first (the app SM's mobile is exported as sales_manager_contact), then name.
+  const last10 = (v) => { const d = String(v || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
   const byName = useMemo(() => {
     const m = {};
     assignable.forEach((a) => { m[(a.name || '').trim().toLowerCase()] = a; });
     return m;
   }, [assignable]);
+  const byPhone = useMemo(() => {
+    const m = {};
+    assignable.forEach((a) => { const k = last10(a.phone); if (k) m[k] = a; });
+    return m;
+  }, [assignable]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const appOwner = (p) => byPhone[last10(p.sales_manager_contact)]
+    || byName[(p.sales_manager || '').trim().toLowerCase()] || null;
 
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -134,18 +147,45 @@ export default function SalesManagersView({ seed }) {
     const n = new Set(p); if (n.has(mm)) n.delete(mm); else n.add(mm); return n;
   });
 
-  async function save(p, raw) {
+  // All the wrong assignments that prompted this were CROSS-CITY namesake picks (a Noida unit
+  // given to the Gurgaon "Ankit Kumar"). The picker already shows name · city · phone and
+  // lists the unit's city first; this asks before a cross-city save goes to the app.
+  function pickFor(p, pick, shown) {
+    const id = String(p.home_id);
+    if (pick === '__none__') {
+      setSel((m) => ({ ...m, [id]: '__none__' }));
+      save(p, '__none__', shown);
+      return;
+    }
+    if (String(pick.sales_manager_id) === String(shown)) return;     // no change
+    const unitCity = p.city_name || '';
+    const cities = pick.cities || [];
+    // no city on their CRM profile = can't tell, so ask as well
+    if (unitCity && !cities.includes(unitCity)
+        && !window.confirm(`${p.property_name} is a ${unitCity} unit, but this person `
+          + `${cities.length ? `is based in ${cities.join('/')}` : 'has no city on their CRM profile'}:\n\n`
+          + `${smLabel(pick)}\n\nAssign anyway?`)) return;
+    setSel((m) => ({ ...m, [id]: String(pick.sales_manager_id) }));
+    save(p, String(pick.sales_manager_id), shown);
+  }
+
+  // prev = what the row showed before this attempt, i.e. the last value the app accepted
+  async function save(p, raw, prev) {
     const id = String(p.home_id);
     const smId = raw === '__none__' ? null : Number(raw);
     setRowState((s) => ({ ...s, [id]: { saving: true } }));
     try {
       const res = await setPropertySalesManager(id, smId);
       const nm = res?.sales_manager?.name || (smId === null ? 'Nobody' : '');
+      // the backend mirrored this into the CRM in the same request — show the CRM's
+      // new value now rather than after the next sync
+      if (res?.crm_mirror?.properties_updated) setCrmNow((m) => ({ ...m, [id]: res.crm_mirror.crm_name || '' }));
       setRowState((s) => ({ ...s, [id]: { saving: false, savedTo: nm || '—' } }));
       toast(smId === null ? 'Unassigned in the app' : `Assigned to ${nm || 'the selected person'}`, 'good');
     } catch (e) {
       const msg = String(e?.message || e).slice(0, 160);
       setRowState((s) => ({ ...s, [id]: { saving: false, err: msg } }));
+      setSel((m) => ({ ...m, [id]: prev }));   // the app refused it: show what it still holds
       toast(msg, 'bad');
     }
   }
@@ -156,8 +196,10 @@ export default function SalesManagersView({ seed }) {
         border: '1px solid var(--line)', borderLeft: '3px solid var(--warn,#D97706)',
         borderRadius: 8, padding: '8px 11px', fontSize: 12.5, marginBottom: 10,
       }}>
-        <b>This changes the sales manager in the OpenHouse APP.</b> It does not change CRM
-        visibility — that follows the CRM's own property assignment, which is separate.
+        <b>One sales manager per property — the OpenHouse app's.</b> Changing it here updates
+        the app and the CRM together, straight away. Changes made directly in the app reach the
+        CRM automatically, usually within the hour. Someone shown as "not linked in CRM" needs their phone
+        on their CRM profile to match the app.
       </div>
 
       <div className="neg-filters" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -241,7 +283,13 @@ export default function SalesManagersView({ seed }) {
                   {!collapsed.has(g.mm) && g.list.map((p) => {
                     const id = String(p.home_id);
                     const st = rowState[id] || {};
-                    const cur = byName[(p.sales_manager || '').trim().toLowerCase()];
+                    const cur = appOwner(p);
+                    // the app has a sales manager the CRM cannot match to a person
+                    // only once the roster has loaded — while loading, nobody is "unlinked"
+                    const appOnly = assignable.length > 0 && !cur
+                      && String(p.sales_manager || '').trim() && last10(p.sales_manager_contact);
+                    const shown = sel[id] ?? (cur ? String(cur.sales_manager_id) : appOnly ? '__app__' : '');
+                    const crmText = crmNow[id] ?? p.sales_manager;
                     const clip = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
                     return (
                       <tr key={id}>
@@ -255,24 +303,14 @@ export default function SalesManagersView({ seed }) {
                         </td>
                         <td><span className="city-pill">{p.city_name || ''}</span></td>
                         <td><span style={{ fontSize: 11.5, color: DEAD.has(p.listing_status) ? 'var(--mut)' : undefined }}>{p.listing_status || '—'}</span></td>
-                        <td style={{ fontSize: 12, ...clip }} title={p.sales_manager || ''}>
-                          {p.sales_manager || <span className="muted">—</span>}
+                        <td style={{ fontSize: 12, ...clip }} title={crmText || ''}>
+                          {crmText || <span className="muted">—</span>}
                         </td>
                         <td style={{ overflow: 'hidden' }}>
-                          <select className="sm-select" disabled={st.saving || !assignable.length}
-                                  style={{ width: '100%', maxWidth: '100%' }}
-                                  value={sel[id] ?? (cur ? String(cur.sales_manager_id) : '')}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setSel((m) => ({ ...m, [id]: val }));
-                                    if (val !== '') save(p, val);
-                                  }}>
-                            <option value="">{assignable.length ? '— not mapped —' : 'loading…'}</option>
-                            <option value="__none__">Unassign (nobody)</option>
-                            {assignable.map((a) => (
-                              <option key={a.slug} value={a.sales_manager_id}>{a.name} · {a.team}</option>
-                            ))}
-                          </select>
+                          <SmPicker options={assignable} unitCity={p.city_name || ''}
+                                    loading={!assignable.length} disabled={!!st.saving}
+                                    value={shown} appOnlyLabel={appOnly ? p.sales_manager : ''}
+                                    onPick={(pick) => pickFor(p, pick, shown)} />
                           {st.saving ? <div className="sm-note" style={{ marginTop: 2 }}>Saving…</div> : null}
                           {st.savedTo ? <div className="sm-note" style={{ marginTop: 2, color: 'var(--good,#16A34A)', ...clip }} title={st.savedTo}>✓ {st.savedTo}</div> : null}
                           {st.err ? <div className="sm-note" style={{ marginTop: 2, color: 'var(--bad)' }} title={st.err}>{st.err}</div> : null}

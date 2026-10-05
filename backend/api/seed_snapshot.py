@@ -541,7 +541,7 @@ async def build(conn: asyncpg.Connection) -> dict:
     live_by_home_id = {}
     for r in await conn.fetch(
         "SELECT home_id, city, listing_status FROM all_properties "
-        "WHERE home_id IS NOT NULL AND home_id <> ''"
+        "WHERE home_id IS NOT NULL AND home_id <> '' AND deleted_at IS NULL"
     ):
         if r["city"]:
             home_city[r["home_id"]] = r["city"]
