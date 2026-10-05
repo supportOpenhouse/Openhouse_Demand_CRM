@@ -471,6 +471,27 @@ async def sync_visits(conn: asyncpg.Connection, limit: int | None = None) -> dic
 
 # ---- PROPERTIES + PM ASSIGNMENTS --------------------------------------------
 
+_IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+
+
+def _sheet_refreshed_at(banner: str) -> "dt.datetime | None":
+    """'Last refreshed: 2026-10-05 13:00 IST  |  261 rows' -> aware UTC datetime, else None.
+    The inventory pipeline stamps this AFTER it has read the app (main.py: query, then now())."""
+    m = re.search(r"Last refreshed:\s*(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s*IST", banner or "")
+    if not m:
+        return None
+    y, mo, d = (int(x) for x in m.group(1).split("-"))
+    return dt.datetime(y, mo, d, int(m.group(2)), int(m.group(3)), tzinfo=_IST).astimezone(dt.timezone.utc)
+
+
+def _parse_utc(v) -> "dt.datetime | None":
+    try:
+        t = dt.datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+
+
 async def sync_properties(conn: asyncpg.Connection) -> dict:
     sheet_id = config.SHEET_ID_INVENTORY
     rows = sheets.read_tab(sheet_id, "Sheet1")
@@ -489,6 +510,32 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
     errors: list = []
     pm_changes = 0
 
+    # HOLD homes whose sales manager was changed FROM THE CRM more recently than this sheet.
+    # main._mirror_home_sm_into_crm writes the change to the app (Core) and mirrors it into
+    # the CRM at once, stamping properties.metadata.sm_mirror.at. This sheet only reflects the
+    # app as of its last export, so until it has been refreshed AFTER that change it still
+    # names the OLD manager — applying it would revert the CRM and flip it back an export
+    # later. For a held home the mirrored manager, contact and assignment are kept; every
+    # other column syncs as normal. The sheet must be >= 3 min newer than the change before it
+    # wins again (it is stamped after its query, to the minute). Banner unreadable -> hold
+    # for at most 2 h. No marker -> nothing held: today's behaviour for every other home.
+    # The held assignment is re-applied from the marker's `uid` (if still an active user), so a
+    # sync that was already mid-run when the change landed, and wrote the old one, is repaired.
+    sheet_as_of = _sheet_refreshed_at(rows[0][0] if rows and rows[0] else "")
+    _now = dt.datetime.now(dt.timezone.utc)
+    _held: dict = {}
+    for _mr in await conn.fetch(
+            "SELECT home_id, metadata->'sm_mirror' AS m FROM properties "
+            "WHERE deleted_at IS NULL AND home_id IS NOT NULL AND metadata ? 'sm_mirror'"):
+        _m = _mr["m"]
+        _m = json.loads(_m) if isinstance(_m, str) else (_m or {})
+        _at = _parse_utc(_m.get("at"))
+        if _at is None:
+            continue
+        if (sheet_as_of < _at + dt.timedelta(minutes=3)) if sheet_as_of else (_at > _now - dt.timedelta(hours=2)):
+            _held[str(_mr["home_id"]).strip()] = _m
+    held = 0
+
     # PM resolver. PHONE IS THE PRIMARY KEY (sheet column `sales_manager_contact`),
     # because names are unreliable (spelling, first-vs-full). The inventory sheet's
     # PM phone matches users.phone 1:1, so we resolve by last-10-digits first and only
@@ -503,6 +550,7 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
     _first_count: dict = {}
     _first_id: dict = {}
     _id_to_name: dict = {}
+    _active_ids = {str(_u["id"]): _u["id"] for _u in _user_rows}   # held homes: marker uid -> id
     for _u in _user_rows:
         _id_to_name[_u["id"]] = (_u["name"] or "").strip()
         ph = _last10(_u["phone"])
@@ -545,6 +593,15 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
             # key; fall back to the raw sheet name only when the PM can't be resolved.
             pm_user_id = resolve_pm(g(r, "sales_manager"), g(r, "sales_manager_contact"))
             sm_name = (_id_to_name.get(pm_user_id) if pm_user_id else None) or g(r, "sales_manager")
+            sm_contact = g(r, "sales_manager_contact") or None
+            _hold = _held.get(g(r, "home_id"))
+            if _hold is not None:            # see the HOLD note above the loop
+                sm_name = _hold.get("name") or ""
+                sm_contact = _hold.get("mobile") or None
+                # the person the CRM change assigned, never the stale sheet's; None (nobody
+                # in the CRM matched, or since deactivated) leaves the assignment alone
+                pm_user_id = _active_ids.get(str(_hold.get("uid") or ""))
+                held += 1
             row = await conn.fetchrow(
                 """
                 INSERT INTO properties (
@@ -593,7 +650,7 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                 g(r, "listing_price"), g(r, "commission"),
                 sm_name, g(r, "photo_count"), g(r, "video_added"),
                 g(r, "home_id") or None, g(r, "supply_form_uid") or None,
-                g(r, "sales_manager_contact") or None,
+                sm_contact,
             )
             ins += 1 if not row else 0  # rough; ON CONFLICT path returns same shape
             # PM assignment refresh — phone first (sales_manager_contact), name fallback.
@@ -622,7 +679,7 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                 errors.append({"property_name": prop_name, "error": str(e)[:200]})
 
     await _finish_run(conn, run_id, seen, ins, max(0, seen - ins - skipped - failed),
-                      skipped, failed, errors + [{"pm_changes": pm_changes}],
+                      skipped, failed, errors + [{"pm_changes": pm_changes, "held_for_crm_change": held}],
                       status="partial" if failed else "success")
     return {"seen": seen, "ins": ins, "upd": seen - ins - skipped - failed,
             "skipped": skipped, "failed": failed, "pm_changes": pm_changes}

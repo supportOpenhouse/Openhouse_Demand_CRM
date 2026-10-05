@@ -1324,9 +1324,11 @@ async def create_core_sales_manager(body: CoreSmCreateBody,
 # Read/Write · a property's Core Sales Manager (CRM → Core; docs/crm_staging_api)
 # ============================================================================
 # Reassigning who owns a home in Core is a management action, so it is gated to
-# Admin/TL — the same bar as kh-override and the property-review fields. It changes
-# Core's `homes.sales_manager`, NOT the CRM's own property_assignments (which stay
-# the CRM's source of truth for scoping); the two are deliberately independent.
+# Admin/TL — the same bar as kh-override and the property-review fields. ONE sales manager
+# per property: the app's (Core `homes.sales_manager`). The CRM mirrors it — the inventory
+# export + 15-min sync, and, for a change made here, immediately via
+# _mirror_home_sm_into_crm (which also updates the CRM's property_assignments, so CRM
+# visibility follows). sheet_sync holds a mirrored home until the sheet catches up.
 
 @app.get("/api/sales-managers/assignable")
 async def get_assignable_sales_managers(user: dict = Depends(auth.current_user)):
@@ -1339,9 +1341,14 @@ async def get_assignable_sales_managers(user: dict = Depends(auth.current_user))
     _require_admin_or_tl(user)
     async with acquire() as conn:
         rows = await conn.fetch(
-            "SELECT slug, name, team, core_sales_manager_id FROM users "
+            "SELECT slug, name, team, phone, cities, core_sales_manager_id FROM users "
             "WHERE active AND core_sales_manager_id IS NOT NULL ORDER BY name")
+    # phone = the Core SalesManager mobile (mandatory + backfilled from the app), which is
+    # exactly what the inventory export carries per unit as sales_manager_contact. Matching on
+    # it lets the Sales Managers grid show the APP's real sales manager, not a name guess.
     return {"assignable": [{"slug": r["slug"], "name": r["name"], "team": r["team"],
+                            "phone": r["phone"] or "",
+                            "cities": list(r["cities"] or []),
                             "sales_manager_id": r["core_sales_manager_id"]} for r in rows]}
 
 
@@ -1374,10 +1381,72 @@ class HomeSmBody(BaseModel):
     sales_manager_id: Optional[int] = None
 
 
+async def _mirror_home_sm_into_crm(home_id: str, sm: Optional[dict], actor_id) -> dict:
+    """ONE sales manager everywhere. The app (Core homes.sales_manager) is the source of
+    truth; the CRM mirrors it through the inventory export + the 15-min sheet sync.
+    This applies a change made from the CRM to the CRM's own copy IMMEDIATELY, so the
+    property's PM text, contact and assignment agree the moment the app accepts it.
+
+    It resolves the person phone first, like sheet_sync.resolve_pm (the app SM's mobile vs
+    users.phone, last 10 digits), then by the app id (users.core_sales_manager_id) where the
+    sync would fall back to the name. Exactly one active match or nobody: it never guesses.
+    Until the inventory sheet has caught up, sheet_sync HOLDS this home on the sm_mirror
+    marker stamped here (and re-applies its `uid`), so the stale sheet never reverts it. When nobody in
+    the CRM is that person (or the home was unassigned), the text/contact still mirror
+    the app and the assignment is left alone — again exactly what the sync does.
+    Touches only the visible (deleted_at IS NULL) rows of THIS home_id."""
+    mobile = _last10_digits((sm or {}).get("mobile")) if sm else ""
+    out = {"properties_updated": 0, "assigned_to": None, "crm_name": None}
+    async with acquire() as conn:
+        async with conn.transaction():
+            u = None
+            if sm:
+                if mobile:
+                    rows = await conn.fetch(
+                        "SELECT id, slug, name FROM users WHERE active "
+                        "AND right(regexp_replace(coalesce(phone,''),'\\D','','g'),10) = $1", mobile)
+                    u = rows[0] if len(rows) == 1 else None
+                if u is None and sm.get("id") is not None:
+                    rows = await conn.fetch(
+                        "SELECT id, slug, name FROM users WHERE active AND core_sales_manager_id = $1",
+                        int(sm["id"]))
+                    u = rows[0] if len(rows) == 1 else None
+            text = ((u["name"] if u else (sm or {}).get("name")) or "").strip()
+            props = await conn.fetch(
+                "SELECT id FROM properties WHERE home_id = $1 AND deleted_at IS NULL", str(home_id))
+            for pr in props:
+                # sm_mirror = "changed from the CRM at <at>": sheet_sync keeps this manager
+                # until the inventory sheet has been refreshed after it (see sync_properties).
+                await conn.execute(
+                    "UPDATE properties SET sales_manager = $1, sales_manager_contact = $2, "
+                    "updated_at = now(), metadata = COALESCE(metadata, '{}'::jsonb) || "
+                    "jsonb_build_object('sm_mirror', jsonb_build_object("
+                    "'at', now(), 'sm_id', $4::int, 'name', $1::text, 'mobile', $2::text, "
+                    "'uid', $5::text)) "
+                    "WHERE id = $3", text, mobile or None, pr["id"],
+                    (int(sm["id"]) if sm and sm.get("id") is not None else None),
+                    (str(u["id"]) if u is not None else None))
+                if u is not None:
+                    cur = await conn.fetchrow(
+                        "SELECT pm_user_id FROM property_assignments "
+                        "WHERE property_id = $1 AND effective_to IS NULL", pr["id"])
+                    if not cur or cur["pm_user_id"] != u["id"]:
+                        await conn.execute(
+                            "UPDATE property_assignments SET effective_to = now() "
+                            "WHERE property_id = $1 AND effective_to IS NULL", pr["id"])
+                        await conn.execute(
+                            "INSERT INTO property_assignments (property_id, pm_user_id, assigned_by_user_id) "
+                            "VALUES ($1, $2, $3)", pr["id"], u["id"], actor_id)
+            out.update(properties_updated=len(props), assigned_to=(u["slug"] if u and props else None),
+                       crm_name=(text or None) if props else None)
+    return out
+
+
 @app.post("/api/properties/{home_id}/sales-manager")
 async def set_property_sales_manager(home_id: str, body: HomeSmBody,
                                      user: dict = Depends(auth.current_user)):
-    """Assign / reassign / unassign (sales_manager_id: null) a home's Core SalesManager."""
+    """Assign / reassign / unassign (sales_manager_id: null) a home's Core SalesManager,
+    then mirror the result into the CRM straight away (see _mirror_home_sm_into_crm)."""
     _require_admin_or_tl(user)
     if not core_visits.is_configured():
         raise HTTPException(503, "Core visit API is not configured.")
@@ -1388,7 +1457,14 @@ async def set_property_sales_manager(home_id: str, body: HomeSmBody,
         raise HTTPException(status, str(e)) from e
     log.info("[core-visit] home=%s sm %s -> %s by=%s", home_id,
              out.get("previous_sales_manager_id"), body.sales_manager_id, user.get("slug"))
-    return {"ok": True, **out}
+    # The app write already succeeded and the next sheet sync converges anyway, so a
+    # failure to mirror is logged, never turned into an error for the user.
+    try:
+        mirror = await _mirror_home_sm_into_crm(home_id, out.get("sales_manager"), user.get("id"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("[core-visit] home=%s CRM mirror failed (sync will converge): %s", home_id, e)
+        mirror = None
+    return {"ok": True, **out, "crm_mirror": mirror}
 
 
 # ============================================================================
@@ -2672,17 +2748,18 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
                      SELECT 1 FROM properties p
                       WHERE (p.home_id = v.home_id OR p.society_name = v.society_name)
                         AND p.micro_market = ANY($3::text[])
+                        AND p.deleted_at IS NULL
                    ) AS in_my_mm,
                    EXISTS (
                      SELECT 1 FROM property_assignments pa
-                       JOIN properties p ON p.id = pa.property_id
+                       JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
                       WHERE pa.pm_user_id = $1 AND pa.effective_to IS NULL
                         AND p.society_name = v.society_name
                         AND COALESCE(p.listing_status, '') <> ALL($4::text[])
                    ) AS my_live_society,
                    EXISTS (
                      SELECT 1 FROM property_assignments pa
-                       JOIN properties p ON p.id = pa.property_id
+                       JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
                       WHERE pa.pm_user_id = $1 AND pa.effective_to IS NULL
                         AND v.home_id IS NOT NULL AND p.home_id = v.home_id
                    ) AS my_unit
@@ -2713,11 +2790,12 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
                ) AS sm_name_claimants,
                COALESCE((SELECT ap.city FROM all_properties ap
                           WHERE ap.home_id = v.home_id AND NULLIF(ap.city, '') IS NOT NULL
+                            AND ap.deleted_at IS NULL
                           LIMIT 1), v.city) AS city,
                co.owner_user_id,
                EXISTS (
                  SELECT 1 FROM property_assignments pa
-                  JOIN properties p ON p.id = pa.property_id
+                  JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
                   WHERE pa.pm_user_id = $1
                     AND pa.effective_to IS NULL
                     AND p.society_name = v.society_name
@@ -2726,6 +2804,7 @@ async def _can_edit_visit(conn, user: dict, visit_id) -> bool:
                  SELECT 1 FROM properties p
                   WHERE (p.home_id = v.home_id OR p.society_name = v.society_name)
                     AND p.micro_market = ANY($3::text[])
+                    AND p.deleted_at IS NULL
                ) AS in_my_mm,
                -- Ex-KAM transition: the MOST RECENT KAM owner of this visit's CP, matching
                -- the seed's `past_kam` map exactly, so edit stays in lock-step with the
