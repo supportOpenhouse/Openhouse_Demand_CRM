@@ -1108,17 +1108,25 @@ async def _reconcile_dupes_one(conn: asyncpg.Connection, table: str) -> dict:
 
     A physical unit = a connected component of live rows linked by a shared
     `home_id` OR a shared normalised (society + unit). Within each unit we KEEP
-    the canonical — the row that HAS a home_id, then the freshest `updated_at` —
-    and soft-delete the rest (`deleted_at = now()`; every read already filters
-    `deleted_at IS NULL`, and it is fully reversible). CONSERVATIVE by design: a
-    unit whose rows carry MORE THAN ONE distinct home_id is ambiguous and is
-    NEVER auto-deleted — it is logged for manual review. Only `deleted_at` is
-    written; no insert, no other column, no visit / lead / PM / pricing touch.
-    Idempotent — a clean table produces zero writes.
+    the canonical — the row that HAS a home_id, then the one the sheet sync wrote
+    most recently (`synced_from_sheet_at`; `updated_at` is bumped by other jobs
+    too, so it can't tell which spelling the sheet uses NOW) — and soft-delete the
+    rest (`deleted_at = now()`; every read already filters `deleted_at IS NULL`,
+    and it is fully reversible). CONSERVATIVE by design: a unit whose rows carry
+    MORE THAN ONE distinct home_id is ambiguous and is NEVER touched — it is
+    logged for manual review. Only `deleted_at` is written; no insert, no other
+    column, no visit / lead / PM / pricing touch. Idempotent.
+
+    Self-healing: a HIDDEN row the sheet sync has written to since it was hidden
+    is still in the sheet (the sheet renamed the unit back), so it competes again
+    and, if it is the canonical, is un-hidden while the stale row is hidden.
+    Without this a rename-back left the stale spelling visible for good
+    (homes 372 and 402, Oct 2026).
     """
     rows = await conn.fetch(
-        f"SELECT id, property_name, society_name, home_id, updated_at "
-        f"FROM {table} WHERE deleted_at IS NULL"
+        f"SELECT id, property_name, society_name, home_id, updated_at, "
+        f"synced_from_sheet_at, deleted_at "
+        f"FROM {table} WHERE deleted_at IS NULL OR synced_from_sheet_at > deleted_at"
     )
     parent = list(range(len(rows)))
 
@@ -1147,9 +1155,16 @@ async def _reconcile_dupes_one(conn: asyncpg.Connection, table: str) -> dict:
 
     orphan_ids: list = []
     orphan_names: list = []
+    revive_ids: list = []
+    revive_names: list = []
     ambiguous = 0
+    _never = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
     for members in comps.values():
         if len(members) < 2:
+            r = rows[members[0]]
+            if r["deleted_at"] is not None:      # hidden, still fed, nothing else visible
+                revive_ids.append(r["id"])
+                revive_names.append(r["property_name"])
             continue
         crows = [rows[i] for i in members]
         hids = {(r["home_id"] or "").strip() for r in crows if (r["home_id"] or "").strip()}
@@ -1158,19 +1173,32 @@ async def _reconcile_dupes_one(conn: asyncpg.Connection, table: str) -> dict:
             log.warning("[inv] dupe-reconcile: AMBIGUOUS unit in %s (home_ids %s) — skipped: %s",
                         table, sorted(hids), [r["property_name"] for r in crows])
             continue
-        canon = max(crows, key=lambda r: (1 if (r["home_id"] or "").strip() else 0, r["updated_at"]))
+        canon = max(crows, key=lambda r: (1 if (r["home_id"] or "").strip() else 0,
+                                          r["synced_from_sheet_at"] or _never,
+                                          r["updated_at"] or _never))
+        if canon["deleted_at"] is not None:
+            revive_ids.append(canon["id"])
+            revive_names.append(canon["property_name"])
         for r in crows:
-            if r["id"] != canon["id"]:
+            if r["id"] != canon["id"] and r["deleted_at"] is None:
                 orphan_ids.append(r["id"])
                 orphan_names.append(r["property_name"])
-    if orphan_ids:
-        await conn.execute(
-            f"UPDATE {table} SET deleted_at = now() "
-            f"WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
-            orphan_ids,
-        )
-    return {"table": table, "soft_deleted": len(orphan_ids),
-            "ambiguous": ambiguous, "names": orphan_names[:50]}
+    if orphan_ids or revive_ids:
+        async with conn.transaction():          # never a moment with 0 or 2 visible rows
+            if revive_ids:
+                await conn.execute(
+                    f"UPDATE {table} SET deleted_at = NULL "
+                    f"WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL",
+                    revive_ids,
+                )
+            if orphan_ids:
+                await conn.execute(
+                    f"UPDATE {table} SET deleted_at = now() "
+                    f"WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+                    orphan_ids,
+                )
+    return {"table": table, "soft_deleted": len(orphan_ids), "revived": len(revive_ids),
+            "ambiguous": ambiguous, "names": orphan_names[:50], "revived_names": revive_names[:50]}
 
 
 async def reconcile_property_duplicates(conn: asyncpg.Connection) -> dict:
@@ -1186,16 +1214,17 @@ async def reconcile_property_duplicates(conn: asyncpg.Connection) -> dict:
     p = await _reconcile_dupes_one(conn, "properties")
     ap = await _reconcile_dupes_one(conn, "all_properties")
     total = p["soft_deleted"] + ap["soft_deleted"]
+    revived = p["revived"] + ap["revived"]
     await _finish_run(
-        conn, run_id, total, 0, total, 0, 0,
-        [{"table": p["table"], "names": p["names"]},
-         {"table": ap["table"], "names": ap["names"]}],
+        conn, run_id, total + revived, 0, total + revived, 0, 0,
+        [{"table": p["table"], "names": p["names"], "revived": p["revived_names"]},
+         {"table": ap["table"], "names": ap["names"], "revived": ap["revived_names"]}],
     )
-    if total or p["ambiguous"] or ap["ambiguous"]:
+    if total or revived or p["ambiguous"] or ap["ambiguous"]:
         log.info("[inv] reconcile_property_duplicates: soft-deleted %d orphan(s) "
-                 "(properties=%d, all_properties=%d) · ambiguous skipped=%d",
-                 total, p["soft_deleted"], ap["soft_deleted"], p["ambiguous"] + ap["ambiguous"])
-    return {"properties": p, "all_properties": ap, "soft_deleted": total}
+                 "(properties=%d, all_properties=%d) · un-hid %d still-fed row(s) · ambiguous skipped=%d",
+                 total, p["soft_deleted"], ap["soft_deleted"], revived, p["ambiguous"] + ap["ambiguous"])
+    return {"properties": p, "all_properties": ap, "soft_deleted": total, "revived": revived}
 
 
 async def run_all() -> dict:
