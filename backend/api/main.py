@@ -1288,15 +1288,20 @@ async def core_cities(user: dict = Depends(auth.current_user)):
     if not core_visits.is_configured():
         raise HTTPException(503, "Core API is not configured.")
     try:
-        return {"cities": await core_visits.get_cities()}
+        cities = await core_visits.get_cities()
     except core_visits.CoreVisitError as e:
         raise HTTPException(e.status if e.status in (400, 404) else 502, str(e)) from e
+    # Teams ship with the cities so the dropdown has a single source of truth — the
+    # labels are derived here, not hardcoded in the component.
+    return {"cities": cities,
+            "teams": [{"value": t, "label": t.capitalize()} for t in core_visits.SM_TEAMS]}
 
 
 class CoreSmCreateBody(BaseModel):
     name: str
     mobile: str
     city_id: int
+    team: Optional[str] = None
 
 
 @app.post("/api/core/sales-managers")
@@ -1308,7 +1313,7 @@ async def create_core_sales_manager(body: CoreSmCreateBody,
         raise HTTPException(503, "Core API is not configured.")
     try:
         sm = await core_visits.create_sales_manager(
-            name=body.name, mobile=body.mobile, city_id=body.city_id)
+            name=body.name, mobile=body.mobile, city_id=body.city_id, team=body.team)
     except core_visits.CoreVisitError as e:
         log.warning("[core-visit] create-sm by=%s failed: %s", user.get("slug"), e)
         # 409 carries the existing sales_manager_id — pass it through so the UI can

@@ -17,6 +17,12 @@ const last10 = (s) => (String(s || '').match(/\d/g) || []).join('').slice(-10);
 
 export default function CoreSmModal({ onClose, onCreated }) {
   const [cities, setCities] = useState([]);
+  // Teams come from the backend (single source of truth with core_visits.SM_TEAMS).
+  // Default to Demand: this is the Demand CRM, so it's right nearly every time —
+  // and Core treats `team` as optional, which is exactly the manual backfill the
+  // field exists to prevent. Still a real choice; just a sensible pre-selection.
+  const [teams, setTeams] = useState([]);
+  const [team, setTeam] = useState('demand');
   const [loadErr, setLoadErr] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +38,11 @@ export default function CoreSmModal({ onClose, onCreated }) {
   useEffect(() => {
     let alive = true;
     loadCoreCities()
-      .then((d) => { if (alive) setCities(d.cities || []); })
+      .then((d) => {
+        if (!alive) return;
+        setCities(d.cities || []);
+        setTeams(d.teams || []);
+      })
       .catch((e) => { if (alive) setLoadErr(e.message || 'Could not load cities from the app'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -40,13 +50,15 @@ export default function CoreSmModal({ onClose, onCreated }) {
 
   const digits = last10(mobile);
   const cityName = cities.find((c) => String(c.id) === String(cityId))?.name || '';
-  const valid = name.trim().length > 1 && digits.length === 10 && !!cityId;
+  const teamLabel = teams.find((t) => t.value === team)?.label
+    || (team ? team.charAt(0).toUpperCase() + team.slice(1) : '—');
+  const valid = name.trim().length > 1 && digits.length === 10 && !!cityId && !!team;
 
   async function submit() {
     setBusy(true); setErr('');
     try {
       const res = await createCoreSalesManager({
-        name: name.trim(), mobile: digits, city_id: Number(cityId),
+        name: name.trim(), mobile: digits, city_id: Number(cityId), team,
       });
       setDone(res.sales_manager || null);
       toast(`Sales manager created in the app${res.sales_manager?.id ? ` (id ${res.sales_manager.id})` : ''}`);
@@ -85,6 +97,12 @@ export default function CoreSmModal({ onClose, onCreated }) {
             <ul className="vc-recap" style={{ marginTop: 10 }}>
               <li><span>Mobile</span><b>{done.mobile}</b></li>
               <li><span>City</span><b>{done.city_name || cityName}</b></li>
+              <li><span>Team</span><b>{
+                done.team
+                  ? (teams.find((t) => t.value === done.team)?.label
+                     || done.team.charAt(0).toUpperCase() + done.team.slice(1))
+                  : teamLabel
+              }</b></li>
               <li><span>Active</span><b>{done.is_active === false ? 'No' : 'Yes'}</b></li>
             </ul>
             <div className="vc-note sm" style={{ marginTop: 10 }}>
@@ -100,6 +118,7 @@ export default function CoreSmModal({ onClose, onCreated }) {
               <li><span>Name</span><b>{name.trim()}</b></li>
               <li><span>Mobile</span><b>{digits}</b></li>
               <li><span>City</span><b>{cityName}</b></li>
+              <li><span>Team</span><b>{teamLabel}</b></li>
             </ul>
             <div className="vc-warn">
               This creates a record in the <b>OpenHouse app</b>. The app has no delete for
@@ -129,6 +148,13 @@ export default function CoreSmModal({ onClose, onCreated }) {
                     onChange={(e) => setCityId(e.target.value)}>
               <option value="">— select a city —</option>
               {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+
+            <label className="vc-label" htmlFor="sm-team">Team</label>
+            <select id="sm-team" className="vc-select" value={team} disabled={busy || loading}
+                    onChange={(e) => setTeam(e.target.value)}>
+              {teams.length === 0 ? <option value="demand">Demand</option> : null}
+              {teams.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
 
             {err ? <div className="vc-err">{err}</div> : null}

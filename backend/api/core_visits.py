@@ -33,6 +33,11 @@ log = logging.getLogger("core_visits")
 VALID_LEAD_STATUSES = {"hot", "warm", "cold", "future_prospect", "dead", "select_status"}
 VALID_UPDATE_STATUSES = {"completed", "cancelled"}
 
+# Sales-manager teams Core accepts (2026-10-09). A tuple, not a set, so the order
+# matches Core's own error text and the CRM dropdown. The UI labels are Title-cased
+# ("Supply"); these API values are what gets sent.
+SM_TEAMS = ("supply", "demand", "projects", "other")
+
 # The six structured fields of the assisted-visit form. Free-text is allowed (Core
 # does not enum-validate them), so we pass through whatever the UI sends but drop
 # unknown keys — that keeps a UI typo from silently becoming a Core field.
@@ -305,7 +310,8 @@ async def get_cities() -> list:
             for c in (raw or []) if isinstance(c, dict)]
 
 
-async def create_sales_manager(*, name: str, mobile: str, city_id: int) -> dict:
+async def create_sales_manager(*, name: str, mobile: str, city_id: int,
+                               team: Optional[str] = None) -> dict:
     """POST /crm/sales-managers/ → the created SM.
 
     Core replies `{"salesManager": {...}}` in camelCase (the spec shows the fields
@@ -314,6 +320,10 @@ async def create_sales_manager(*, name: str, mobile: str, city_id: int) -> dict:
     A duplicate mobile returns **409** with the EXISTING `salesManagerId` — not the
     documented 201-only shape. That id is genuinely useful ("they already exist, and
     here's who"), so it is surfaced on the error rather than swallowed.
+
+    `team` is OPTIONAL to Core (omitting it stores null), but the CRM always sends one
+    — the whole point of the field is to avoid a manual backfill in the admin panel.
+    Validated here so a bad value is a CRM 400 naming the options, not a Core 400.
     """
     nm = (name or "").strip()
     mob = "".join(ch for ch in (mobile or "") if ch.isdigit())
@@ -323,9 +333,14 @@ async def create_sales_manager(*, name: str, mobile: str, city_id: int) -> dict:
         raise CoreVisitError("mobile must be at least 10 digits", status=400)
     if not city_id:
         raise CoreVisitError("city_id is required", status=400)
+    tm = (team or "").strip().lower()
+    if tm and tm not in SM_TEAMS:
+        raise CoreVisitError(f"team must be one of: {', '.join(SM_TEAMS)}", status=400)
 
     payload = {"name": nm, "mobile": mob[-10:], "city_id": int(city_id)}
-    log.info("[core-visit] POST create-sm name=%r city_id=%s", nm, city_id)
+    if tm:
+        payload["team"] = tm
+    log.info("[core-visit] POST create-sm name=%r city_id=%s team=%s", nm, city_id, tm or "—")
     async with httpx.AsyncClient(timeout=30.0, headers=_headers()) as client:
         resp = await client.post(f"{_base()}/crm/sales-managers/", json=payload)
 
@@ -346,10 +361,11 @@ async def create_sales_manager(*, name: str, mobile: str, city_id: int) -> dict:
         "mobile": sm.get("mobile") or mob[-10:],
         "city_id": sm.get("city_id", sm.get("cityId")),
         "city_name": sm.get("city_name", sm.get("cityName")) or "",
+        "team": sm.get("team") or tm or "",
         "is_active": sm.get("is_active", sm.get("isActive")),
     }
-    log.info("[core-visit] OK create-sm id=%s name=%r city=%s",
-             out.get("id"), out.get("name"), out.get("city_name"))
+    log.info("[core-visit] OK create-sm id=%s name=%r city=%s team=%s",
+             out.get("id"), out.get("name"), out.get("city_name"), out.get("team") or "—")
     return out
 
 

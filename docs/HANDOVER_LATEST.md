@@ -329,6 +329,29 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 ---
 
 ## 9. Recent change log
+- **2026-10-09 (Claude session — Sales-Manager create: new `team` field):**
+  - Core added **`team`** to `POST /crm/sales-managers/`. Values **`supply` / `demand` / `projects` / `other`**
+    (dropdown shows Title-case labels, sends the lowercase value). Live on **staging AND prod**.
+  - **Backend**: `core_visits.SM_TEAMS` (a tuple, so order matches Core's error text and the dropdown);
+    `create_sales_manager(..., team=...)` validates before calling out and echoes the stored `team` back.
+    `GET /api/core/cities` now **also returns `teams: [{value,label}]`** — one source of truth, so the
+    component never hardcodes the list. Labels are derived from `SM_TEAMS`, not duplicated.
+  - **Frontend**: a **Team** dropdown in `CoreSmModal`, **defaulted to Demand** (this is the Demand CRM) and
+    required by the UI's `valid` gate. Team appears in both the review recap and the success screen — the
+    success screen shows what **Core stored** (`done.team`), not what we sent, so a server-side difference
+    is visible rather than hidden.
+  - **Spec vs reality**: Core treats `team` as **OPTIONAL** — omitting it returns 201 with `"team": null`
+    (verified: staging SM 92). Since silent-null is exactly the manual backfill this field exists to prevent,
+    **the CRM always sends one**. An invalid value is rejected by the CRM before any Core call
+    (`400 team must be one of: …`), matching Core's own message.
+  - **Verified on STAGING end-to-end**: `GET /api/core/cities` returns the 4 teams with correct labels;
+    create with `team=projects` → SM **91** stored `"team":"projects"` (and `+91 91000 00055` normalised to
+    `9100000055`); invalid team → CRM 400 with no Core call; omitted team → 201 with null.
+    **PROD verified read-only**: same 4 values, nothing created there.
+  - ⚠️ Staging test SMs from this + the previous session (**84–92**) are permanent — Core still has **no
+    delete/deactivate** for a sales manager. Still worth asking for `PATCH .../{id}/ {is_active:false}`.
+  - No migration. No new env var. Files: `backend/api/core_visits.py`, `backend/api/main.py`,
+    `frontend/src/components/CoreSmModal.jsx`.
 - **2026-09-29 (Claude session — Core CRM integration #3: create a Sales Manager in the app):**
   - Wires Core's two new APIs: `GET /get-cities/` and `POST /crm/sales-managers/`. Same `X-CRM-Key`,
     **no new env var**. Both are **already live on PROD** (verified read-only).
