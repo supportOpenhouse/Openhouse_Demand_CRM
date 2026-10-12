@@ -44,6 +44,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Openhouse Demand CRM API", version="1.0", lifespan=lifespan)
 
+# Daily Sales Report (DSR) — see api/dsr.py
+from . import dsr as _dsr  # noqa: E402
+app.include_router(_dsr.router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[config.FRONTEND_ORIGIN],

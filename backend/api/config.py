@@ -71,6 +71,10 @@ PROPERTIES_DATABASE_URL = os.environ.get("PROPERTIES_DATABASE_URL", "")
 # the sync skips, the seed keys are empty, and every 🎙 marker is off (no-op).
 MEETINGS_DATABASE_URL = os.environ.get("MEETINGS_DATABASE_URL", "")
 
+# Optional read-only Postgres for Openhouse core (oh_schedulevisit) — DSR Assisted %.
+# Unset = the DSR Assisted % column is blank (sources.core=false).
+CORE_DATABASE_URL = os.environ.get("CORE_DATABASE_URL", "")
+
 # Anthropic API key for the Property Report mailer's visit-feedback summariser
 # (Claude Sonnet). Unset = the report still generates with metrics; the AI summary
 # section is omitted (graceful degradation). Set in Render's oh-crm-secrets to enable.
