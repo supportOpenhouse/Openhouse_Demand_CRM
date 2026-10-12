@@ -36,7 +36,7 @@ const COLS = [
   { k: 'dead_pct', label: 'Visit→Dead %', t: 'p' },
   { k: 'closures_since_aug', label: 'Closures since Aug', t: 'n' },
 ];
-const SOURCE_LABEL = { core: 'Core app (Assisted %)', meetings: 'Meetings DB (CP meetings)', bookings: 'Demand Dashboard (Closures)' };
+const SOURCE_LABEL = { assisted: 'Visitors data sheet (Assisted %)', meetings: 'Meetings DB (CP meetings)', bookings: 'Demand Dashboard (Closures)' };
 
 const DASH = '—';
 function fmt(v, t) {

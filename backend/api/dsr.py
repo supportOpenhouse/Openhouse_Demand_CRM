@@ -5,7 +5,7 @@ plus a "today" figure for CP meetings, visits and closures.
 
 Sources (each outside DB is optional; a failure only nulls its own columns):
   crm       — this app's DB (visits, followups, property_assignments, users)
-  core      — CORE_DATABASE_URL, oh_schedulevisit (assisted %)
+  assisted  — Visitors data sheet (SHEET_ID_VISITS, Sheet1): RM feedback-form columns filled
   meetings  — MEETINGS_DATABASE_URL, meetings (CP engagement meetings by RM)
   bookings  — PROPERTIES_DATABASE_URL, booking_details (closures)
 
@@ -21,12 +21,14 @@ import re
 from collections import defaultdict
 from typing import Optional
 
+import asyncio
+
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import auth, config
+from . import auth, config, sheets
 from .db import acquire
 
 log = logging.getLogger("dsr")
@@ -198,7 +200,7 @@ async def _pm_on(conn, pairs: list) -> dict:
 # ---- CRM visits ----------------------------------------------------------------
 VISITS_SQL = """
 WITH v AS (
-  SELECT v.id, v.buyer_id, v.property_id, v.home_id, v.current_stage, v.current_status,
+  SELECT v.id, v.visit_code, v.buyer_id, v.property_id, v.home_id, v.current_stage, v.current_status,
          v.negotiation_date, coalesce(v.visit_date, v.selected_date) AS vd
     FROM visits v
    WHERE v.status = 'completed'
@@ -229,24 +231,31 @@ async def _crm_visits(conn, start: dt.date, d: dt.date) -> list:
 
 
 # ---- outside sources -----------------------------------------------------------
-async def _core_assisted(start: dt.date, d: dt.date):
-    """home_id -> [completed, with_feedback] for core visits MTD. None if unavailable."""
-    url = getattr(config, "CORE_DATABASE_URL", "")
-    if not url:
-        return None
+ASSISTED_COLS = ("time_spent_on_site", "society_amenity_tour", "price_discussion",
+                 "client_queries", "closing_signal", "buyer_primary_concern")
+_assisted_cache: dict = {"at": None, "codes": None}
+
+
+async def _sheet_assisted():
+    """Visit codes closed with the RM's 6-question feedback form (assisted), from the Visitors data
+    sheet the CRM already syncs visits from (Sheet1: id = visits.visit_code). Cached 10 min.
+    None if the sheet can't be read."""
+    now = dt.datetime.now(dt.timezone.utc)
+    if _assisted_cache["at"] and (now - _assisted_cache["at"]).total_seconds() < 600:
+        return _assisted_cache["codes"]
     try:
-        c = await _ext_connect(url)
-        try:
-            rows = await c.fetch(
-                "SELECT home_id::text AS home_id, count(*) AS n, "
-                "count(demand_sm_feedback_id) AS fb FROM oh_schedulevisit "
-                "WHERE status = 'completed' AND selected_date BETWEEN $1 AND $2 "
-                "GROUP BY 1", start, d)
-        finally:
-            await c.close()
-        return {r["home_id"]: (r["n"], r["fb"]) for r in rows}
+        rows = await asyncio.to_thread(sheets.read_tab, config.SHEET_ID_VISITS, "Sheet1")
+        idx = {h: i for i, h in enumerate(rows[0])}
+        cols = [idx[c] for c in ASSISTED_COLS if c in idx]
+        if "id" not in idx or not cols:
+            raise ValueError("Visitors sheet has no id / assisted-form columns")
+        empty = {"", "none", "null", "nan", "-"}   # the sheet writes the literal "None" when no form was filled
+        codes = {r[idx["id"]].strip() for r in rows[1:]
+                 if len(r) > idx["id"] and any(i < len(r) and r[i].strip().lower() not in empty for i in cols)}
+        _assisted_cache.update(at=now, codes=codes)
+        return codes
     except Exception as e:  # noqa: BLE001
-        log.warning("DSR core source failed: %s", e)
+        log.warning("DSR assisted (Visitors sheet) source failed: %s", e)
         return None
 
 
@@ -321,7 +330,7 @@ def _finish(r: dict, days: int, sources: dict) -> dict:
         out["target"] = None
         out["ach_pct"] = None
     out["weekly_visit_avg"] = round(r["visits"] / (days / 7), 2) if days else None
-    if not sources["core"]:
+    if not sources["assisted"]:
         out["assisted_pct"] = None
     if not sources["meetings"]:
         out["cp_meetings"] = out["cp_meetings_today"] = None
@@ -349,6 +358,7 @@ async def compute_dsr(conn, d: dt.date, user: Optional[dict] = None) -> dict:
 
     # visits
     visits = await _crm_visits(conn, start, d)
+    assisted = await _sheet_assisted()
     # a visit with no property link still names its home (home_id): find the CRM property for that home
     home_to_pid = {str(p["home_id"]): pid for pid, p in props.items() if p["home_id"]}
     for v in visits:
@@ -372,19 +382,9 @@ async def compute_dsr(conn, d: dt.date, user: Optional[dict] = None) -> dict:
         b["_neg_held"] += bool(v["neg_moved_on"] or (neg and nd and nd < d)
                                or v["current_stage"] in ("booking", "ats"))
         b["_dead"] += v["current_status"] == "dead"
-
-    # core assisted (by home_id -> the home's PM on the report date)
-    core = await _core_assisted(start, d)
-    if core is not None:
-        hid_to_pid = {str(p["home_id"]): pid for pid, p in props.items() if p["home_id"]}
-        cur_pm = await _pm_on(conn, [(hid_to_pid[h], d) for h in core if h in hid_to_pid])
-        for h, (n, fb) in core.items():
-            pid = hid_to_pid.get(h)
-            pm = cur_pm.get((pid, d)) if pid else None
-            if pm:
-                b = bucket(pm)
-                b["_assisted_d"] += n
-                b["_assisted_n"] += fb
+        if assisted is not None:
+            b["_assisted_d"] += 1
+            b["_assisted_n"] += (v["visit_code"] or "").strip() in assisted
 
     # CP meetings -> CRM user by email, else core_sales_manager_id (prefer the active user)
     meets = await _meetings(start, d)
@@ -419,7 +419,7 @@ async def compute_dsr(conn, d: dt.date, user: Optional[dict] = None) -> dict:
                 b["closures"] += 1
                 b["closures_today"] += bd == d
 
-    sources = {"crm": True, "core": core is not None, "meetings": meets is not None,
+    sources = {"crm": True, "assisted": assisted is not None, "meetings": meets is not None,
                "bookings": books is not None}
 
     # group PMs under main area; a person with no homes who manages an area sits under that area;
