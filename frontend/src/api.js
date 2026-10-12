@@ -326,3 +326,28 @@ export async function dismissRecording(meetingId) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+// --- Daily Sales Report (Admin + area managers; backend enforces access) ---
+// Errors carry e.status so the view can show a friendly 403 / 409 message.
+async function _dsrJson(res) {
+  if (!res.ok) { const e = new Error(await _errDetail(res)); e.status = res.status; throw e; }
+  return res.json();
+}
+export async function loadDsr(date) {
+  return _dsrJson(await apiFetch(`/api/dsr?date=${encodeURIComponent(date)}`));
+}
+export async function loadDsrSettings(month) {
+  return _dsrJson(await apiFetch(`/api/dsr/settings?month=${encodeURIComponent(month)}`));
+}
+export async function setDsrTarget(body) {        // { month, area, target }
+  return _dsrJson(await apiFetch('/api/dsr/target', { method: 'PUT', body: JSON.stringify(body) }));
+}
+export async function setDsrAreaManager(body) {   // { area, manager_user_id }
+  return _dsrJson(await apiFetch('/api/dsr/area-manager', { method: 'PUT', body: JSON.stringify(body) }));
+}
+export async function setDsrPmManager(body) {     // { pm_user_id, manager_user_id }
+  return _dsrJson(await apiFetch('/api/dsr/pm-manager', { method: 'PUT', body: JSON.stringify(body) }));
+}
+export function dsrExportUrl(date) {
+  return `/api/dsr/export.xlsx?date=${encodeURIComponent(date)}`;
+}
