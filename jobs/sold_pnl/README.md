@@ -16,6 +16,11 @@ Safety: every DB session is read-only. The job refuses to write if the active ro
 against the sheet or required fields are missing, and after writing it reads both tabs back (row count, header,
 formula errors, sale-price total). Any failure exits 1, which shows as a failed run in Render.
 
+**Failure alerts:** any failed run (missing env, precheck, postcheck, crash) WhatsApps Akshit — template `job_alert_v1`,
+falling back to the approved `daily_briefing_v1` (templates deliver even when the 24h window is closed; free text is the
+last resort). Env: `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TO`. Test with `ALERT_TEST=1` (sends one test
+message and exits **without refreshing the sheet** — never leave it set on Render).
+
 Run locally without writing: `DRY_RUN=1 python sold_pnl.py` (writes `pnl_dry_run.json`).
 
 Rules Akshit set that live in code: `MM_LEAD_SET_BY_AKSHIT` (Noida Extension → Ajitesh Singh, Raj Nagar Extension →
