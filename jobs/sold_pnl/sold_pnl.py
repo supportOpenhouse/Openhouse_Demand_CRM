@@ -564,11 +564,63 @@ def postcheck(ws, rows, recs):
     return problems
 
 
+JOB_NAME = 'Sold P&L hourly'
+
+
+def alert(detail):
+    """WhatsApp Akshit that a run failed. Approved templates deliver even when the 24h window is closed
+    (free text is silently dropped then), so: job_alert_v1 -> daily_briefing_v1 -> free text. Never raises."""
+    import urllib.request
+    tok, pid, to = (os.environ.get(k) for k in ('WHATSAPP_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_TO'))
+    if not (tok and pid and to):
+        log('alert skipped: WhatsApp env not set')
+        return
+    when = dt.datetime.now(IST).strftime('%d-%b-%Y %H:%M IST')
+    detail = re.sub(r'\s+', ' ', str(detail)).strip()[:600] or 'unknown error'   # template params: one line, capped
+    tpl = lambda name, params: {'messaging_product': 'whatsapp', 'to': to, 'type': 'template', 'template': {
+        'name': name, 'language': {'code': 'en'},
+        'components': [{'type': 'body', 'parameters': [{'type': 'text', 'text': p} for p in params]}]}}
+    attempts = [('job_alert_v1', tpl('job_alert_v1', [JOB_NAME, detail, when])),
+                ('daily_briefing_v1', tpl('daily_briefing_v1', [f'{JOB_NAME} job FAILED', detail,
+                                                                'Nothing was overwritten; the sheet keeps its last good version',
+                                                                'Logs: Render cron oh-sold-pnl-hourly', when])),
+                ('text', {'messaging_product': 'whatsapp', 'to': to, 'type': 'text',
+                          'text': {'body': f'⚠️ {JOB_NAME} job failed ({when}): {detail}'}})]
+    for label, payload in attempts:
+        try:
+            req = urllib.request.Request(f'https://graph.facebook.com/v25.0/{pid}/messages', data=json.dumps(payload).encode(),
+                                         headers={'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json'})
+            if '"messages"' in urllib.request.urlopen(req, timeout=30).read().decode():
+                log(f'alert sent via {label}')
+                return
+        except Exception as e:              # noqa: BLE001 — e.g. template not approved yet: try the next one
+            log(f'alert via {label} failed: {str(e)[:120]}')
+    log('alert could not be sent')
+
+
+def fail(detail):
+    log(detail)
+    alert(detail)
+    sys.exit(1)
+
+
 def main():
+    try:
+        run()
+    except SystemExit:
+        raise
+    except Exception as e:                  # noqa: BLE001 — any crash: alert, then let Render mark the run failed
+        fail(f'crashed: {type(e).__name__}: {str(e)[:400]}')
+
+
+def run():
+    if os.environ.get('ALERT_TEST') == '1':
+        alert('TEST — alerts for this job are working. No action needed.')
+        return
     env = {k: os.environ.get(k) for k in ('NEON_SUPPLY_URL', 'NEON_TMD_URL', 'CRM_DATABASE_URL', 'GOOGLE_SERVICE_ACCOUNT_JSON')}
     missing = [k for k, v in env.items() if not v]
     if missing:
-        sys.exit(f'missing env: {missing}')
+        fail(f'missing env: {missing}')
     S = load(env)
     active, cancelled, tests = build(S)
     log(f'built: active {len(active)}, cancelled {len(cancelled)}, test dropped {len(tests)} '
@@ -578,8 +630,7 @@ def main():
     tabs = (('Sheet1' + TAB_SUFFIX, active), ('Cancelled Deals' + TAB_SUFFIX, cancelled))
     problems = [p for title, new in tabs for p in precheck(new, tab_stats(sh, title), title)]
     if problems:
-        log('PRECHECK FAILED — sheet not touched:', problems)
-        sys.exit(1)
+        fail(f'PRECHECK FAILED, sheet not touched: {"; ".join(problems)}')
     rows = {title: sheet_rows(new) for title, new in tabs}
     if DRY_RUN:
         json.dump({'rows': rows[tabs[0][0]], 'rows_cancel': rows[tabs[1][0]], 'recs': active, 'recs_cancel': cancelled,
@@ -592,8 +643,7 @@ def main():
         ws = write_tab(sh, title, rows[title])
         issues += [f'{title}: {p}' for p in postcheck(ws, rows[title], new)]
     if issues:
-        log('POSTCHECK FAILED:', issues)
-        sys.exit(1)
+        fail(f'POSTCHECK FAILED after writing: {"; ".join(issues)}')
     log(f'OK: wrote {tabs[0][0]} {len(active)} rows, {tabs[1][0]} {len(cancelled)} rows; all checks passed')
 
 
