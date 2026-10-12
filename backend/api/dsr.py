@@ -261,7 +261,7 @@ async def _meetings(start: dt.date, d: dt.date):
             rows = await c.fetch(
                 "SELECT u.smid, lower(u.email) AS email, (m.started_at AT TIME ZONE 'Asia/Kolkata')::date AS md "
                 "FROM meetings m JOIN users u ON u.id = m.rm_id "
-                "WHERE m.meeting_type = 'engagement' "
+                "WHERE m.meeting_type = 'engagement' AND u.role = 'rm' "  # demand RMs only (not supply_rm / direct_rm / admin)
                 "AND coalesce(m.status, '') NOT ILIKE $3 "
                 "AND (m.started_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $1 AND $2",
                 start, d, "fail%")
@@ -422,7 +422,12 @@ async def compute_dsr(conn, d: dt.date, user: Optional[dict] = None) -> dict:
     sources = {"crm": True, "core": core is not None, "meetings": meets is not None,
                "bookings": books is not None}
 
-    # group PMs under main area (PMs with no homes: fall back to "Unassigned")
+    # group PMs under main area; a person with no homes who manages an area sits under that area;
+    # anyone else with no homes (e.g. KAMs) goes to "No homes"
+    managed_area = {}
+    for a, m in st["area_mgr"].items():
+        if m:
+            managed_area.setdefault(m, a)
     def mgr_name(uid):
         return users[uid]["name"] if uid and uid in users else None
 
@@ -430,7 +435,7 @@ async def compute_dsr(conn, d: dt.date, user: Optional[dict] = None) -> dict:
     for pm, b in acc.items():
         if pm not in users:
             continue
-        area = main_area.get(pm) or "Unassigned"
+        area = main_area.get(pm) or managed_area.get(pm) or "No homes"
         mgr = st["pm_mgr"].get(pm) or st["area_mgr"].get(area)
         row = _blank("pm", area_city.get(area, "Other"), area, pm, users[pm]["name"],
                      mgr_name(mgr))
