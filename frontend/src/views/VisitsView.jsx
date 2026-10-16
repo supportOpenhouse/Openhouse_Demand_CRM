@@ -11,6 +11,7 @@ import {
 } from '../lib/legacy.js';
 import { flatNo } from '../lib/propertyStatus.js';
 import { toast } from '../lib/toast.js';
+import { logActivity } from '../api.js';
 import useIsMobile from '../lib/useIsMobile.js';
 import ChipBar from '../components/ChipBar.jsx';
 import RevisitTag from '../components/RevisitTag.jsx';
@@ -468,6 +469,7 @@ export default function VisitsView({ seed, onOpenBroker, search = '', filters = 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    logActivity('export.visits_csv', { object_label: 'oh-visits.csv', details: { rows: rows.length, search: search || '' } });
   }
 
   return (

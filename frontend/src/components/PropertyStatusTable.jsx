@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { buildKhMap, buildPgMap, buildTermsMap, buildPropertyStatusRows, PS_COLUMNS, sortRows, psToCsv } from '../lib/propertyStatus.js';
-import { setKhOverride, setPropertyReview } from '../api.js';
+import { setKhOverride, setPropertyReview, logActivity } from '../api.js';
 import { parsePrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
 
@@ -37,6 +37,7 @@ function downloadCsv(rows) {
   a.download = 'oh-property-status.csv';
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(a.href);
+  logActivity('export.property_status_csv', { object_label: 'oh-property-status.csv', details: { rows: rows.length } });
 }
 
 // KH date cell. For admins on a unit with a home_id it's click-to-edit (a native date

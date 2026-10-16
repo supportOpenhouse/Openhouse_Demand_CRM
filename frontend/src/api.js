@@ -1,9 +1,16 @@
 // API client. Same-origin in prod (Vercel rewrites /api,/auth,/health → Render)
 // and via the Vite dev proxy locally, so no CORS and cookies "just work".
+
+// Admin "View as": the slug being viewed, sent as X-View-As so anything the admin saves
+// meanwhile is logged as "<admin> (viewing as <slug>)". Display/logging only — the backend
+// still acts as the signed-in admin.
+let _viewAs = null;
+export function setViewAs(slug) { _viewAs = slug || null; }
+
 export async function apiFetch(path, opts = {}) {
   const res = await fetch(path, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...(_viewAs ? { 'X-View-As': _viewAs } : {}), ...(opts.headers || {}) },
     ...opts,
   });
   if (res.status === 401) {
@@ -350,4 +357,32 @@ export async function setDsrPmManager(body) {     // { pm_user_id, manager_user_
 }
 export function dsrExportUrl(date) {
   return `/api/dsr/export.xlsx?date=${encodeURIComponent(date)}`;
+}
+
+// --- Activity log ---
+// Report an action the server can't see by itself (a CSV built in the page, a snapshot shared,
+// "View as"). Fire-and-forget: never blocks or fails the action it describes. Plain fetch, NOT
+// apiFetch — an expired session must not bounce the page to sign-in after a download already worked.
+export function logActivity(action, { object_id, object_label, details } = {}) {
+  try {
+    return fetch('/api/activity/event', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(_viewAs ? { 'X-View-As': _viewAs } : {}) },
+      body: JSON.stringify({ action, object_id, object_label, details }),
+    }).catch(() => {});
+  } catch { return Promise.resolve(); /* never let logging break the page */ }
+}
+// Admin: the log itself. params: { actor, action, object_type, object_id, source, q, since, until, before, limit }
+export async function loadActivity(params = {}) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') qs.set(k, v); });
+  const res = await apiFetch(`/api/activity?${qs.toString()}`);
+  if (!res.ok) throw new Error(await _errDetail(res));
+  return res.json();
+}
+export async function loadActivityMeta() {
+  const res = await apiFetch('/api/activity/meta');
+  if (!res.ok) throw new Error(await _errDetail(res));
+  return res.json();
 }

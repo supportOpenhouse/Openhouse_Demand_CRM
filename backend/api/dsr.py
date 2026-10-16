@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import auth, config, sheets
+from . import activity, auth, config, sheets
 from .db import acquire
 
 log = logging.getLogger("dsr")
@@ -576,8 +576,19 @@ async def _write(conn, user, kind, key, old, new, sql, *args):
                 "INSERT INTO dsr_change_log (by_user_id, kind, key, old_value, new_value) "
                 "VALUES ($1, $2, $3, $4, $5)", user["id"], kind, key,
                 None if old is None else str(old), None if new is None else str(new))
+            # activity log: user ids shown as names
+            ids = [str(x) for x in (key, old, new) if x is not None and _UUID_RE.fullmatch(str(x))]
+            names = {r["id"]: r["name"] for r in await conn.fetch(
+                "SELECT id::text AS id, name FROM users WHERE id::text = ANY($1::text[])", ids)} if ids else {}
+            nm = lambda x: None if x is None else names.get(str(x), x)
+            await activity.record(conn, user, f"dsr.{kind}", object_type="dsr", object_id=key,
+                                  object_label=nm(key) if kind == "pm_manager" else key,
+                                  changes=activity.diff({kind: nm(old)}, {kind: nm(new)}))
     except asyncpg.UndefinedTableError:
         raise HTTPException(409, "settings tables not created yet")
+
+
+_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
 @router.put("/api/dsr/target")
@@ -717,6 +728,9 @@ async def export_xlsx(date: Optional[str] = None, user: dict = Depends(auth.curr
         await _require_view(conn, user)
         report = await compute_dsr(conn, d, user)
     data = build_xlsx(report)
+    await activity.record_safe(user, "export.dsr_xlsx", object_type="export", object_id=f"DSR_{d.isoformat()}",
+                               object_label=f"DSR {d.isoformat()}",
+                               details={"date": d, "rows": len(report.get("rows") or [])})
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

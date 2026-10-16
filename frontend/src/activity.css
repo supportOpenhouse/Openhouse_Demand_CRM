@@ -1,0 +1,49 @@
+/* Activity Log tab (views/ActivityLogView.jsx) — isolated, al- prefixed, same pattern as recordings.css. */
+.al-view { display: grid; gap: 10px; }
+.al-sub { color: var(--mut); font-size: 12.5px; }
+.al-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.al-in { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 6px 9px; font-size: 12.5px; outline: none; max-width: 100%; }
+.al-in:focus { border-color: var(--acc); }
+.al-q { flex: 1; min-width: 200px; }
+.al-date { display: inline-flex; align-items: center; gap: 5px; color: var(--mut); font-size: 12px; font-weight: 600; }
+.al-clear { color: var(--acc); font-weight: 600; font-size: 12.5px; }
+.al-total { margin-left: auto; color: var(--mut); font-size: 12.5px; font-weight: 600; }
+.al-mut { color: var(--mut); font-size: 12.5px; padding: 6px 0; }
+
+.al-table-wrap { border: 1px solid var(--line); border-radius: 11px; background: var(--panel); overflow: auto; max-height: calc(100vh - 230px); }
+.al-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.al-table th { position: sticky; top: 0; background: var(--panel2); text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--mut); padding: 8px 10px; border-bottom: 1px solid var(--line); z-index: 1; }
+.al-table td { padding: 8px 10px; border-bottom: 1px solid var(--line2); vertical-align: top; }
+.al-table tr.on td { background: var(--accBg); }
+.al-when { white-space: nowrap; color: var(--mut); font-variant-numeric: tabular-nums; }
+.al-who { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.al-sys { color: var(--mut); font-style: italic; }
+.al-team { font-size: 10.5px; font-weight: 700; color: var(--mut); background: var(--panel2); border-radius: 6px; padding: 1px 6px; }
+.al-viewas { font-size: 10.5px; font-weight: 700; color: var(--warnDk); background: var(--warnBg); border-radius: 6px; padding: 1px 6px; }
+.al-act { display: inline-block; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.al-act.src-sync { color: var(--blue); }
+.al-act.src-backfill { color: var(--mut); }
+.al-what { display: inline-flex; flex-direction: column; gap: 1px; }
+.al-id { font-size: 11px; color: var(--mut2); }
+.al-changes { display: grid; gap: 2px; }
+.al-change { display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; }
+.al-field { color: var(--mut); font-weight: 600; }
+.al-old { color: var(--badDk); text-decoration: line-through; text-decoration-color: rgba(185, 28, 28, .35); white-space: pre-wrap; word-break: break-word; }
+.al-arrow { color: var(--mut2); }
+.al-new { color: var(--goodDk); font-weight: 600; white-space: pre-wrap; word-break: break-word; }
+.al-details { margin-top: 6px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); display: grid; gap: 3px; }
+.al-drow { display: grid; grid-template-columns: 150px 1fr; gap: 8px; }
+.al-dk { color: var(--mut); font-weight: 600; }
+.al-dv { white-space: pre-wrap; word-break: break-word; }
+.al-toggle { color: var(--acc); font-weight: 600; font-size: 12px; white-space: nowrap; }
+.al-loadmore { display: flex; justify-content: center; padding: 6px 0 14px; }
+
+.al-cards { display: grid; gap: 8px; }
+.al-card { border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 10px 12px; display: grid; gap: 5px; }
+.al-card-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.al-more-hint { color: var(--mut2); font-size: 11px; }
+@media (max-width: 640px) {
+  .al-drow { grid-template-columns: 1fr; gap: 0; }
+  .al-total { margin-left: 0; width: 100%; }
+  .al-q { min-width: 0; flex: 1 1 100%; }
+}

@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import (ai_suggestions, auth, config, core_visits, cp_meetings, meetings_sync,
+from . import (activity, ai_suggestions, auth, config, core_visits, cp_meetings, meetings_sync,
                reports, seed_snapshot, sheet_sync)
 from .db import init_pool, close_pool, acquire
 
@@ -53,8 +53,28 @@ app.add_middleware(
     allow_origins=[config.FRONTEND_ORIGIN],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Internal-Cron-Token"],
+    allow_headers=["Content-Type", "Authorization", "X-Internal-Cron-Token", "X-View-As"],
 )
+
+
+class _ActivityRequestContext:
+    """Remembers the caller's IP, browser and path (and an admin's "View as" target) for the
+    request, so every activity-log line written while serving it can carry them. Plain ASGI
+    (no BaseHTTPMiddleware): it only reads headers and never touches the request or response."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            h = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in (scope.get("headers") or [])}
+            fwd = h.get("x-forwarded-for", "")
+            ip = fwd.split(",")[0].strip() if fwd else ((scope.get("client") or ("",))[0] or "")
+            activity.bind_request(ip, h.get("user-agent", ""), scope.get("path", ""), h.get("x-view-as", ""))
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_ActivityRequestContext)
 
 
 # ============================================================================
@@ -83,13 +103,24 @@ async def auth_callback(code: str, state: str):
     info = await auth.exchange_code_for_userinfo(code)
     email = (info.get("email") or "").lower()
     if not email or not info.get("email_verified", True):
+        await activity.record_safe(None, "auth.login_refused", object_type="user", object_label=email or None,
+                                   details={"email": email, "reason": "Google did not return a verified email"})
         raise HTTPException(400, "Google did not return a verified email")
     if not email.endswith("@" + config.ALLOWED_EMAIL_DOMAIN):
+        await activity.record_safe(None, "auth.login_refused", object_type="user", object_label=email,
+                                   details={"email": email, "reason": f"not an @{config.ALLOWED_EMAIL_DOMAIN} account"})
         raise HTTPException(403, f"Only @{config.ALLOWED_EMAIL_DOMAIN} accounts allowed")
 
-    user = await auth.upsert_user_for_login(
-        email=email, name=info.get("name") or email, picture=info.get("picture")
-    )
+    try:
+        user = await auth.upsert_user_for_login(
+            email=email, name=info.get("name") or email, picture=info.get("picture")
+        )
+    except HTTPException as e:   # not on the roster / inactive — log the refused attempt, then refuse as before
+        await activity.record_safe(None, "auth.login_refused", object_type="user", object_label=email,
+                                   details={"email": email, "reason": str(e.detail)})
+        raise
+    await activity.record_safe(user, "auth.login", object_type="user", object_id=user["slug"],
+                               object_label=user["name"], details={"email": email})
 
     next_url = state_data.get("next") or config.FRONTEND_ORIGIN
     resp = RedirectResponse(next_url, status_code=302)
@@ -98,7 +129,14 @@ async def auth_callback(code: str, state: str):
 
 
 @app.post("/auth/logout")
-async def logout():
+async def logout(request: Request):
+    try:
+        user = await auth.current_user_or_none(request)
+    except Exception:  # noqa: BLE001 — signing out must work even if the DB is unreachable
+        user = None
+    if user:
+        await activity.record_safe(user, "auth.logout", object_type="user", object_id=user["slug"],
+                                   object_label=user["name"])
     resp = JSONResponse({"ok": True})
     auth.clear_session_cookie(resp)
     return resp
@@ -121,6 +159,7 @@ if config.DEV_MODE:
             )
         if not u:
             raise HTTPException(404, f"No active user with slug={slug}")
+        await activity.record_safe(dict(u), "auth.dev_login", object_type="user", object_id=u["slug"])
         resp = RedirectResponse("/", status_code=302)
         auth.set_session_cookie(resp, str(u["id"]), u["email"], u["slug"])
         return resp
@@ -355,10 +394,18 @@ async def set_top_broker_phone(row_id: int, body: TopBrokerPhoneBody,
     Any authenticated user may set it; an empty string clears it."""
     phone = (body.phone or "").strip() or None
     async with acquire() as conn:
-        row = await conn.fetchrow(
-            "UPDATE top_brokers_99acres SET phone = $1 WHERE id = $2 RETURNING id, phone",
-            phone, row_id,
-        )
+        async with conn.transaction():
+            old = await conn.fetchrow(
+                "SELECT phone, broker_name, society FROM top_brokers_99acres WHERE id = $1 FOR UPDATE", row_id)
+            row = await conn.fetchrow(
+                "UPDATE top_brokers_99acres SET phone = $1 WHERE id = $2 RETURNING id, phone",
+                phone, row_id,
+            )
+            ch = activity.diff({"phone": old["phone"] if old else None}, {"phone": row["phone"] if row else None})
+            if row and ch:
+                await activity.record(conn, user, "top_broker.phone", object_type="top_broker", object_id=row_id,
+                                      object_label=" · ".join(x for x in (old["broker_name"], old["society"]) if x),
+                                      changes=ch)
     if not row:
         raise HTTPException(404, "Top-broker row not found")
     return {"ok": True, "id": row["id"], "phone": row["phone"] or ""}
@@ -576,19 +623,25 @@ async def set_kh_override(body: KhOverrideBody, user: dict = Depends(auth.curren
     if raw and d is None:
         raise HTTPException(400, "Invalid kh_date (expected YYYY-MM-DD)")
     async with acquire() as conn:
-        if d:
-            await conn.execute(
-                """
-                INSERT INTO kh_overrides (home_id, society_name, unit_no, key_handover_date, set_by, updated_at)
-                VALUES ($1, $2, $3, $4, $5, now())
-                ON CONFLICT (home_id) DO UPDATE SET
-                    society_name = EXCLUDED.society_name, unit_no = EXCLUDED.unit_no,
-                    key_handover_date = EXCLUDED.key_handover_date, set_by = EXCLUDED.set_by, updated_at = now()
-                """,
-                home_id, (body.society_name or "").strip(), (body.unit_no or "").strip(), d, user["slug"],
-            )
-        else:
-            await conn.execute("DELETE FROM kh_overrides WHERE home_id = $1", home_id)
+        async with conn.transaction():
+            old = await conn.fetchval("SELECT key_handover_date FROM kh_overrides WHERE home_id = $1", home_id)
+            if d:
+                await conn.execute(
+                    """
+                    INSERT INTO kh_overrides (home_id, society_name, unit_no, key_handover_date, set_by, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, now())
+                    ON CONFLICT (home_id) DO UPDATE SET
+                        society_name = EXCLUDED.society_name, unit_no = EXCLUDED.unit_no,
+                        key_handover_date = EXCLUDED.key_handover_date, set_by = EXCLUDED.set_by, updated_at = now()
+                    """,
+                    home_id, (body.society_name or "").strip(), (body.unit_no or "").strip(), d, user["slug"],
+                )
+            else:
+                await conn.execute("DELETE FROM kh_overrides WHERE home_id = $1", home_id)
+            ch = activity.diff({"key_handover_date": old}, {"key_handover_date": d})
+            if ch:
+                await activity.record(conn, user, "property.kh_override", object_type="property", object_id=home_id,
+                                      object_label=_unit_label(body.unit_no, body.society_name), changes=ch)
     return {"ok": True, "home_id": home_id, "kh_date": d.isoformat() if d else ""}
 
 
@@ -612,21 +665,29 @@ async def set_property_review(body: PropertyReviewBody, user: dict = Depends(aut
     offer = (body.ongoing_offer or "").strip()
     remark = (body.demand_team_remark or "").strip()
     async with acquire() as conn:
-        if offer or remark:
-            await conn.execute(
-                """
-                INSERT INTO property_review_fields (home_id, society_name, unit_no, ongoing_offer, demand_team_remark, set_by, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, now())
-                ON CONFLICT (home_id) DO UPDATE SET
-                    society_name = EXCLUDED.society_name, unit_no = EXCLUDED.unit_no,
-                    ongoing_offer = EXCLUDED.ongoing_offer, demand_team_remark = EXCLUDED.demand_team_remark,
-                    set_by = EXCLUDED.set_by, updated_at = now()
-                """,
-                home_id, (body.society_name or "").strip(), (body.unit_no or "").strip(),
-                offer or None, remark or None, user["slug"],
-            )
-        else:
-            await conn.execute("DELETE FROM property_review_fields WHERE home_id = $1", home_id)
+        async with conn.transaction():
+            old = await conn.fetchrow(
+                "SELECT ongoing_offer, demand_team_remark FROM property_review_fields WHERE home_id = $1", home_id)
+            if offer or remark:
+                await conn.execute(
+                    """
+                    INSERT INTO property_review_fields (home_id, society_name, unit_no, ongoing_offer, demand_team_remark, set_by, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, now())
+                    ON CONFLICT (home_id) DO UPDATE SET
+                        society_name = EXCLUDED.society_name, unit_no = EXCLUDED.unit_no,
+                        ongoing_offer = EXCLUDED.ongoing_offer, demand_team_remark = EXCLUDED.demand_team_remark,
+                        set_by = EXCLUDED.set_by, updated_at = now()
+                    """,
+                    home_id, (body.society_name or "").strip(), (body.unit_no or "").strip(),
+                    offer or None, remark or None, user["slug"],
+                )
+            else:
+                await conn.execute("DELETE FROM property_review_fields WHERE home_id = $1", home_id)
+            ch = activity.diff(dict(old) if old else {}, {"ongoing_offer": offer, "demand_team_remark": remark},
+                               ["ongoing_offer", "demand_team_remark"])
+            if ch:
+                await activity.record(conn, user, "property.review", object_type="property", object_id=home_id,
+                                      object_label=_unit_label(body.unit_no, body.society_name), changes=ch)
     return {"ok": True, "home_id": home_id, "ongoing_offer": offer, "demand_team_remark": remark}
 
 
@@ -661,18 +722,24 @@ async def set_snapshot_remark(body: SnapshotRemarkBody, user: dict = Depends(aut
         raise HTTPException(400, "home_id is required")
     remark = (body.remark or "").strip()
     async with acquire() as conn:
-        if remark:
-            await conn.execute(
-                """
-                INSERT INTO snapshot_remarks (home_id, remark, set_by, updated_at)
-                VALUES ($1, $2, $3, now())
-                ON CONFLICT (home_id) DO UPDATE SET
-                    remark = EXCLUDED.remark, set_by = EXCLUDED.set_by, updated_at = now()
-                """,
-                home_id, remark, user["slug"],
-            )
-        else:
-            await conn.execute("DELETE FROM snapshot_remarks WHERE home_id = $1", home_id)
+        async with conn.transaction():
+            old = await conn.fetchval("SELECT remark FROM snapshot_remarks WHERE home_id = $1", home_id)
+            if remark:
+                await conn.execute(
+                    """
+                    INSERT INTO snapshot_remarks (home_id, remark, set_by, updated_at)
+                    VALUES ($1, $2, $3, now())
+                    ON CONFLICT (home_id) DO UPDATE SET
+                        remark = EXCLUDED.remark, set_by = EXCLUDED.set_by, updated_at = now()
+                    """,
+                    home_id, remark, user["slug"],
+                )
+            else:
+                await conn.execute("DELETE FROM snapshot_remarks WHERE home_id = $1", home_id)
+            ch = activity.diff({"snapshot_remark": old}, {"snapshot_remark": remark})
+            if ch:
+                await activity.record(conn, user, "property.snapshot_remark", object_type="property", object_id=home_id,
+                                      object_label=await _home_label(conn, home_id), changes=ch)
     return {"ok": True, "home_id": home_id, "remark": remark}
 
 
@@ -713,18 +780,25 @@ async def set_team_perf_manual(body: TeamPerfManualBody, user: dict = Depends(au
         raise HTTPException(400, "person_slug and metric_key are required")
     val = (body.value or "").strip()
     async with acquire() as conn:
-        if val:
-            await conn.execute(
-                """
-                INSERT INTO team_perf_manual (person_slug, metric_key, value, updated_by, updated_at)
-                VALUES ($1, $2, $3, $4, now())
-                ON CONFLICT (person_slug, metric_key) DO UPDATE SET
-                    value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
-                """,
-                slug, key, val, user["slug"],
-            )
-        else:
-            await conn.execute("DELETE FROM team_perf_manual WHERE person_slug = $1 AND metric_key = $2", slug, key)
+        async with conn.transaction():
+            old = await conn.fetchval(
+                "SELECT value FROM team_perf_manual WHERE person_slug = $1 AND metric_key = $2", slug, key)
+            if val:
+                await conn.execute(
+                    """
+                    INSERT INTO team_perf_manual (person_slug, metric_key, value, updated_by, updated_at)
+                    VALUES ($1, $2, $3, $4, now())
+                    ON CONFLICT (person_slug, metric_key) DO UPDATE SET
+                        value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+                    """,
+                    slug, key, val, user["slug"],
+                )
+            else:
+                await conn.execute("DELETE FROM team_perf_manual WHERE person_slug = $1 AND metric_key = $2", slug, key)
+            ch = activity.diff({key: old}, {key: val})
+            if ch:
+                await activity.record(conn, user, "team_perf.manual_cell", object_type="user", object_id=slug,
+                                      object_label=slug, changes=ch)
     return {"ok": True, "person_slug": slug, "metric_key": key, "value": val}
 
 
@@ -782,11 +856,15 @@ async def add_manager_remark(body: ManagerRemarkBody, user: dict = Depends(auth.
             raise HTTPException(404, f"Visit {body.visit_code} not found")
         if not await _can_edit_visit(conn, user, visit["id"]):
             raise HTTPException(403, "You don't have permission to act on this visit")
-        row = await conn.fetchrow(
-            "INSERT INTO visit_manager_remarks (visit_code, by_user_id, called, note) "
-            "VALUES ($1, $2, $3, $4) RETURNING id, created_at",
-            body.visit_code, user["id"], bool(body.called), note,
-        )
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "INSERT INTO visit_manager_remarks (visit_code, by_user_id, called, note) "
+                "VALUES ($1, $2, $3, $4) RETURNING id, created_at",
+                body.visit_code, user["id"], bool(body.called), note,
+            )
+            await activity.record(conn, user, "visit.manager_remark", object_type="visit", object_id=body.visit_code,
+                                  object_label=await _visit_label(conn, visit["id"]),
+                                  details={"called": bool(body.called), "note": note, "remark_id": str(row["id"])})
     return {"ok": True, "id": str(row["id"]), "at": row["created_at"].isoformat()}
 
 
@@ -817,49 +895,65 @@ async def save_followup(body: FollowupBody, user: dict = Depends(auth.current_us
         if not await _can_edit_visit(conn, user, visit["id"]):
             raise HTTPException(403, "You don't have permission to edit this visit")
 
-        prev = await conn.fetchrow(
-            "SELECT current_stage, current_status FROM visits WHERE id = $1", visit["id"]
-        )
-        fu = await conn.fetchrow(
-            """
-            INSERT INTO followups (
-              visit_id, by_user_id, buyer_status, stage, note,
-              next_followup_date, revisit_date, negotiation_date,
-              negotiation_happened, booking_received_date,
-              previous_stage, previous_status, source
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'app')
-            RETURNING id, created_at
-            """,
-            visit["id"], user["id"], body.buyer_status, body.stage, body.note.strip(),
-            None if is_dead else _date_or_none(body.next_followup_date),
-            None if is_dead else _ts_or_none(body.revisit_date),
-            None if is_dead else _ts_or_none(body.negotiation_date),
-            # negotiation_happened is a fact about the meeting → kept even for a dead/closed
-            # lead (e.g. "No, didn't happen" → not_interested). booking_received_date only
-            # makes sense for a live booking, so it's nulled for a dead lead.
-            body.negotiation_happened,
-            # Capture the booking date going forward: default to today when a lead is
-            # moved to 'booking' without an explicit date, so it is never left empty
-            # (this is what makes visit→booking conversion + CP/RM credit measurable).
-            None if is_dead else (_date_or_none(body.booking_received_date)
-                                  or (_dt.date.today() if body.stage == "booking" else None)),
-            prev["current_stage"], prev["current_status"],
-        )
-
-        # Resolve open nudges on this visit and notify the nudgers
-        nudges = await conn.fetch(
-            "UPDATE nudges SET resolved_at = now(), resolved_by_followup_id = $1 "
-            "WHERE visit_id = $2 AND resolved_at IS NULL "
-            "RETURNING from_user_id, message",
-            fu["id"], visit["id"],
-        )
-        for n in nudges:
-            await conn.execute(
-                "INSERT INTO notifications (to_user_id, from_user_id, type, ref_type, ref_id, text, action) "
-                "VALUES ($1, $2, 'nudge_resolved', 'visit', $3, $4, 'open_visit')",
-                n["from_user_id"], user["id"], visit["id"],
-                f"Your nudge on visit {body.visit_code} was actioned.",
+        # one transaction: the follow-up, the nudges it resolves and its activity-log line are
+        # saved together or not at all
+        async with conn.transaction():
+            prev = await conn.fetchrow(
+                "SELECT current_stage, current_status FROM visits WHERE id = $1", visit["id"]
             )
+            fu = await conn.fetchrow(
+                """
+                INSERT INTO followups (
+                  visit_id, by_user_id, buyer_status, stage, note,
+                  next_followup_date, revisit_date, negotiation_date,
+                  negotiation_happened, booking_received_date,
+                  previous_stage, previous_status, source
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'app')
+                RETURNING id, created_at, next_followup_date, revisit_date, negotiation_date,
+                          negotiation_happened, booking_received_date
+                """,
+                visit["id"], user["id"], body.buyer_status, body.stage, body.note.strip(),
+                None if is_dead else _date_or_none(body.next_followup_date),
+                None if is_dead else _ts_or_none(body.revisit_date),
+                None if is_dead else _ts_or_none(body.negotiation_date),
+                # negotiation_happened is a fact about the meeting → kept even for a dead/closed
+                # lead (e.g. "No, didn't happen" → not_interested). booking_received_date only
+                # makes sense for a live booking, so it's nulled for a dead lead.
+                body.negotiation_happened,
+                # Capture the booking date going forward: default to today when a lead is
+                # moved to 'booking' without an explicit date, so it is never left empty
+                # (this is what makes visit→booking conversion + CP/RM credit measurable).
+                None if is_dead else (_date_or_none(body.booking_received_date)
+                                      or (_dt.date.today() if body.stage == "booking" else None)),
+                prev["current_stage"], prev["current_status"],
+            )
+
+            # Resolve open nudges on this visit and notify the nudgers
+            nudges = await conn.fetch(
+                "UPDATE nudges SET resolved_at = now(), resolved_by_followup_id = $1 "
+                "WHERE visit_id = $2 AND resolved_at IS NULL "
+                "RETURNING from_user_id, message",
+                fu["id"], visit["id"],
+            )
+            for n in nudges:
+                await conn.execute(
+                    "INSERT INTO notifications (to_user_id, from_user_id, type, ref_type, ref_id, text, action) "
+                    "VALUES ($1, $2, 'nudge_resolved', 'visit', $3, $4, 'open_visit')",
+                    n["from_user_id"], user["id"], visit["id"],
+                    f"Your nudge on visit {body.visit_code} was actioned.",
+                )
+
+            await activity.record(
+                conn, user, "visit.followup", object_type="visit", object_id=body.visit_code,
+                object_label=await _visit_label(conn, visit["id"]),
+                changes=activity.diff({"stage": prev["current_stage"], "buyer_status": prev["current_status"]},
+                                      {"stage": body.stage, "buyer_status": body.buyer_status}),
+                details={"note": body.note.strip(), "stage": body.stage, "buyer_status": body.buyer_status,
+                         "next_followup_date": fu["next_followup_date"], "revisit_date": fu["revisit_date"],
+                         "negotiation_date": fu["negotiation_date"],
+                         "negotiation_happened": fu["negotiation_happened"],
+                         "booking_received_date": fu["booking_received_date"],
+                         "followup_id": str(fu["id"]), "resolved_nudges": len(nudges)})
 
     return {"ok": True, "followup_id": str(fu["id"]), "resolved_nudges": len(nudges)}
 
@@ -985,13 +1079,18 @@ async def book_visits(body: BookVisitsBody, user: dict = Depends(auth.current_us
                                        json={"sales_manager_id": sm_id, "visits": to_schedule})
         except Exception as e:  # noqa: BLE001
             log.warning("[book] schedule call FAILED: %s", e)
+            await _log_bookings(user, sm_id, visits, _all_failed(visits, row_results, "schedule_call_failed"))
             raise HTTPException(502, "Core schedule call failed — no visits were created in this batch.")
         if sr.status_code == 401:
+            await _log_bookings(user, sm_id, visits, _all_failed(visits, row_results, "core_rejected_key"))
             raise HTTPException(502, "Core rejected the CRM key.")
         if sr.status_code == 422:
+            await _log_bookings(user, sm_id, visits, _all_failed(visits, row_results, "core_rejected_sales_manager"))
             raise HTTPException(422, "Core rejected the sales_manager_id.")
         if sr.status_code not in (200, 201):
             log.warning("[book] schedule http %s: %s", sr.status_code, sr.text[:300])
+            await _log_bookings(user, sm_id, visits,
+                                _all_failed(visits, row_results, f"schedule_http_{sr.status_code}: {sr.text[:200]}"))
             raise HTTPException(400, f"Core schedule rejected the batch: {sr.text[:200]}")
         sdata = sr.json()
         for x in (sdata.get("results") or []):
@@ -1012,7 +1111,40 @@ async def book_visits(body: BookVisitsBody, user: dict = Depends(auth.current_us
             out.append({"home_id": v.home_id, "ok": False, "error": "no_result"})
     booked = sum(1 for r in out if r.get("ok"))
     log.info("[book] DONE admin=%s booked=%d failed=%d", user.get("slug"), booked, len(out) - booked)
+    await _log_bookings(user, sm_id, visits, out)
     return {"booked": booked, "failed": len(out) - booked, "results": out}
+
+
+def _all_failed(visits: list, row_results: dict, error: str) -> list:
+    """Per-visit results when the whole schedule call failed (rows already skipped keep their own reason)."""
+    return [row_results.get(v.home_id) or {"home_id": v.home_id, "ok": False, "error": error} for v in visits]
+
+
+async def _log_bookings(user: dict, sm_id, visits: list, out: list) -> None:
+    """Activity log: one line per unit the user tried to book — booked, or why not. Never raises
+    (the bookings already exist in the app)."""
+    names: dict = {}
+    try:
+        async with acquire() as conn:
+            for r in await conn.fetch(
+                    "SELECT DISTINCT ON (home_id) home_id, property_name FROM properties "
+                    "WHERE home_id = ANY($1::text[]) AND deleted_at IS NULL "
+                    "ORDER BY home_id, synced_from_sheet_at DESC NULLS LAST",
+                    [str(v.home_id) for v in visits]):
+                names[r["home_id"]] = r["property_name"]
+    except Exception as e:  # noqa: BLE001
+        log.warning("[book] activity label lookup failed: %s", e)
+    for v, res in zip(visits, out):
+        nv = res.get("visit") if isinstance(res.get("visit"), dict) else {}
+        await activity.record_safe(
+            user, "visit.booked" if res.get("ok") else "visit.book_failed",
+            object_type="visit", object_id=(nv.get("id") if res.get("ok") else None),
+            object_label=" · ".join(x for x in (v.buyer_name.strip(), names.get(str(v.home_id), "")) if x),
+            details={"home_id": v.home_id, "property": names.get(str(v.home_id)), "buyer_name": v.buyer_name,
+                     "buyer_mobile": v.buyer_mobile, "selected_date": v.selected_date,
+                     "selected_time": v.selected_time, "cp_code": v.cp_code, "broker_id": v.broker_id,
+                     "source": v.source, "sales_manager_id": sm_id, "ok": bool(res.get("ok")),
+                     "error": res.get("error"), "remaining_days": res.get("remaining_days")})
 
 
 # ============================================================================
@@ -1051,7 +1183,8 @@ async def complete_visit(body: VisitCompleteBody, user: dict = Depends(auth.curr
 
     async with acquire() as conn:
         visit = await conn.fetchrow(
-            "SELECT id, visit_code, selected_date, selected_time, status "
+            "SELECT id, visit_code, selected_date, selected_time, status, "
+            "       buyer_name, society_name, unit_address_line1, unit_address_line2 "
             "FROM visits WHERE visit_code = $1", code)
         if not visit:
             raise HTTPException(404, f"Visit {code} not found")
@@ -1083,6 +1216,13 @@ async def complete_visit(body: VisitCompleteBody, user: dict = Depends(auth.curr
         # 404/422/400 are the user's problem to act on; anything else is upstream.
         status = e.status if e.status in (400, 404, 409, 422) else 502
         raise HTTPException(status, str(e)) from e
+
+    # Core accepted → it happened. Log it now, before the local mirror (which may fail on its own).
+    await activity.record_safe(
+        user, f"visit.{body.status}", object_type="visit", object_id=code, object_label=_visit_label_row(visit),
+        changes=activity.diff({"status": visit["status"]}, {"status": updated.get("status") or body.status}),
+        details={"lead_status": body.lead_status, "sales_feedback": body.sales_feedback,
+                 "sm_demand_feedback": body.sm_demand_feedback, "platform": updated.get("platform")})
 
     # Core accepted → mirror locally so the dashboard reflects it before the next sync.
     #
@@ -1166,7 +1306,8 @@ async def revisit_visit(body: VisitRescheduleBody, user: dict = Depends(auth.cur
 
     async with acquire() as conn:
         visit = await conn.fetchrow(
-            "SELECT id, visit_code, status FROM visits WHERE visit_code = $1", code)
+            "SELECT id, visit_code, status, buyer_name, society_name, unit_address_line1, unit_address_line2 "
+            "FROM visits WHERE visit_code = $1", code)
         if not visit:
             raise HTTPException(404, f"Visit {code} not found")
         if not await _can_edit_visit(conn, user, visit["id"]):
@@ -1178,6 +1319,11 @@ async def revisit_visit(body: VisitRescheduleBody, user: dict = Depends(auth.cur
     except core_visits.CoreVisitError as e:
         log.warning("[core-visit] revisit from=%s by=%s failed: %s", code, user.get("slug"), e)
         raise HTTPException(e.status if e.status in (400, 404, 409, 422) else 502, str(e)) from e
+
+    await activity.record_safe(
+        user, "visit.revisit_booked", object_type="visit", object_id=code, object_label=_visit_label_row(visit),
+        details={"new_visit_id": created.get("id"), "selected_date": body.selected_date,
+                 "selected_time": body.selected_time})
 
     # Audit on the ORIGINAL visit (the new one isn't in our DB until the next sync).
     try:
@@ -1221,7 +1367,8 @@ async def reschedule_visit(body: VisitRescheduleBody, user: dict = Depends(auth.
 
     async with acquire() as conn:
         visit = await conn.fetchrow(
-            "SELECT id, visit_code, status, selected_date, selected_time "
+            "SELECT id, visit_code, status, selected_date, selected_time, "
+            "       buyer_name, society_name, unit_address_line1, unit_address_line2 "
             "FROM visits WHERE visit_code = $1", code)
         if not visit:
             raise HTTPException(404, f"Visit {code} not found")
@@ -1234,6 +1381,11 @@ async def reschedule_visit(body: VisitRescheduleBody, user: dict = Depends(auth.
     except core_visits.CoreVisitError as e:
         log.warning("[core-visit] reschedule visit=%s by=%s failed: %s", code, user.get("slug"), e)
         raise HTTPException(e.status if e.status in (400, 404, 409, 422) else 502, str(e)) from e
+
+    await activity.record_safe(
+        user, "visit.rescheduled", object_type="visit", object_id=code, object_label=_visit_label_row(visit),
+        changes=activity.diff({"selected_date": visit["selected_date"], "selected_time": visit["selected_time"]},
+                              {"selected_date": new_date, "selected_time": body.selected_time}))
 
     # Core accepted → mirror the new slot locally so the row moves before the next sync.
     # visit_date is the column the UI sorts/buckets on, so it moves with selected_date.
@@ -1326,6 +1478,10 @@ async def create_core_sales_manager(body: CoreSmCreateBody,
         raise HTTPException(e.status if e.status in (400, 404, 409, 422) else 502, detail) from e
 
     log.info("[core-visit] create-sm by=%s -> id=%s", user.get("slug"), sm.get("id"))
+    await activity.record_safe(
+        user, "core_sm.created", object_type="core_sales_manager", object_id=sm.get("id"), object_label=body.name,
+        details={"name": body.name, "mobile": body.mobile, "city_id": body.city_id, "team": body.team,
+                 "response": sm})
     return {"ok": True, "sales_manager": sm}
 
 
@@ -1473,7 +1629,38 @@ async def set_property_sales_manager(home_id: str, body: HomeSmBody,
     except Exception as e:  # noqa: BLE001
         log.warning("[core-visit] home=%s CRM mirror failed (sync will converge): %s", home_id, e)
         mirror = None
+    await _log_home_sm_change(user, home_id, out, body.sales_manager_id, mirror)
     return {"ok": True, **out, "crm_mirror": mirror}
+
+
+async def _log_home_sm_change(user: dict, home_id: str, out: dict, new_id, mirror) -> None:
+    """Activity log for a property's sales-manager change (already done in the app). Never raises."""
+    names: dict = {}
+    label = ""
+    try:
+        async with acquire() as conn:
+            label = await _home_label(conn, home_id)
+            ids = [int(i) for i in (out.get("previous_sales_manager_id"), new_id) if str(i or "").isdigit()]
+            if ids:
+                for r in await conn.fetch(
+                        "SELECT core_sales_manager_id, name FROM users WHERE core_sales_manager_id = ANY($1::int[])",
+                        ids):
+                    names.setdefault(str(r["core_sales_manager_id"]), r["name"])
+    except Exception as e:  # noqa: BLE001
+        log.warning("[core-visit] activity label lookup failed: %s", e)
+
+    def _nm(i):
+        if i is None:
+            return None
+        app_name = (out.get("sales_manager") or {}).get("name") if i == new_id else None
+        return f"{names.get(str(i)) or app_name or 'SM'} (#{i})"
+
+    await activity.record_safe(
+        user, "property.sales_manager", object_type="property", object_id=home_id, object_label=label,
+        changes=activity.diff({"sales_manager": _nm(out.get("previous_sales_manager_id"))},
+                              {"sales_manager": _nm(new_id)}),
+        details={"previous_sales_manager_id": out.get("previous_sales_manager_id"), "sales_manager_id": new_id,
+                 "app_sales_manager": out.get("sales_manager"), "crm_mirror": mirror})
 
 
 # ============================================================================
@@ -1562,6 +1749,10 @@ async def cp_register_create(body: CpRegisterBody, user: dict = Depends(auth.cur
         status = e.status if e.status in (400, 422) else 502
         raise HTTPException(status, str(e))
     final_code = (result or {}).get("cpCode") or cp_code
+    await activity.record_safe(
+        user, "cp.registered", object_type="cp", object_id=final_code, object_label=full_name,
+        details={"full_name": full_name, "phone": phone, "city": city, "company": company, "email": email,
+                 "micro_markets": mms, "sales_manager_id": sm_id, "broker_id": (result or {}).get("brokerId")})
     return {"ok": True, "cp_code": final_code, "broker_id": (result or {}).get("brokerId")}
 
 
@@ -1594,16 +1785,23 @@ async def add_nudge(body: NudgeBody, user: dict = Depends(auth.current_user)):
         if visit["owner_user_id"] == user["id"]:
             raise HTTPException(400, "Cannot nudge yourself")
 
-        nudge = await conn.fetchrow(
-            "INSERT INTO nudges (visit_id, from_user_id, to_user_id, message, priority) "
-            "VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at",
-            visit["id"], user["id"], visit["owner_user_id"], body.message, body.priority,
-        )
-        await conn.execute(
-            "INSERT INTO notifications (to_user_id, from_user_id, type, ref_type, ref_id, text, action) "
-            "VALUES ($1, $2, 'nudge', 'visit', $3, $4, 'open_visit')",
-            visit["owner_user_id"], user["id"], visit["id"], body.message or "Nudge received",
-        )
+        async with conn.transaction():
+            nudge = await conn.fetchrow(
+                "INSERT INTO nudges (visit_id, from_user_id, to_user_id, message, priority) "
+                "VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at",
+                visit["id"], user["id"], visit["owner_user_id"], body.message, body.priority,
+            )
+            await conn.execute(
+                "INSERT INTO notifications (to_user_id, from_user_id, type, ref_type, ref_id, text, action) "
+                "VALUES ($1, $2, 'nudge', 'visit', $3, $4, 'open_visit')",
+                visit["owner_user_id"], user["id"], visit["id"], body.message or "Nudge received",
+            )
+            to = await conn.fetchrow("SELECT slug, name FROM users WHERE id = $1", visit["owner_user_id"])
+            await activity.record(conn, user, "visit.nudge", object_type="visit", object_id=body.visit_code,
+                                  object_label=await _visit_label(conn, visit["id"]),
+                                  details={"to": (to["name"] if to else None), "to_slug": (to["slug"] if to else None),
+                                           "message": body.message, "priority": body.priority,
+                                           "nudge_id": str(nudge["id"])})
     return {"ok": True, "nudge_id": str(nudge["id"])}
 
 
@@ -1667,20 +1865,25 @@ async def pin_cp(body: PinBody, user: dict = Depends(auth.current_user)):
         if not broker:
             raise HTTPException(404, "Broker not found")
         d = _date_or_none(body.task_date)
-        row = await conn.fetchrow(
-            """
-            INSERT INTO user_daily_tasks (user_id, task_date, kind, broker_id, from_user_id)
-            VALUES ($1, COALESCE($2, current_date), 'pinned_cp', $3, $4)
-            RETURNING id
-            """,
-            target["id"], d, broker["id"], user["id"],
-        )
-        await conn.execute(
-            "INSERT INTO notifications (to_user_id, from_user_id, type, ref_type, ref_id, text, action) "
-            "VALUES ($1, $2, 'task', 'broker', $3, $4, 'open_team')",
-            target["id"], user["id"], broker["id"],
-            f"A CP ({body.cp_code}) was pinned to your day.",
-        )
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                INSERT INTO user_daily_tasks (user_id, task_date, kind, broker_id, from_user_id)
+                VALUES ($1, COALESCE($2, current_date), 'pinned_cp', $3, $4)
+                RETURNING id, task_date
+                """,
+                target["id"], d, broker["id"], user["id"],
+            )
+            await conn.execute(
+                "INSERT INTO notifications (to_user_id, from_user_id, type, ref_type, ref_id, text, action) "
+                "VALUES ($1, $2, 'task', 'broker', $3, $4, 'open_team')",
+                target["id"], user["id"], broker["id"],
+                f"A CP ({body.cp_code}) was pinned to your day.",
+            )
+            await activity.record(conn, user, "cp.pinned", object_type="cp", object_id=body.cp_code,
+                                  object_label=await _broker_label(conn, broker["id"]),
+                                  details={"for_user": body.user_slug, "task_date": row["task_date"],
+                                           "task_id": str(row["id"])})
     return {"ok": True, "task_id": str(row["id"])}
 
 
@@ -1695,11 +1898,17 @@ async def unpin_cp(body: UnpinBody, user: dict = Depends(auth.current_user)):
         broker = await conn.fetchrow("SELECT id FROM brokers WHERE cp_code = $1", body.cp_code)
         if not broker:
             raise HTTPException(404, "Broker not found")
-        result = await conn.execute(
-            "DELETE FROM user_daily_tasks WHERE user_id = $1 AND broker_id = $2 "
-            "AND task_date = current_date AND kind = 'pinned_cp'",
-            target["id"], broker["id"],
-        )
+        async with conn.transaction():
+            result = await conn.execute(
+                "DELETE FROM user_daily_tasks WHERE user_id = $1 AND broker_id = $2 "
+                "AND task_date = current_date AND kind = 'pinned_cp'",
+                target["id"], broker["id"],
+            )
+            removed = int(result.split()[-1]) if result and result.split()[-1].isdigit() else 0
+            if removed:
+                await activity.record(conn, user, "cp.unpinned", object_type="cp", object_id=body.cp_code,
+                                      object_label=await _broker_label(conn, broker["id"]),
+                                      details={"for_user": body.user_slug, "removed": removed})
     return {"ok": True}
 
 
@@ -1733,26 +1942,33 @@ async def save_engagement(body: EngagementBody, user: dict = Depends(auth.curren
             raise HTTPException(404, f"Broker {body.cp_code} not found")
         if not await _can_engage_broker(conn, user, broker["id"]):
             raise HTTPException(403, "You don't own this CP")
-        row = await conn.fetchrow(
-            """
-            INSERT INTO engagements (
-              broker_id, by_user_id, inventory_shared, recording_done,
-              listing_done, listing_link, listing_followup_date,
-              support_asked, support_details, remarks, notes,
-              connected, outcome, followup_date
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-            RETURNING id, created_at
-            """,
-            broker["id"], user["id"],
-            body.inventory_shared, body.recording_done, body.listing_done,
-            (body.listing_link or None), _date_or_none(body.listing_followup_date),
-            body.support_asked, (body.support_details or None),
-            (body.remarks or None), body.notes.strip(),
-            (body.connected or None),
-            # outcome only meaningful when connected
-            (body.outcome or None) if body.connected == "connected" else None,
-            _date_or_none(body.followup_date),
-        )
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                INSERT INTO engagements (
+                  broker_id, by_user_id, inventory_shared, recording_done,
+                  listing_done, listing_link, listing_followup_date,
+                  support_asked, support_details, remarks, notes,
+                  connected, outcome, followup_date
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                RETURNING id, created_at, inventory_shared, recording_done, listing_done, listing_link,
+                          listing_followup_date, support_asked, support_details, remarks, notes,
+                          connected, outcome, followup_date
+                """,
+                broker["id"], user["id"],
+                body.inventory_shared, body.recording_done, body.listing_done,
+                (body.listing_link or None), _date_or_none(body.listing_followup_date),
+                body.support_asked, (body.support_details or None),
+                (body.remarks or None), body.notes.strip(),
+                (body.connected or None),
+                # outcome only meaningful when connected
+                (body.outcome or None) if body.connected == "connected" else None,
+                _date_or_none(body.followup_date),
+            )
+            await activity.record(conn, user, "cp.engagement", object_type="cp", object_id=body.cp_code,
+                                  object_label=await _broker_label(conn, broker["id"]),
+                                  details={**{k: row[k] for k in row.keys() if k not in ("id", "created_at")},
+                                           "engagement_id": str(row["id"])})
     return {"ok": True, "engagement_id": str(row["id"])}
 
 
@@ -1781,7 +1997,12 @@ async def set_broker_tier(cp_code: str, body: TierBody, user: dict = Depends(aut
         if not broker:
             raise HTTPException(404, "Broker not found")
         async with conn.transaction():
+            before = await _broker_owner_tier(conn, broker["id"])
             await _set_tier(conn, broker["id"], body.tier, user["id"], reason="manual")
+            ch = activity.diff({"tier": before["tier"]}, {"tier": body.tier})
+            if ch:
+                await activity.record(conn, user, "cp.tier", object_type="cp", object_id=cp_code,
+                                      object_label=await _broker_label(conn, broker["id"]), changes=ch)
     return {"ok": True}
 
 
@@ -1796,7 +2017,14 @@ async def set_broker_owner(cp_code: str, body: OwnerBody, user: dict = Depends(a
         if body.owner_slug and not owner_id:
             raise HTTPException(404, f"User {body.owner_slug} not found")
         async with conn.transaction():
+            before = await _broker_owner_tier(conn, broker["id"])
             await _set_owner(conn, broker["id"], owner_id, user["id"], reason="manual")
+            after = await _broker_owner_tier(conn, broker["id"])
+            ch = activity.diff({"owner": before["owner"]}, {"owner": after["owner"]})
+            if ch:
+                await activity.record(conn, user, "cp.owner", object_type="cp", object_id=cp_code,
+                                      object_label=await _broker_label(conn, broker["id"]), changes=ch,
+                                      details={"owner_slug": body.owner_slug or None})
     return {"ok": True, "owner_slug": body.owner_slug or None}
 
 
@@ -1822,6 +2050,7 @@ async def bulk_assign_brokers(body: BulkAssignBody, user: dict = Depends(auth.cu
             raise HTTPException(404, f"User {body.owner_slug} not found")
         applied = 0
         async with conn.transaction():
+            before = await _cp_owner_tier_by_code(conn, body.cp_codes)
             for cp in body.cp_codes:
                 broker = await conn.fetchrow("SELECT id FROM brokers WHERE cp_code = $1", cp)
                 if not broker:
@@ -1831,6 +2060,18 @@ async def bulk_assign_brokers(body: BulkAssignBody, user: dict = Depends(auth.cu
                 if body.tier:
                     await _set_tier(conn, broker["id"], body.tier, user["id"], reason="manual")
                 applied += 1
+            after = await _cp_owner_tier_by_code(conn, body.cp_codes)
+            lines = []
+            for cp in dict.fromkeys(body.cp_codes):          # each CP once, in the order given
+                if cp not in after:
+                    continue
+                for fld, act in (("owner", "cp.owner"), ("tier", "cp.tier")):
+                    ch = activity.diff({fld: before[cp][fld]}, {fld: after[cp][fld]})
+                    if ch:
+                        lines.append({"action": act, "object_type": "cp", "object_id": cp,
+                                      "object_label": after[cp]["label"], "changes": ch,
+                                      "details": {"bulk": True, "bulk_size": len(body.cp_codes), "note": body.note}})
+            await activity.record_many(conn, user, lines)
     return {"ok": True, "applied": applied}
 
 
@@ -1851,16 +2092,28 @@ async def bulk_reassign_visits(body: VisitBulkReassignBody, user: dict = Depends
             raise HTTPException(404, f"User {body.rm_slug} not found")
         # visits.sales_manager is overwritten by the 15-min sheet sync, but metadata
         # is never touched — store the override there and let seed_snapshot apply it.
-        result = await conn.execute(
-            """
-            UPDATE visits
-               SET sales_manager = $1,
-                   metadata = jsonb_set(metadata, '{rm_override}', to_jsonb($1::text), true),
-                   updated_at = now()
-             WHERE visit_code = ANY($2::text[])
-            """,
-            rm["name"], body.visit_codes,
-        )
+        async with conn.transaction():
+            before = await conn.fetch(
+                "SELECT visit_code, sales_manager, metadata->>'rm_override' AS rm_override, buyer_name, "
+                "       society_name, unit_address_line1, unit_address_line2 "
+                "FROM visits WHERE visit_code = ANY($1::text[])", body.visit_codes)
+            result = await conn.execute(
+                """
+                UPDATE visits
+                   SET sales_manager = $1,
+                       metadata = jsonb_set(metadata, '{rm_override}', to_jsonb($1::text), true),
+                       updated_at = now()
+                 WHERE visit_code = ANY($2::text[])
+                """,
+                rm["name"], body.visit_codes,
+            )
+            await activity.record_many(conn, user, [
+                {"action": "visit.rm_reassigned", "object_type": "visit", "object_id": b["visit_code"],
+                 "object_label": _visit_label_row(b),
+                 "changes": activity.diff({"sales_manager": b["sales_manager"]}, {"sales_manager": rm["name"]}),
+                 "details": {"rm_slug": body.rm_slug, "previous_rm_override": b["rm_override"],
+                             "note": body.note, "bulk_size": len(body.visit_codes)}}
+                for b in before])
     # result is like "UPDATE N"
     n = int(result.split()[-1]) if result and result.split()[-1].isdigit() else 0
     return {"ok": True, "reassigned": n}
@@ -1984,17 +2237,21 @@ async def create_user(body: UserCreateBody, user: dict = Depends(auth.current_us
             slug = requested
         else:
             slug = await _unique_slug(conn, _slugify(body.name))
-        row = await conn.fetchrow(
-            """
-            INSERT INTO users (slug, email, name, phone, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, joined_at, active, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12::jsonb)
-            RETURNING slug, name
-            """,
-            slug, email, body.name.strip(), _new_phone,
-            body.team, role, cities, mms, extra, bool(body.extra_cities_enabled), _date_or_none(body.joined_at),
-            # who added them — same `created_by` convention already in users.metadata
-            json.dumps({"created_by": user["slug"]}),
-        )
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                INSERT INTO users (slug, email, name, phone, team, role, cities, micro_markets, extra_cities, extra_cities_enabled, joined_at, active, metadata)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12::jsonb)
+                RETURNING slug, name, email, phone, team, role, cities, micro_markets, extra_cities,
+                          extra_cities_enabled, joined_at
+                """,
+                slug, email, body.name.strip(), _new_phone,
+                body.team, role, cities, mms, extra, bool(body.extra_cities_enabled), _date_or_none(body.joined_at),
+                # who added them — same `created_by` convention already in users.metadata
+                json.dumps({"created_by": user["slug"]}),
+            )
+            await activity.record(conn, user, "user.created", object_type="user", object_id=row["slug"],
+                                  object_label=row["name"], details=dict(row))
     return {"ok": True, "slug": row["slug"], "name": row["name"]}
 
 
@@ -2052,10 +2309,20 @@ async def update_user(slug: str, body: UserUpdateBody, user: dict = Depends(auth
             return {"ok": True, "slug": slug, "changed": 0}
         cols = list(fields.keys())
         set_clause = ", ".join(f"{c} = ${i + 2}" for i, c in enumerate(cols))
-        await conn.execute(
-            f"UPDATE users SET {set_clause}, updated_at = now() WHERE id = $1",
-            target["id"], *[fields[c] for c in cols],
-        )
+        async with conn.transaction():
+            # `cols` only ever holds names from the fixed whitelist above
+            before = await conn.fetchrow(f"SELECT name, {', '.join(cols)} FROM users WHERE id = $1 FOR UPDATE",
+                                         target["id"])
+            await conn.execute(
+                f"UPDATE users SET {set_clause}, updated_at = now() WHERE id = $1",
+                target["id"], *[fields[c] for c in cols],
+            )
+            ch = activity.diff({c: before[c] for c in cols}, fields, cols)
+            if ch:
+                act = ("user.deactivated" if fields["active"] is False else "user.reactivated") \
+                    if "active" in ch else "user.updated"
+                await activity.record(conn, user, act, object_type="user", object_id=slug,
+                                      object_label=fields.get("name") or before["name"], changes=ch)
     return {"ok": True, "slug": slug, "changed": len(fields)}
 
 
@@ -2186,20 +2453,28 @@ async def set_hiring_mm_override(body: HiringMmOverrideBody, user: dict = Depend
     if not city or not soc:
         raise HTTPException(400, "city and society_name are required")
     async with acquire() as conn:
-        if mm:
-            await conn.execute(
-                """
-                INSERT INTO hiring_mm_overrides (city, society_name, micro_market, set_by)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (city, society_name)
-                DO UPDATE SET micro_market = EXCLUDED.micro_market, set_by = EXCLUDED.set_by, updated_at = now()
-                """,
-                city, soc, mm, user["slug"],
-            )
-        else:
-            await conn.execute(
-                "DELETE FROM hiring_mm_overrides WHERE city = $1 AND society_name = $2", city, soc
-            )
+        async with conn.transaction():
+            old = await conn.fetchval(
+                "SELECT micro_market FROM hiring_mm_overrides WHERE city = $1 AND society_name = $2", city, soc)
+            if mm:
+                await conn.execute(
+                    """
+                    INSERT INTO hiring_mm_overrides (city, society_name, micro_market, set_by)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (city, society_name)
+                    DO UPDATE SET micro_market = EXCLUDED.micro_market, set_by = EXCLUDED.set_by, updated_at = now()
+                    """,
+                    city, soc, mm, user["slug"],
+                )
+            else:
+                await conn.execute(
+                    "DELETE FROM hiring_mm_overrides WHERE city = $1 AND society_name = $2", city, soc
+                )
+            ch = activity.diff({"micro_market": old}, {"micro_market": mm})
+            if ch:
+                await activity.record(conn, user, "society.hiring_mm", object_type="society",
+                                      object_id=f"{city} / {soc}", object_label=soc, changes=ch,
+                                      details={"city": city})
     return {"ok": True}
 
 
@@ -2238,6 +2513,9 @@ async def report_preview(body: ReportPreviewBody, user: dict = Depends(auth.curr
         data["property"], data["metrics"], summary,
         user.get("name") or user.get("slug") or "", user.get("email") or "",
     )
+    await activity.record_safe(user, "report.preview", object_type="property", object_id=body.home_id,
+                               object_label=label, details={"feedback_count": len(data["feedback_items"]),
+                                                            "ai_summary": summary is not None})
     return {
         "property": data["property"],
         "metrics": data["metrics"],
@@ -2269,6 +2547,10 @@ async def report_draft(body: ReportDraftBody, user: dict = Depends(auth.current_
     except Exception as e:  # noqa: BLE001
         log.exception("gmail draft creation failed")
         raise HTTPException(502, f"Could not create the Gmail draft: {e}")
+    await activity.record_safe(user, "report.gmail_draft", object_type="property", object_id=body.home_id,
+                               object_label=(data["property"].get("property_name")
+                                             or data["property"].get("society_name") or ""),
+                               details={"subject": subject, "mailbox": user.get("email"), **(result or {})})
     return {"ok": True, "subject": subject, **result}
 
 
@@ -2329,6 +2611,8 @@ async def refresh_ai_suggestions(user: dict = Depends(auth.current_user)):
     payload = await asyncio.to_thread(ai_suggestions.build_for_user, snap, user, seed_snapshot.scope_for_user)
     async with acquire() as conn:
         await _ai_upsert(conn, user["id"], today, payload)
+    await activity.record_safe(user, "ai_brief.refreshed", object_type="user", object_id=user["slug"],
+                               object_label=user.get("name"))
     return {"payload": payload, "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(), "cached": False}
 
 
@@ -2522,13 +2806,26 @@ async def match_meeting_recording(meeting_id: str, body: MeetingMatchBody,
             raise HTTPException(404, f"Unknown cp_code {cp}")
         if vc and not await conn.fetchval("SELECT 1 FROM visits WHERE visit_code::text = $1", vc):
             raise HTTPException(404, f"Unknown visit_code {vc}")
-        await conn.execute(
-            "UPDATE meeting_recordings SET "
-            "broker_cp_code = COALESCE($2, broker_cp_code), "
-            "visit_code = COALESCE($3, visit_code), "
-            "match_status = 'manual', match_method = 'manual', "
-            "matched_by = $4, matched_at = now(), updated_at = now() "
-            "WHERE meeting_id = $1::uuid", meeting_id, cp, vc, user["id"])
+        async with conn.transaction():
+            before = await conn.fetchrow(
+                "SELECT broker_cp_code, visit_code::text AS visit_code, match_status, meeting_type, "
+                "       meeting_date, rm_name, cp_name FROM meeting_recordings WHERE meeting_id = $1::uuid FOR UPDATE",
+                meeting_id)
+            await conn.execute(
+                "UPDATE meeting_recordings SET "
+                "broker_cp_code = COALESCE($2, broker_cp_code), "
+                "visit_code = COALESCE($3, visit_code), "
+                "match_status = 'manual', match_method = 'manual', "
+                "matched_by = $4, matched_at = now(), updated_at = now() "
+                "WHERE meeting_id = $1::uuid", meeting_id, cp, vc, user["id"])
+            after = await conn.fetchrow(
+                "SELECT broker_cp_code, visit_code::text AS visit_code, match_status "
+                "FROM meeting_recordings WHERE meeting_id = $1::uuid", meeting_id)
+            if before and after:
+                await activity.record(conn, user, "meeting.matched", object_type="meeting", object_id=meeting_id,
+                                      object_label=_meeting_label(before),
+                                      changes=activity.diff(dict(before), dict(after),
+                                                            ["broker_cp_code", "visit_code", "match_status"]))
     return {"ok": True, "meeting_id": meeting_id, "broker_cp_code": cp, "visit_code": vc}
 
 
@@ -2538,13 +2835,143 @@ async def dismiss_meeting_recording(meeting_id: str, user: dict = Depends(auth.c
     (and stays out — the sync preserves 'dismissed')."""
     _require_admin(user)
     async with acquire() as conn:
-        res = await conn.execute(
-            "UPDATE meeting_recordings SET match_status = 'dismissed', "
-            "matched_by = $2, matched_at = now(), updated_at = now() "
-            "WHERE meeting_id = $1::uuid", meeting_id, user["id"])
+        async with conn.transaction():
+            before = await conn.fetchrow(
+                "SELECT match_status, meeting_type, meeting_date, rm_name, cp_name "
+                "FROM meeting_recordings WHERE meeting_id = $1::uuid FOR UPDATE", meeting_id)
+            res = await conn.execute(
+                "UPDATE meeting_recordings SET match_status = 'dismissed', "
+                "matched_by = $2, matched_at = now(), updated_at = now() "
+                "WHERE meeting_id = $1::uuid", meeting_id, user["id"])
+            if before:
+                await activity.record(conn, user, "meeting.dismissed", object_type="meeting", object_id=meeting_id,
+                                      object_label=_meeting_label(before),
+                                      changes=activity.diff({"match_status": before["match_status"]},
+                                                            {"match_status": "dismissed"}))
     if res.endswith("0"):
         raise HTTPException(404, "Recording not found")
     return {"ok": True, "meeting_id": meeting_id, "match_status": "dismissed"}
+
+
+# ============================================================================
+# Activity log (see api/activity.py). Reading it is Admin-only. The browser can add only
+# the allow-listed events it alone sees (CSV downloads, snapshot shares, "View as").
+# ============================================================================
+
+class ActivityEventBody(BaseModel):
+    action: str
+    object_id: Optional[str] = None
+    object_label: Optional[str] = None
+    details: Optional[dict] = None
+
+
+_EVENT_TIMES: dict = {}          # user id -> recent event timestamps (per instance), for the rate limit
+_EVENT_RESERVED = {"viewing_as", "reported_by_browser"}   # set by the server only
+
+
+@app.post("/api/activity/event")
+async def add_activity_event(body: ActivityEventBody, user: dict = Depends(auth.current_user)):
+    spec = activity.CLIENT_EVENTS.get(body.action)
+    if not spec:
+        raise HTTPException(400, f"Unknown activity event: {body.action}")
+    if spec.get("admin_only") and user["team"] != "Admin":
+        raise HTTPException(403, "Admin only")
+    now = time.monotonic()
+    recent = [t for t in _EVENT_TIMES.get(user["id"], []) if now - t < 60]
+    if len(recent) >= 60:                       # a person can't download/share 60 times a minute
+        raise HTTPException(429, "Too many events")
+    _EVENT_TIMES[user["id"]] = recent + [now]
+    details = {k: v for k, v in (body.details or {}).items() if k not in _EVENT_RESERVED}
+    if len(json.dumps(details, default=str, ensure_ascii=False)) > 20000:
+        raise HTTPException(413, "details too large")
+    label = (body.object_label or "")[:300] or None
+    if spec["object_type"] == "user" and body.object_id:
+        async with acquire() as conn:
+            label = await conn.fetchval("SELECT name FROM users WHERE slug = $1", body.object_id) or label
+    ok = await activity.record_safe(user, body.action, object_type=spec["object_type"],
+                                    object_id=(body.object_id or "")[:200] or None, object_label=label,
+                                    details={**details, "reported_by_browser": True})
+    return {"ok": ok}
+
+
+def _activity_filters(actor, action, object_type, object_id, source, q, since, until) -> tuple[list, list]:
+    conds, args = [], []
+
+    def add(sql, val):
+        args.append(val)
+        conds.append(sql.replace("$?", f"${len(args)}"))
+
+    if actor:
+        add("actor_slug = $?", actor)
+    if action:
+        if action.endswith("*"):
+            add("action LIKE $?", action[:-1].replace("%", "").replace("_", "\\_") + "%")
+        else:
+            add("action = $?", action)
+    if object_type:
+        add("object_type = $?", object_type)
+    if object_id:
+        add("object_id = $?", object_id)
+    if source:
+        add("source = $?", source)
+    if q and q.strip():
+        add("(actor_name ILIKE $? OR object_label ILIKE $? OR object_id ILIKE $? OR action ILIKE $? "
+            "OR details::text ILIKE $? OR changes::text ILIKE $?)", f"%{q.strip()}%")   # every $? -> the same param
+    d1, d2 = _date_or_none(since), _date_or_none(until)
+    if d1:
+        add("at >= ($?::date)::timestamp AT TIME ZONE 'Asia/Kolkata'", d1)
+    if d2:
+        add("at < ($?::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'", d2)
+    return conds, args
+
+
+@app.get("/api/activity")
+async def list_activity(actor: str = "", action: str = "", object_type: str = "", object_id: str = "",
+                        source: str = "", q: str = "", since: str = "", until: str = "",
+                        before: str = "", limit: int = 100,
+                        user: dict = Depends(auth.current_user)):
+    """The activity log, newest first BY WHEN IT HAPPENED (`at`, so back-filled history sorts into
+    place). Admin only. `before` = the previous page's `next_before` ("<at>|<id>") pages back."""
+    _require_admin(user)
+    limit = max(1, min(limit, 500))
+    conds, args = _activity_filters(actor, action, object_type, object_id, source, q, since, until)
+    where = " AND ".join(conds) or "TRUE"
+    async with acquire() as conn:
+        total = await conn.fetchval(f"SELECT count(*) FROM activity_log WHERE {where}", *args)
+        page_conds, page_args = list(conds), list(args)
+        if before:
+            b_at, _, b_id = before.rpartition("|")
+            try:
+                b_at, b_id = _dt.datetime.fromisoformat(b_at), int(b_id)
+            except ValueError:
+                raise HTTPException(400, "bad 'before' cursor") from None
+            page_args += [b_at, b_id]
+            page_conds.append(f"(at, id) < (${len(page_args) - 1}, ${len(page_args)})")
+        page_args.append(limit)
+        rows = await conn.fetch(
+            "SELECT id, at, source, actor_slug, actor_name, actor_team, action, object_type, object_id, "
+            "       object_label, changes, details, ip, user_agent, http_path "
+            f"FROM activity_log WHERE {' AND '.join(page_conds) or 'TRUE'} "
+            f"ORDER BY at DESC, id DESC LIMIT ${len(page_args)}", *page_args)
+    _j = lambda v: json.loads(v) if isinstance(v, str) else v
+    items = [{**dict(r), "at": r["at"].isoformat(), "changes": _j(r["changes"]), "details": _j(r["details"])}
+             for r in rows]
+    return {"items": items, "total": total, "limit": limit,
+            "next_before": (f"{items[-1]['at']}|{items[-1]['id']}" if len(items) == limit else None)}
+
+
+@app.get("/api/activity/meta")
+async def activity_meta(user: dict = Depends(auth.current_user)):
+    """Filter choices for the Activity Log tab: actions and people present in the log. Admin only."""
+    _require_admin(user)
+    async with acquire() as conn:
+        actions = await conn.fetch("SELECT action, count(*) AS n FROM activity_log GROUP BY 1 ORDER BY 1")
+        actors = await conn.fetch(
+            "SELECT actor_slug, max(actor_name) AS name, count(*) AS n FROM activity_log "
+            "WHERE actor_slug IS NOT NULL GROUP BY 1 ORDER BY 2")
+        sources = await conn.fetch("SELECT source, count(*) AS n FROM activity_log GROUP BY 1 ORDER BY 1")
+    return {"actions": [dict(r) for r in actions], "actors": [dict(r) for r in actors],
+            "sources": [dict(r) for r in sources]}
 
 
 # ============================================================================
@@ -2572,6 +2999,77 @@ def _ts_or_none(s: Optional[str]) -> Optional[_dt.datetime]:
         return _dt.datetime.fromisoformat(s2)
     except ValueError:
         return None
+
+
+# ---- labels for the activity log: how a lead / unit read at the time of the action ----
+
+def _visit_label_row(r) -> str:
+    """'3971 · Rahul Sharma · E-1406, Ajnara Le Garden' from a visits row (any of the columns may be missing)."""
+    if not r:
+        return ""
+    keys = set(r.keys()) if hasattr(r, "keys") else set()   # asyncpg Record.keys() is a one-shot iterator
+    g = lambda k: (str(r[k]).strip() if k in keys and r[k] is not None else "")
+    unit = "-".join(x for x in (g("unit_address_line2"), g("unit_address_line1")) if x)
+    where = ", ".join(x for x in (unit, g("society_name")) if x)
+    return " · ".join(x for x in (g("visit_code"), g("buyer_name"), where) if x)
+
+
+async def _visit_label(conn, visit_id) -> str:
+    r = await conn.fetchrow(
+        "SELECT visit_code, buyer_name, society_name, unit_address_line1, unit_address_line2 "
+        "FROM visits WHERE id = $1", visit_id)
+    return _visit_label_row(r)
+
+
+async def _broker_label(conn, broker_id) -> str:
+    r = await conn.fetchrow("SELECT name, company FROM brokers WHERE id = $1", broker_id)
+    return " · ".join(x for x in ((r["name"] or "").strip(), (r["company"] or "").strip()) if x) if r else ""
+
+
+async def _cp_owner_tier_by_code(conn, cp_codes: list) -> dict:
+    """{cp_code: {owner, tier, label}} for many CPs in one query (bulk actions). cp_code is unique."""
+    rows = await conn.fetch(
+        """
+        SELECT b.cp_code, b.name, b.company,
+               (SELECT u.name FROM v_broker_current_owner co JOIN users u ON u.id = co.owner_user_id
+                 WHERE co.broker_id = b.id LIMIT 1) AS owner,
+               (SELECT tier FROM tier_assignments WHERE broker_id = b.id AND effective_to IS NULL
+                 ORDER BY effective_from DESC NULLS LAST LIMIT 1) AS tier
+          FROM brokers b WHERE b.cp_code = ANY($1::text[])
+        """, list(cp_codes))
+    return {r["cp_code"]: {"owner": r["owner"], "tier": r["tier"],
+                           "label": " · ".join(x for x in ((r["name"] or "").strip(), (r["company"] or "").strip()) if x)}
+            for r in rows}
+
+
+async def _broker_owner_tier(conn, broker_id) -> dict:
+    """The CP's current owner (name) and tier, for old -> new in the activity log."""
+    r = await conn.fetchrow(
+        """
+        SELECT (SELECT u.name FROM v_broker_current_owner co JOIN users u ON u.id = co.owner_user_id
+                 WHERE co.broker_id = $1 LIMIT 1) AS owner,
+               (SELECT tier FROM tier_assignments WHERE broker_id = $1 AND effective_to IS NULL
+                 ORDER BY effective_from DESC NULLS LAST LIMIT 1) AS tier
+        """, broker_id)
+    return {"owner": r["owner"], "tier": r["tier"]} if r else {"owner": None, "tier": None}
+
+
+def _meeting_label(r) -> str:
+    if not r:
+        return ""
+    when = r["meeting_date"].strftime("%d %b %Y") if r["meeting_date"] else ""
+    return " · ".join(x for x in ((r["meeting_type"] or ""), (r["cp_name"] or ""), (r["rm_name"] or ""), when) if x)
+
+
+def _unit_label(unit_no: Optional[str], society: Optional[str]) -> str:
+    return ", ".join(x for x in ((unit_no or "").strip(), (society or "").strip()) if x)
+
+
+async def _home_label(conn, home_id) -> str:
+    """The unit's property_name ('C - 101, Umang Winter Hills') for a home_id, or ''."""
+    return await conn.fetchval(
+        "SELECT property_name FROM properties WHERE home_id = $1 AND deleted_at IS NULL "
+        "ORDER BY synced_from_sheet_at DESC NULLS LAST LIMIT 1", str(home_id)) or ""
 
 
 def _require_admin(user: dict) -> None:
