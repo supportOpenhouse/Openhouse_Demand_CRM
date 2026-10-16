@@ -225,6 +225,10 @@ Writes (all persisted, permission-checked): `POST /api/followups`, `/api/nudges`
 `POST /api/ai-suggestions/refresh` (**admin only** — force-regenerate the caller's own brief; gated because it triggers an expensive full-snapshot regen. The button is hidden for non-admins in the view too),
 `POST /api/kh-override` (**admin only** — set/clear a unit's key-handover date in the Property Status report, persisted to `kh_overrides` by `home_id`; wins over the matched date. `GET /api/key-handovers` also returns these `overrides`),
 `GET|POST /api/team-performance/manual` (**admin only** — read / set-clear the hand-entered Team Performance cells, persisted to `team_perf_manual` by (person, metric). Backend-computed columns are never written here, so they stay read-only).
+Activity log (**admin only** to read): `GET /api/activity` (filters `actor`, `action` (`cp.*` = prefix), `object_type`,
+`object_id`, `source`, `q`, `since`/`until` (IST dates); newest first by `at`; page with `before` = previous `next_before`),
+`GET /api/activity/meta` (filter choices), `POST /api/activity/event` (any signed-in user, **allow-listed** browser-only
+events: CSV downloads, snapshot shares; `view_as.*` admin-only — see `activity.CLIENT_EVENTS`).
 Auth: `/auth/google/start|callback`, `/auth/logout`,
 `/auth/dev_login` (only when `DEV_MODE=1`). Ops: `POST /admin/sync`, `POST /admin/generate-suggestions` (daily 09:30-IST cron, token-gated — pre-generates every user's brief), `GET /health`.
 
@@ -325,10 +329,38 @@ key / API error → a deterministic (still clickable) fallback brief. Self-conta
 - **LSQ is eventually-consistent** — `Lead.Update` returns Success but `GetById` lags seconds; validate
   write-backs after a delay (relevant only to `lsq_sync/`, which is one-shot/done).
 - **`/api/seed` is large for admins (~13 MB)** — fetches can be slow; bump timeouts.
+- **Every write must log (Oct 2026).** A new write endpoint calls `activity.record(conn, user, "<object>.<verb>", …)`
+  INSIDE the same `async with conn.transaction():` as the change (no change without its line). For an action already
+  done in the app (Core) use `activity.record_safe(...)`; in the sheet sync use `activity.record_quiet(...)` and log
+  only real transitions. Browser-only actions go through `POST /api/activity/event` + `activity.CLIENT_EVENTS`.
+- **`activity_log` is append-only** — triggers refuse UPDATE/DELETE/TRUNCATE, even for the owner login. A wrong line is
+  corrected by adding a line, never by editing. Don't disable the triggers without Akshit's OK.
 
 ---
 
 ## 9. Recent change log
+- **2026-10-17 (Claude session — Activity log; Akshit: "all actions done by the team on the demand crm to be logged"):**
+  - **Migration `024_activity_log.sql`** (applied to prod before the code): table `activity_log` + 4 indexes + append-only
+    triggers. One line = who (`actor_*`), what (`action` on `object_type/object_id`, `object_label` as it read then),
+    `changes` `{field:{old,new}}` (full values), `details`, `ip`/`user_agent`/`http_path`, `at`; `source` = `app` |
+    `sync` | `backfill`.
+  - **Every write endpoint** in `main.py` + `dsr.py` logs (~45 actions incl. sign-in / refused sign-in / sign-out,
+    follow-ups, remarks, CP owner/tier/engagement/pin, user add/edit/deactivate, KH/review/snapshot remarks, DSR
+    settings + Excel export, every CRM->app action, Gmail report drafts). No-change saves are not logged.
+  - **Sheet sync** logs only real system changes: `lead.auto_archived` / `lead.unarchived`, `property.pm_assigned`,
+    `property.status_reconciled`, `property.duplicate_hidden|unhidden`, `user.core_sm_linked`. (`sync_inactive_leads`
+    re-deads ~260 already-archived leads EVERY run because `sync_visits` restores the app's lead_status first — that
+    ping-pong is deliberately NOT logged.) Two sync UPDATEs gained a self-join (`o`) purely to RETURN old values.
+  - **Browser**: admin-only **Activity Log** tab (`ActivityLogView.jsx`); CSV downloads, snapshot shares and "View as"
+    start/stop are reported; while viewing as someone every request carries `X-View-As`, so lines read
+    "<admin> (viewing as <slug>)".
+  - **Backfill** (`source='backfill'`, original times): 31,435 lines — follow-ups (LeadSquared imports excluded), the
+    CRM->app audit follow-ups as completed/cancelled/revisit/reschedule, engagements, nudges, CP owner/tier by a person,
+    all PM assignments, latest-value-only remarks/overrides, members added, plus bookings and property-SM changes
+    parsed from the 7 days of Render logs that still existed (9-16 Oct). Builder/loader + raw logs live OUTSIDE git in
+    `Claude Code/Demand CRM activity log/` (they contain buyer PII).
+  - **Rehearsal**: two Neon copies of prod, old vs new code, same ~60 actions + a full sync with planted mismatches →
+    business tables identical except timestamps/new uuids; a forced log-write failure rolled the save back.
 - **2026-10-09 (Claude session — Sales-Manager create: new `team` field):**
   - Core added **`team`** to `POST /crm/sales-managers/`. Values **`supply` / `demand` / `projects` / `other`**
     (dropdown shows Title-case labels, sends the lowercase value). Live on **staging AND prod**.

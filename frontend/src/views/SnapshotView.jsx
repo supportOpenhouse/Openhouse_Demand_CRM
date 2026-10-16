@@ -4,7 +4,7 @@ import { TODAY, ymd, fmtDate } from '../lib/format.js';
 import { parsePrice, fmtPrice } from '../lib/legacy.js';
 import { toast } from '../lib/toast.js';
 import useIsMobile from '../lib/useIsMobile.js';
-import { loadSnapshotRemarks, setSnapshotRemark } from '../api.js';
+import { loadSnapshotRemarks, setSnapshotRemark, logActivity } from '../api.js';
 
 const CITY_ORDER = ['Gurgaon', 'Noida', 'Ghaziabad'];
 
@@ -493,15 +493,18 @@ function ShareModal({ share, onClose }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // at most 8,000 characters, cut on whole characters (an emoji split in half is invalid JSON for the log)
+  const logShare = (action) => logActivity(action, { object_label: share.title, details: { text: Array.from(text).slice(0, 8000).join('') } });
   const copy = () => {
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(text)
-        .then(() => toast('Snapshot copied — paste in any chat', 'good'))
+        .then(() => { toast('Snapshot copied — paste in any chat', 'good'); logShare('snapshot.text_copy'); })
         .catch(() => toast('Copy failed', 'bad'));
     } else { toast('Clipboard unavailable', 'bad'); }
   };
   const sendWa = () => {
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    logShare('snapshot.text_whatsapp');
     onClose();
   };
 
@@ -550,6 +553,7 @@ function ImageModal({ img, onClose, children }) {
     const a = document.createElement('a');
     a.href = img.dataUrl; a.download = filename; a.click();
     toast('Image downloaded', 'good');
+    logActivity('snapshot.image_download', { object_label: img.title, details: { file: filename } });
   };
   const copy = () => {
     if (!img.canvas) return;
@@ -558,6 +562,7 @@ function ImageModal({ img, onClose, children }) {
         if (blob && navigator.clipboard?.write) {
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
           toast('Image copied to clipboard', 'good');
+          logActivity('snapshot.image_copy', { object_label: img.title, details: { file: filename } });
         } else { toast('Clipboard not supported — use Download', 'bad'); }
       }, 'image/png');
     } catch { toast('Copy failed — use Download', 'bad'); }
@@ -570,6 +575,7 @@ function ImageModal({ img, onClose, children }) {
       const txt = `${img.title} · ${fmtDate(TODAY)}\n\nAttached image has the latest unit list. Ping me for any visit / pricing detail.`;
       window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
       toast('Image downloaded — attach it in WhatsApp', 'good');
+      logActivity('snapshot.image_whatsapp', { object_label: img.title, details: { file: filename } });
     }, 400);
   };
 

@@ -3,6 +3,7 @@ import './theme.css';   // legacy theme (variables + component styles), kept ver
 import './app.css';     // migration shell + motion (rx-* prefixed, no collisions)
 import './recordings.css'; // meeting-recordings annotation layer (rec-* prefixed)
 import './corevisit.css';  // Core integration modals: visit complete + property SM (vc-* prefixed)
+import './activity.css';   // Activity Log tab (al-* prefixed)
 import App from './App.jsx';
 
 createRoot(document.getElementById('root')).render(<App />);

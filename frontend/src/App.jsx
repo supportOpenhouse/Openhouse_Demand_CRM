@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { loadSeed } from './api.js';
+import { loadSeed, setViewAs, logActivity } from './api.js';
 import Toast from './components/Toast.jsx';
 import AppSkeleton from './components/AppSkeleton.jsx';
 import Logo from './components/Logo.jsx';
@@ -23,6 +23,7 @@ import TeamPerformanceView from './views/TeamPerformanceView.jsx';
 import DsrView from './views/DsrView.jsx';
 import SalesManagersView from './views/SalesManagersView.jsx';
 import MeetingRecordingsView from './views/MeetingRecordingsView.jsx';
+import ActivityLogView from './views/ActivityLogView.jsx';
 import BrokerModal from './components/BrokerModal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import FiltersModal, { activeFilterCount } from './components/FiltersModal.jsx';
@@ -55,6 +56,7 @@ const NAV = [
   { k: 'hiring',        icon: '🧮', label: 'Hiring', adminOnly: true },
   { k: 'reports',       icon: '📧', label: 'Report Share', adminOnly: true },
   { k: 'teamperf',      icon: '📈', label: 'Team Performance', adminOnly: true },
+  { k: 'activity',      icon: '🗒', label: 'Activity Log', adminOnly: true },
   // DSR: shown to Admin + TL teams; the backend 403s anyone who isn't Admin or an area manager.
   { k: 'dsr',           icon: '📋', label: 'DSR', adm: true },
   { k: 'salesmanagers', icon: '🧑‍💼', label: 'Sales Managers', adm: true },
@@ -85,6 +87,18 @@ export default function App() {
   const [visitsUi, setVisitsUi] = useState(null);
   const [impersonate, setImpersonate] = useState(null); // admin: view as another user (slug)
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // "View as" is logged (start / stop) and every request made meanwhile carries X-View-As,
+  // so anything saved while viewing as someone shows up in the Activity Log as such.
+  const prevImpersonate = useRef(null);
+  useEffect(() => {
+    const prev = prevImpersonate.current;
+    if (prev === impersonate) return;
+    // stop (still tagged with the old view) is sent first and lands first; then the new view starts
+    const stopped = prev ? logActivity('view_as.stop', { object_id: prev }) : Promise.resolve();
+    setViewAs(impersonate);
+    if (impersonate) stopped.then(() => logActivity('view_as.start', { object_id: impersonate }));
+    prevImpersonate.current = impersonate;
+  }, [impersonate]);
   // Per-tab search: remember each tab's search term in-session (resets on refresh),
   // and apply an AI-Suggestions deep-link on arrival. searchRef holds the latest value
   // so the OUTGOING tab's search is stashed when the view changes.
@@ -285,6 +299,8 @@ export default function App() {
                 isAdmin ? <ReportShareView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'teamperf' ? (
                 isAdmin ? <TeamPerformanceView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
+              ) : view === 'activity' ? (
+                isAdmin ? <ActivityLogView seed={seed} /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'dsr' ? (
                 isAdmTL ? <DsrView /> : <div className="empty"><div className="emoji">🚧</div><div className="t">Coming soon</div></div>
               ) : view === 'salesmanagers' ? (

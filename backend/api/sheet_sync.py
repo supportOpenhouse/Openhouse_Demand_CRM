@@ -23,7 +23,7 @@ from typing import Any
 
 import asyncpg
 
-from . import config, sheets
+from . import activity, config, sheets
 from .db import acquire
 
 log = logging.getLogger("sheet_sync")
@@ -252,6 +252,10 @@ async def sync_tiers(conn: asyncpg.Connection) -> dict:
             broker_id, tier, rank,
         )
         applied += 1
+        await activity.record_quiet(conn, None, "cp.tier", source="sync", object_type="cp", object_id=cp,
+                                    changes=activity.diff({"tier": current["tier"] if current else None},
+                                                          {"tier": tier}),
+                                    details={"rank": rank, "sheet": "18 Broker Tiers"})
 
     await _finish_run(conn, run_id, len(body), applied, 0, 0, 0, [])
     return {"applied": applied}
@@ -673,6 +677,16 @@ async def sync_properties(conn: asyncpg.Connection) -> dict:
                         row["id"], pm_user_id,
                     )
                     pm_changes += 1
+                    old_id = current["pm_user_id"] if current else None
+                    old_nm = (_id_to_name.get(old_id) or await conn.fetchval(
+                        "SELECT name FROM users WHERE id = $1", old_id)) if old_id else None
+                    await activity.record_quiet(
+                        conn, None, "property.pm_assigned", source="sync", object_type="property",
+                        object_id=g(r, "home_id") or str(row["id"]), object_label=prop_name,
+                        changes=activity.diff({"pm": old_nm}, {"pm": _id_to_name.get(pm_user_id)}),
+                        details={"property_id": row["id"], "held_for_crm_change": _hold is not None,
+                                 "sheet_sales_manager": g(r, "sales_manager"),
+                                 "sheet_sales_manager_contact": g(r, "sales_manager_contact")})
         except Exception as e:
             failed += 1
             if len(errors) < 20:
@@ -809,7 +823,7 @@ async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
     Runs LAST in run_all() — after sync_visits re-upserts lead_status from the sheet — so
     the sheet can't resurrect a dead lead. Idempotent; the WHERE clause only touches rows
     whose classification actually changed."""
-    res = await conn.execute(
+    res = await conn.fetch(
         """
         WITH live AS (
           SELECT v.id,
@@ -841,19 +855,43 @@ async def sync_inactive_leads(conn: asyncpg.Connection) -> dict:
           revisit_date       = CASE WHEN cls.active THEN v.revisit_date       ELSE NULL END,
           updated_at         = now()
         FROM cls
+        -- o = the same row as it was before this UPDATE (1:1 on id), for the activity log only
+        JOIN visits o ON o.id = cls.id
         WHERE cls.id = v.id
           AND ( v.is_old_lead IS DISTINCT FROM (NOT cls.active)
                 OR (NOT cls.active
                     AND (v.lead_status <> 'dead' OR v.current_status <> 'dead'
                          OR v.next_followup_date IS NOT NULL OR v.revisit_date IS NOT NULL)) )
+        RETURNING v.visit_code, v.buyer_name, v.society_name, v.unit_address_line1, v.unit_address_line2,
+                  o.is_old_lead AS old_is_old_lead, v.is_old_lead,
+                  o.current_status AS old_current_status, v.current_status,
+                  o.lead_status AS old_lead_status, v.lead_status,
+                  o.next_followup_date AS old_next_followup_date, v.next_followup_date,
+                  o.revisit_date AS old_revisit_date, v.revisit_date
         """
     )
-    # res is like "UPDATE 1234" → pull the count for the run log
-    try:
-        updated = int(res.split()[-1])
-    except (ValueError, IndexError, AttributeError):
-        updated = None
-    return {"reclassified": updated}
+    updated = len(res)
+    # Activity log: only REAL transitions. A row whose only change is lead_status is the sheet
+    # restoring the app's status on a lead that is already archived (sync_visits runs just before
+    # this) — that ping-pong happens every 15 min and is not a change anyone made.
+    logged = 0
+    for r in res:
+        fields = ["is_old_lead", "current_status", "next_followup_date", "revisit_date"]
+        if all(r["old_" + f] == r[f] for f in fields):
+            continue
+        ch = activity.diff({f: r["old_" + f] for f in fields + ["lead_status"]},
+                           {f: r[f] for f in fields + ["lead_status"]})
+        unit = "-".join(x for x in ((r["unit_address_line2"] or "").strip(), (r["unit_address_line1"] or "").strip()) if x)
+        label = " · ".join(x for x in (r["visit_code"], (r["buyer_name"] or "").strip(),
+                                       ", ".join(y for y in (unit, (r["society_name"] or "").strip()) if y)) if x)
+        if await activity.record_quiet(conn, None, "lead.auto_archived" if r["is_old_lead"] else "lead.unarchived",
+                                       source="sync", object_type="visit", object_id=r["visit_code"],
+                                       object_label=label, changes=ch,
+                                       details={"rule": ("unit not live, visit >60 days old, no follow-up, not in an active stage"
+                                                         if r["is_old_lead"] else
+                                                         "active again: live unit, recent visit, a follow-up or an active stage")}):
+            logged += 1
+    return {"reclassified": updated, "logged": logged}
 
 
 # ---- TOP-LEVEL ---------------------------------------------------------------
@@ -1021,6 +1059,13 @@ async def sync_sales_manager_ids(conn: asyncpg.Connection) -> dict:
             await conn.execute("UPDATE users SET core_sales_manager_id = $1, updated_at = now() WHERE id = $2",
                                smid, u["id"])
             updated += 1
+            await activity.record_quiet(
+                conn, None, "user.core_sm_linked", source="sync", object_type="user",
+                object_id=await conn.fetchval("SELECT slug FROM users WHERE id = $1", u["id"]),
+                object_label=u["name"],
+                changes=activity.diff({"core_sales_manager_id": u["core_sales_manager_id"]},
+                                      {"core_sales_manager_id": smid}),
+                details={"matched_by": "phone" if p else "name"})
     log.info("[book] sync_sales_manager_ids: %d sheet SMs, %d users updated", len(sm), updated)
     return {"seen": len(sm), "updated": updated}
 
@@ -1065,8 +1110,10 @@ async def reconcile_property_statuses(conn: asyncpg.Connection) -> dict:
         UPDATE properties p
         SET listing_status = ap.listing_status,
             updated_at = now()
-        FROM all_properties ap
-        WHERE ap.property_name = p.property_name
+        FROM all_properties ap,
+             properties o      -- the same row as it was before this UPDATE (1:1 on id), for the activity log
+        WHERE o.id = p.id
+          AND ap.property_name = p.property_name
           AND p.deleted_at IS NULL
           AND ap.deleted_at IS NULL
           AND ap.listing_status IN ('Sold', 'Archived')
@@ -1074,10 +1121,16 @@ async def reconcile_property_statuses(conn: asyncpg.Connection) -> dict:
           -- same name, different physical unit -> never cross-stamp status
           AND NOT (p.home_id IS NOT NULL AND ap.home_id IS NOT NULL
                    AND p.home_id <> ap.home_id)
-        RETURNING p.property_name, p.listing_status
+        RETURNING p.property_name, p.listing_status, p.home_id, o.listing_status AS old_status
         """
     )
     n = len(changed)
+    for r in changed:
+        await activity.record_quiet(
+            conn, None, "property.status_reconciled", source="sync", object_type="property",
+            object_id=r["home_id"] or r["property_name"], object_label=r["property_name"],
+            changes=activity.diff({"listing_status": r["old_status"]}, {"listing_status": r["listing_status"]}),
+            details={"from": "All Properties tab (unit left the live tab)"})
     await _finish_run(
         conn, run_id, n, 0, n, 0, 0,
         [{"property_name": r["property_name"], "new_status": r["listing_status"]}
@@ -1157,6 +1210,7 @@ async def _reconcile_dupes_one(conn: asyncpg.Connection, table: str) -> dict:
     orphan_names: list = []
     revive_ids: list = []
     revive_names: list = []
+    to_log: list = []       # (action, row, kept_name) — activity log, written after the change
     ambiguous = 0
     _never = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
     for members in comps.values():
@@ -1165,6 +1219,7 @@ async def _reconcile_dupes_one(conn: asyncpg.Connection, table: str) -> dict:
             if r["deleted_at"] is not None:      # hidden, still fed, nothing else visible
                 revive_ids.append(r["id"])
                 revive_names.append(r["property_name"])
+                to_log.append(("property.duplicate_unhidden", r, None))
             continue
         crows = [rows[i] for i in members]
         hids = {(r["home_id"] or "").strip() for r in crows if (r["home_id"] or "").strip()}
@@ -1179,10 +1234,12 @@ async def _reconcile_dupes_one(conn: asyncpg.Connection, table: str) -> dict:
         if canon["deleted_at"] is not None:
             revive_ids.append(canon["id"])
             revive_names.append(canon["property_name"])
+            to_log.append(("property.duplicate_unhidden", canon, None))
         for r in crows:
             if r["id"] != canon["id"] and r["deleted_at"] is None:
                 orphan_ids.append(r["id"])
                 orphan_names.append(r["property_name"])
+                to_log.append(("property.duplicate_hidden", r, canon["property_name"]))
     if orphan_ids or revive_ids:
         async with conn.transaction():          # never a moment with 0 or 2 visible rows
             if revive_ids:
@@ -1197,6 +1254,13 @@ async def _reconcile_dupes_one(conn: asyncpg.Connection, table: str) -> dict:
                     f"WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
                     orphan_ids,
                 )
+    for action, r, kept in to_log:
+        await activity.record_quiet(
+            conn, None, action, source="sync", object_type="property",
+            object_id=(r["home_id"] or "").strip() or str(r["id"]), object_label=r["property_name"],
+            changes=activity.diff({"hidden": r["deleted_at"] is not None},
+                                  {"hidden": action == "property.duplicate_hidden"}),
+            details={"table": table, "row_id": r["id"], "kept_row": kept})
     return {"table": table, "soft_deleted": len(orphan_ids), "revived": len(revive_ids),
             "ambiguous": ambiguous, "names": orphan_names[:50], "revived_names": revive_names[:50]}
 

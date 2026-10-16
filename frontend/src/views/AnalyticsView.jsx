@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useStickyState } from '../lib/sessionFilters.js';
 import * as A from '../lib/analytics.js';
+import { logActivity } from '../api.js';
 import useIsMobile from '../lib/useIsMobile.js';
 
 const int = (n) => (n || 0).toLocaleString('en-IN');
@@ -251,7 +252,7 @@ export default function AnalyticsView({ seed }) {
         <div className="an-card-h">
           <div className="an-card-t">11 · Raw visit data <span className="an-card-s">({int(rows.length)} rows after filters)</span></div>
           <div className="an-table-actions">
-            <button type="button" className="an-btn" onClick={() => A.downloadCsv(rows)}>⬇ Download CSV</button>
+            <button type="button" className="an-btn" onClick={() => { A.downloadCsv(rows); logActivity('export.analytics_csv', { object_label: 'oh-analytics.csv', details: { rows: rows.length } }); }}>⬇ Download CSV</button>
             <button type="button" className="an-btn ghost" onClick={() => window.open(VISITS_SHEET_URL, '_blank', 'noopener')}>↗ View in Google Sheets</button>
           </div>
         </div>
