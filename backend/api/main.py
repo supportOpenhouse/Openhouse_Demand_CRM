@@ -9,6 +9,7 @@ Cron: /admin/sync hit by Render Cron Job; gated by INTERNAL_CRON_TOKEN.
 from __future__ import annotations
 
 import asyncio
+import decimal
 import json
 import logging
 import re
@@ -18,8 +19,10 @@ from typing import Optional
 
 import asyncpg
 import httpx
+import orjson
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, Header
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
@@ -75,6 +78,34 @@ class _ActivityRequestContext:
 
 
 app.add_middleware(_ActivityRequestContext)
+
+
+class _SeedInvalidateOnWrite:
+    """Any request that can change data (anything but GET/HEAD/OPTIONS) marks the shared seed snapshot
+    stale — at the moment its response STARTS, i.e. after the change is committed but before the browser
+    can see the response and reload. So a "save, then reload" always gets fresh data. A 4xx (bad input,
+    no permission, unknown path) changed nothing and is ignored; a 5xx or a crash might have, so it counts."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or scope.get("method") in ("GET", "HEAD", "OPTIONS"):
+            return await self.app(scope, receive, send)
+
+        async def _send(message):
+            if message.get("type") == "http.response.start" and not 400 <= message.get("status", 500) < 500:
+                invalidate_seed()
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        except BaseException:
+            invalidate_seed()      # failed half-way: it may still have changed data
+            raise
+
+
+app.add_middleware(_SeedInvalidateOnWrite)
 
 
 # ============================================================================
@@ -226,26 +257,94 @@ async def _demand_txn_cps() -> tuple[set, set]:
     return codes, phones
 
 
+# ---- the seed snapshot, shared ------------------------------------------------------------------
+# /api/seed used to rebuild the WHOLE snapshot (10k visits, 34k follow-ups, 8k CPs) for every request and
+# encode it with FastAPI's generic encoder: ~200-500 MB per request. The CRM reloads the seed after every
+# save, so at the morning peak several rebuilds overlapped and the 512 MB server was OOM-killed (Render
+# events, Oct 2026) — users saw "seed failed (HTTP 502)". Now:
+#   * ONE build is shared by everyone (single-flight: requests arriving during a build wait for it);
+#   * it is reused until anything is written (_SeedInvalidateOnWrite) or _SEED_TTL passes;
+#   * each request scopes a SHALLOW copy (scope_for_user only replaces top-level keys, never edits a lead);
+#   * the response is encoded with orjson (no intermediate copy; ~10x faster).
+# A save starts a new "generation", so a reload right after a save gets its own fresh build; requests in
+# the same generation share one. At most 2 builds run at once (_SEED_BUILDS) — a build that waits for a
+# slot reads the DB later, so it is never staler than its generation.
+# Single uvicorn worker (render.yaml --workers 1): the cache and its invalidation live in this one process.
+_SEED_TTL = 60.0
+_SEED_BUILDS = asyncio.Semaphore(2)
+_seed = {"gen": 0, "snap": None, "snap_gen": -1, "at": 0.0, "task": None, "task_gen": -1}
+
+
+def invalidate_seed() -> None:
+    _seed["gen"] += 1
+
+
+async def _shared_snapshot() -> dict:
+    gen = _seed["gen"]
+    if _seed["snap"] is not None and _seed["snap_gen"] == gen and time.monotonic() - _seed["at"] < _SEED_TTL:
+        return _seed["snap"]
+    task = _seed["task"]
+    if task is None or _seed["task_gen"] != gen:
+        async def _build() -> dict:
+            async with _SEED_BUILDS:
+                t0 = time.monotonic()
+                async with acquire() as conn:
+                    snap = await seed_snapshot.build(conn)
+                log.info("[seed] built snapshot gen=%s in %.1fs (%d visits)", gen, time.monotonic() - t0,
+                         len(snap.get("visits") or []))
+                return snap
+        task = asyncio.ensure_future(_build())
+        _seed["task"], _seed["task_gen"] = task, gen
+        started = time.monotonic()
+
+        def _done(t: asyncio.Task) -> None:
+            if _seed["task"] is t:
+                _seed["task"] = None
+            if not t.cancelled() and t.exception() is None and gen >= _seed["snap_gen"]:
+                # tagged with the generation it was STARTED for: a write during the build makes it stale
+                _seed.update(snap=t.result(), snap_gen=gen, at=started)
+        task.add_done_callback(_done)
+    return await asyncio.shield(task)
+
+
+async def _shared_snapshot_retry() -> dict:
+    """A failed shared build fails everyone waiting on it — so try once more before giving up."""
+    try:
+        return await _shared_snapshot()
+    except Exception as e:  # noqa: BLE001
+        log.warning("[seed] snapshot build failed, retrying once: %s", e)
+        return await _shared_snapshot()
+
+
+def _seed_default(o):
+    """orjson fallback, matching what FastAPI's jsonable_encoder produced before."""
+    if isinstance(o, decimal.Decimal):
+        return int(o) if o.as_tuple().exponent >= 0 else float(o)
+    if isinstance(o, (set, frozenset)):
+        return list(o)
+    return jsonable_encoder(o)
+
+
 @app.get("/api/seed")
 async def get_seed(user: dict = Depends(auth.current_user)):
     """Same JSON shape as the legacy seed.json — drop-in replacement for loadSeed().
     Adds `current_user` with the full DB record so the frontend can graft
     users that aren't in its hardcoded USERS array (admins added via DB)."""
+    snapshot = dict(await _shared_snapshot_retry())   # shallow copy — the shared one is never modified
+    # union the demand-dashboard booking CPs into the CRM-derived transactional set
+    try:
+        _codes, _phones = await _demand_txn_cps()
+        if _codes or _phones:
+            have = set(snapshot.get("transactional_cps") or [])
+            if _phones:
+                for _b in snapshot.get("brokers", []):
+                    _d = "".join(ch for ch in (_b.get("phone") or "") if ch.isdigit())
+                    if len(_d) >= 10 and _d[-10:] in _phones:
+                        have.add(_b["cp_code"])
+            snapshot["transactional_cps"] = sorted(have | _codes)
+    except Exception as e:  # noqa: BLE001
+        log.warning("transactional-CP merge failed (non-fatal): %s", e)
     async with acquire() as conn:
-        snapshot = await seed_snapshot.build(conn)
-        # union the demand-dashboard booking CPs into the CRM-derived transactional set
-        try:
-            _codes, _phones = await _demand_txn_cps()
-            if _codes or _phones:
-                have = set(snapshot.get("transactional_cps") or [])
-                if _phones:
-                    for _b in snapshot.get("brokers", []):
-                        _d = "".join(ch for ch in (_b.get("phone") or "") if ch.isdigit())
-                        if len(_d) >= 10 and _d[-10:] in _phones:
-                            have.add(_b["cp_code"])
-                snapshot["transactional_cps"] = sorted(have | _codes)
-        except Exception as e:  # noqa: BLE001
-            log.warning("transactional-CP merge failed (non-fatal): %s", e)
         # booking-relevant bits for the logged-in user (not part of the auth row)
         _bk = await conn.fetchrow("SELECT phone, core_sales_manager_id FROM users WHERE id = $1", user["id"])
     # Trim to the viewer's scope (Admin gets everything). Mirrors the frontend's
@@ -273,7 +372,8 @@ async def get_seed(user: dict = Depends(auth.current_user)):
         # lib/properties.js, PropertyModal.jsx mirror seed_snapshot's rule)
         "core_sales_manager_id": (_bk["core_sales_manager_id"] if _bk else None),
     }
-    return snapshot
+    return Response(orjson.dumps(snapshot, default=_seed_default, option=orjson.OPT_NON_STR_KEYS),
+                    media_type="application/json")
 
 
 # ============================================================================
@@ -2594,7 +2694,7 @@ async def get_ai_suggestions(user: dict = Depends(auth.current_user)):
         )
         if row:
             return {"payload": _ai_payload(row), "generated_at": row["generated_at"].isoformat(), "cached": True}
-        snap = await seed_snapshot.build(conn)
+    snap = await _shared_snapshot_retry()      # build_for_user scopes its own shallow copy
     # first open of the day → generate on-demand (blocking SDK call off the loop), then cache
     payload = await asyncio.to_thread(ai_suggestions.build_for_user, snap, user, seed_snapshot.scope_for_user)
     async with acquire() as conn:
@@ -2606,8 +2706,7 @@ async def get_ai_suggestions(user: dict = Depends(auth.current_user)):
 async def refresh_ai_suggestions(user: dict = Depends(auth.current_user)):
     _require_admin(user)   # refresh forces an expensive full-snapshot regen → admins only
     today = _dt.date.today()
-    async with acquire() as conn:
-        snap = await seed_snapshot.build(conn)
+    snap = await _shared_snapshot_retry()      # build_for_user scopes its own shallow copy
     payload = await asyncio.to_thread(ai_suggestions.build_for_user, snap, user, seed_snapshot.scope_for_user)
     async with acquire() as conn:
         await _ai_upsert(conn, user["id"], today, payload)

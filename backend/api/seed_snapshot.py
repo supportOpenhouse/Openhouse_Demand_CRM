@@ -130,7 +130,9 @@ def _scope_recordings(snap: dict, user: dict) -> None:
 def _scope_for_user_core(snap: dict, user: dict) -> dict:
     """Trim the full snapshot to what `user` is allowed to see, mirroring the
     frontend's visitsForUser()/brokersForUser()/propertiesForUser() exactly so
-    no view breaks. Mutates and returns `snap` (a fresh dict per request).
+    no view breaks. Mutates and returns `snap` — only by REPLACING its top-level keys, never by editing a
+    nested list/dict/lead in place: callers pass a shallow copy of the snapshot shared by every request
+    (main._shared_snapshot), so an in-place edit here would leak into other users' responses.
 
     Admin is returned untouched — admins see everything and the impersonation
     switcher relies on the full dataset being present client-side.
