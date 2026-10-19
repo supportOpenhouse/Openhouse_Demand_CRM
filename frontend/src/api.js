@@ -21,10 +21,35 @@ export async function apiFetch(path, opts = {}) {
   return res;
 }
 
-export async function loadSeed() {
-  const res = await apiFetch('/api/seed');
-  if (!res.ok) throw new Error(`seed failed (HTTP ${res.status})`);
-  return res.json();
+// While the backend restarts (a deploy, or recovering from overload) Render/Vercel answer 502/503/504
+// for 20-60 s. Wait and retry quietly — the loading screen stays up — before showing an error.
+// The first load waits up to ~70 s; a refresh after a save (`quick`) only ~5 s — the save itself already
+// went through, and the current data stays on screen if the refresh gives up.
+const SEED_RETRY_WAITS = [2000, 3000, 5000, 10000, 15000, 15000, 20000];   // ~70 s in all
+const SEED_RETRY_WAITS_QUICK = [2000, 3000];
+// +/-20% jitter so every open tab doesn't hit a recovering server at the same instant
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms * (0.8 + Math.random() * 0.4)));
+
+export async function loadSeed({ quick = false } = {}) {
+  const waits = quick ? SEED_RETRY_WAITS_QUICK : SEED_RETRY_WAITS;
+  for (let attempt = 0; ; attempt++) {
+    const canRetry = attempt < waits.length;
+    let res;
+    try {
+      res = await apiFetch('/api/seed');
+    } catch (e) {                                   // network error / connection reset
+      if (canRetry) { await _sleep(waits[attempt]); continue; }
+      throw e;
+    }
+    if (res.ok) {
+      try { return await res.json(); } catch (e) {  // body cut off mid-transfer
+        if (canRetry) { await _sleep(waits[attempt]); continue; }
+        throw e;
+      }
+    }
+    if ([502, 503, 504].includes(res.status) && canRetry) { await _sleep(waits[attempt]); continue; }
+    throw new Error(`seed failed (HTTP ${res.status})`);
+  }
 }
 
 // Full CP directory for the Book Visits picker (any signed-in user) — lets an RM pick

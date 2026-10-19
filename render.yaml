@@ -7,10 +7,11 @@ services:
     name: oh-demand-crm-api
     runtime: python
     region: singapore                    # closest to Neon ap-southeast-1 + India users
-    plan: starter                        # bump to standard before public launch
+    plan: standard                       # 2 GB — 512 MB (starter) was OOM-killed at peak, Oct 2026
     rootDir: backend
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    # --workers 1: the shared /api/seed snapshot cache lives in-process (api/main.py _shared_snapshot)
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips='*'
     healthCheckPath: /health
     autoDeploy: true
     envVars:

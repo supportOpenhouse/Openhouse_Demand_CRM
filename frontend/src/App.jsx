@@ -131,7 +131,7 @@ export default function App() {
   // A thin top bar shows the refresh is happening without blanking the screen.
   const reloadSeed = async () => {
     setBusy(true);
-    try { setSeed(await loadSeed()); } catch { /* keep current */ }
+    try { setSeed(await loadSeed({ quick: true })); } catch { /* keep current */ }
     finally { setBusy(false); }
   };
 
